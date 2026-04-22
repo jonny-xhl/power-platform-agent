@@ -1,0 +1,38 @@
+# 联系人信息字段模板
+# 可复用的联系人相关字段定义
+
+contact_info_fields:
+  - name: "new_phone"
+    type: "String"
+    display_name: "电话"
+    description: "主要电话号码"
+    max_length: 50
+    required: false
+
+  - name: "new_mobile"
+    type: "String"
+    display_name: "手机"
+    description: "手机号码"
+    max_length: 50
+    required: false
+
+  - name: "new_fax"
+    type: "String"
+    display_name: "传真"
+    description: "传真号码"
+    max_length: 50
+    required: false
+
+  - name: "new_email"
+    type: "String"
+    display_name: "电子邮件"
+    description: "主要电子邮件地址"
+    max_length: 100
+    required: false
+
+  - name: "new_website"
+    type: "String"
+    display_name: "网站"
+    description: "网站地址"
+    max_length: 200
+    required: false

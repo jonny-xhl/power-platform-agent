@@ -1,0 +1,40 @@
+# 标准表单头部模板
+# 用于快速创建包含标准头部区域的表单
+
+form_header_pattern:
+  # 标准头部字段配置
+  header_section:
+    name: "header"
+    display_name: "常规信息"
+    columns: 2  # 两列布局
+
+    # 标准字段顺序
+    fields:
+      - primary_name    # 主名称字段（如客户名称）
+      - account_number  # 编号字段
+      - status          # 状态字段
+      - owner           # 所有者
+
+  # 常用头部字段定义
+  common_header_fields:
+    - name: "new_name"
+      type: "String"
+      display_name: "名称"
+      required: true
+      is_primary_name: true
+
+    - name: "new_number"
+      type: "String"
+      display_name: "编号"
+      required: true
+
+    - name: "new_status"
+      type: "Picklist"
+      display_name: "状态"
+      required: true
+      option_set_ref: new_customer_status  # 或其他选项集
+
+    - name: "ownerid"
+      type: "Owner"
+      display_name: "所有者"
+      required: true

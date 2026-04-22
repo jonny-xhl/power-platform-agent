@@ -30,8 +30,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 添加项目根目录到路径
-project_root = Path(__file__).parent
+# framework/mcp_serve.py 在 framework/ 目录下，需要向上两级到达项目根目录
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+# 同时添加 framework/ 目录到路径，用于导入 agents 和 utils
+sys.path.insert(0, str(project_root / "framework"))
 
 from mcp.server import Server
 from mcp.types import Tool, Resource, TextContent
@@ -770,7 +773,8 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
 async def list_resources() -> List[Resource]:
     """列出可用资源"""
 
-    project_root = Path(__file__).parent
+    # framework/ 目录下的文件需要向上两级到达项目根目录
+    project_root = Path(__file__).parent.parent
 
     resources = [
         Resource(

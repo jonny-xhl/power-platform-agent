@@ -50,11 +50,18 @@ obj/
 Thumbs.db
 desktop.ini
 
-# Claude
-.claude/
+# Claude (但保留配置文件)
+.claude/*
+!.claude/context_config.yaml
 
 # Power Platform Local State
 .pp-local/state/*.json
+
+# Metadata generated files
+metadata/.generated/
+
+# Data dictionary temp files
+docs/data_dictionary/*.tmp
 
 # Logs
 *.log

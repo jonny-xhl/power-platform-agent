@@ -1,0 +1,42 @@
+# 标准审计字段模板
+# 这些字段会自动添加到启用了审计的表中
+
+# 在表定义中引用方式:
+# options:
+#   create_audit_fields: true
+
+# 标准审计字段列表:
+audit_fields:
+  - name: "createdOn"
+    type: "DateTime"
+    display_name: "创建时间"
+    description: "记录创建的时间戳"
+    required: false
+    is_calculated: false
+
+  - name: "createdBy"
+    type: "Lookup"
+    display_name: "创建人"
+    description: "创建记录的用户"
+    required: false
+    entity: "systemuser"
+
+  - name: "modifiedOn"
+    type: "DateTime"
+    display_name: "修改时间"
+    description: "记录最后修改的时间戳"
+    required: false
+    is_calculated: false
+
+  - name: "modifiedBy"
+    type: "Lookup"
+    display_name: "修改人"
+    description: "最后修改记录的用户"
+    required: false
+    entity: "systemuser"
+
+  - name: "ownerId"
+    type: "Owner"
+    display_name: "所有者"
+    description: "记录的所有者（用户或团队）"
+    required: true

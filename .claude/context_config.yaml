@@ -1,0 +1,157 @@
+# Claude Code 上下文配置
+# Power Platform Agent 项目专用配置
+
+version: "1.0"
+
+# ========== 数据字典上下文配置 ==========
+data_dictionary:
+  # 数据字典目录路径
+  path: "docs/data_dictionary"
+
+  # 作为上下文加载的关键文件
+  context_files:
+    - path: "docs/data_dictionary/index.md"
+      description: "数据字典索引，快速查找表和选项集"
+      priority: 1  # 优先级，越小越优先
+
+    - path: "docs/data_dictionary/all_tables.md"
+      description: "所有表结构定义，包含字段 Schema Name"
+      priority: 2
+
+    - path: "docs/data_dictionary/all_optionsets.md"
+      description: "所有选项集定义，包含中英文标签"
+      priority: 3
+
+# ========== 字段引用规则 ==========
+field_reference_rules:
+  # 规则说明
+  description: "开发插件或编写业务逻辑时，引用字段必须遵循以下规则"
+
+  # 具体规则
+  rules:
+    - id: "rule_1"
+      name: "使用 Schema Name"
+      description: "所有字段引用必须使用数据字典中定义的 Schema Name"
+      example: "使用 new_customer_name 而非 Customer Name"
+
+    - id: "rule_2"
+      name: "禁止虚拟字段"
+      description: "禁止引用虚拟字段（_name 后缀、计算字段、汇总字段）"
+      patterns:
+        - "_[a-z]+_name$"
+        - "is_calculated: true"
+        - "aggregate_type"
+
+    - id: "rule_3"
+      name: "先确认后引用"
+      description: "引用前请先在 index.md 中确认表和字段存在"
+      workflow:
+        - "1. 读取 docs/data_dictionary/index.md 确认表名"
+        - "2. 读取对应的表文档获取字段 Schema Name"
+        - "3. 生成代码时只使用数据字典中定义的字段"
+
+    - id: "rule_4"
+      name: "选项集引用"
+      description: "引用选项集字段时，使用选项集的 Schema Name 而非硬编码值"
+      example: |
+        # 正确
+        status = 2  # 对应 new_customer_status 的 value
+
+        # 错误
+        status = "active"  # 不要使用字符串
+
+# ========== 代码生成模板 ==========
+code_generation:
+  plugin_development_template: |
+    # 开发 Power Platform 插件时，LLM 应遵循以下流程：
+
+    1. **需求确认**
+       - 读取 docs/data_dictionary/index.md 确认涉及的表名
+       - 读取对应表文档获取字段 Schema Name
+
+    2. **代码生成**
+       - 只使用数据字典中定义的字段 Schema Name
+       - 引用选项集时使用数值而非字符串
+       - 避免引用虚拟字段
+
+    3. **验证**
+       - 如果需要不存在的字段，先报错提示更新元数据
+       - 检查字段类型是否匹配（String/Money/DateTime 等）
+
+  example_usage: |
+    // 示例：更新客户状态
+    Entity account = new Entity("account");  // 使用逻辑名
+    account["new_customer_status"] = 2;      // 使用 Schema Name 和选项集值
+    account["new_last_contact_date"] = DateTime.Now;
+
+# ========== 元数据路径配置 ==========
+metadata_paths:
+  tables: "metadata/tables"
+  forms: "metadata/forms"
+  views: "metadata/views"
+  optionsets: "metadata/optionsets"
+  webresources: "metadata/webresources"
+
+# ========== 虚拟字段过滤规则 ==========
+virtual_field_detection:
+  # 用于数据字典生成时的虚拟字段检测
+  patterns:
+    - type: "lookup_name"
+      pattern: "_[a-z]+_name$"
+      description: "Lookup 字段的 _name 后缀（如 primarycontactid_name）"
+
+    - type: "calculated"
+      field: "is_calculated"
+      value: true
+      description: "计算字段"
+
+    - type: "rollup"
+      field: "aggregate_type"
+      description: "汇总/Rollup 字段"
+
+    - type: "virtual_type"
+      field: "type"
+      value: "Virtual"
+      description: "Virtual 类型字段"
+
+# ========== 源文件转换指南 ==========
+transformation_guide:
+  description: "使用 LLM 辅助将源文件转换为 YAML 元数据"
+
+  excel_to_yaml:
+    prompt_template: |
+      请将以下 Excel 表定义转换为符合 table_schema.yaml 的 YAML 格式。
+      要求：
+      1. 使用定义的 Schema Name
+      2. 正确设置字段类型
+      3. 选项集引用全局选项集（如果存在）
+      4. 过滤虚拟字段
+
+  markdown_to_yaml:
+    prompt_template: |
+      请将以下 Markdown 数据字典转换为 YAML 元数据格式。
+      要求：
+      1. 提取表名、字段名、类型
+      2. 转换为标准 YAML 格式
+      3. 添加必要的元数据字段
+
+# ========== Git Hook 配置 ==========
+git_hooks:
+  pre_commit:
+    enabled: true
+    script: "scripts/hooks/pre-commit.sh"
+    description: "提交前自动更新数据字典"
+
+  install_script: "scripts/install_hooks.sh"
+
+# ========== MCP 工具配置 (未来扩展) ==========
+mcp_tools:
+  generate_data_dictionary:
+    enabled: false  # 暂未实现
+    description: "手动触发数据字典生成"
+    command: "python scripts/generate_data_dictionary.py"
+
+  validate_metadata:
+    enabled: false  # 暂未实现
+    description: "验证元数据格式正确性"
+    command: "python utils/schema_validator.py"

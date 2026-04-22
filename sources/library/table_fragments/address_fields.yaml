@@ -1,0 +1,47 @@
+# 地址字段模板
+# 可复用的地址相关字段定义
+
+# 使用方式：在表定义的 attributes 中引用这些字段
+
+address_fields:
+  - name: "new_address1_line1"
+    type: "String"
+    display_name: "地址行1"
+    description: "街道地址第一行"
+    max_length: 250
+    required: false
+
+  - name: "new_address1_line2"
+    type: "String"
+    display_name: "地址行2"
+    description: "街道地址第二行"
+    max_length: 250
+    required: false
+
+  - name: "new_address1_city"
+    type: "String"
+    display_name: "城市"
+    description: "城市名称"
+    max_length: 80
+    required: false
+
+  - name: "new_address1_state"
+    type: "String"
+    display_name: "省/自治区"
+    description: "省/自治区名称"
+    max_length: 50
+    required: false
+
+  - name: "new_address1_postalcode"
+    type: "String"
+    display_name: "邮政编码"
+    description: "邮政编码"
+    max_length: 20
+    required: false
+
+  - name: "new_address1_country"
+    type: "String"
+    display_name: "国家/地区"
+    description: "国家或地区名称"
+    max_length: 80
+    required: false

@@ -1,5 +1,90 @@
 # Power Platform 元数据规范
 
+## 选项集 (Option Set) 元数据
+
+### 全局选项集
+
+全局选项集定义在 `metadata/optionsets/global_optionsets.yaml` 中，可被多个表引用。
+
+```yaml
+global_optionsets:
+  - name: new_customer_status
+    display_name: 客户状态
+    display_name_en: Customer Status
+    description: 客户的业务状态
+    options:
+      - value: 1
+        label_zh: 潜在客户
+        label_en: Potential
+        color: 808080
+      - value: 2
+        label_zh: 活跃客户
+        label_en: Active
+        color: 008000
+```
+
+### 选项集字段
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `name` | string | 是 | 选项集 Schema Name |
+| `display_name` | string | 是 | 中文显示名称 |
+| `display_name_en` | string | 否 | 英文显示名称 |
+| `description` | string | 否 | 选项集描述 |
+| `options` | array | 是 | 选项列表 |
+
+### 选项字段
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `value` | integer | 是 | 选项值 |
+| `label_zh` | string | 是 | 中文标签 |
+| `label_en` | string | 否 | 英文标签 |
+| `color` | string | 否 | 颜色代码 (hex) |
+
+### 在表中引用选项集
+
+表定义中可以通过以下两种方式使用选项集：
+
+#### 1. 引用全局选项集
+
+```yaml
+attributes:
+  - name: status
+    type: Picklist
+    display_name: 状态
+    option_set_ref: new_customer_status  # 引用全局选项集
+```
+
+#### 2. 定义本地选项集
+
+```yaml
+attributes:
+  - name: region
+    type: Picklist
+    display_name: 地区
+    local_options:  # 本地选项集
+      - value: 1
+        label_zh: 华东
+        label_en: East China
+      - value: 2
+        label_zh: 华南
+        label_en: South China
+```
+
+### 虚拟字段过滤规则
+
+数据字典生成时会自动过滤以下虚拟字段：
+
+| 类型 | 检测模式 | 示例 |
+|------|----------|------|
+| Lookup _name 后缀 | `_[a-z]+_name$` | `primarycontactid_name` |
+| 计算字段 | `is_calculated: true` | - |
+| 汇总字段 | `aggregate_type` 存在 | - |
+| Virtual 类型 | `type: "Virtual"` | - |
+
+---
+
 ## 表 (Table) 元数据
 
 ### 必需字段
@@ -22,20 +107,63 @@
 
 支持的字段类型：
 
-- `String` - 字符串
-- `Integer` - 整数
-- `Money` - 货币
-- `Picklist` - 选项集
-- `MultiSelectPicklist` - 多选选项集
-- `Lookup` - 查找
-- `Customer` - 客户查找
-- `Owner` - 所有者查找
-- `DateTime` - 日期时间
-- `Boolean` - 是/否
-- `Memo` - 多行文本
-- `Decimal` - 小数
-- `Double` - 双精度浮点
-- `BigInt` - 大整数
+| 类型 | 说明 | 特殊属性 |
+|------|------|----------|
+| `String` | 字符串 | `max_length` |
+| `Integer` | 整数 | `min_value`, `max_value` |
+| `Money` | 货币 | `precision`, `min_value` |
+| `Picklist` | 选项集 | `option_set_ref` 或 `local_options` |
+| `MultiSelectPicklist` | 多选选项集 | `options` |
+| `Lookup` | 查找 | `entity`, `relationship_name` |
+| `Customer` | 客户查找 | - |
+| `Owner` | 所有者查找 | - |
+| `DateTime` | 日期时间 | - |
+| `Boolean` | 是/否 | - |
+| `Memo` | 多行文本 | `max_length` |
+| `Decimal` | 小数 | `precision`, `min_value`, `max_value` |
+| `Double` | 双精度浮点 | `min_value`, `max_value` |
+| `BigInt` | 大整数 | `min_value`, `max_value` |
+
+### Picklist 字段详细规范
+
+Picklist 类型字段必须使用以下两种方式之一定义选项：
+
+**方式一：引用全局选项集 (推荐)**
+
+```yaml
+- name: customer_status
+  type: Picklist
+  display_name: 客户状态
+  required: true
+  option_set_ref: new_customer_status
+```
+
+**方式二：本地选项集**
+
+```yaml
+- name: region
+  type: Picklist
+  display_name: 地区
+  required: false
+  local_options:
+    - value: 1
+      label: 华东
+      color: 008000
+    - value: 2
+      label: 华南
+```
+
+### 字段虚拟属性
+
+用于标识特殊字段的属性：
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `is_calculated` | boolean | 标识为计算字段 |
+| `aggregate_type` | string | 汇总字段类型 (如: sum, count) |
+| `is_primary_name` | boolean | 是否为主名称字段 |
+
+**注意**：包含以上属性的虚拟字段在生成数据字典时会被自动过滤。
 
 ## 表单 (Form) 元数据
 
@@ -235,3 +363,128 @@ sitemap:
 销售相关：`lead`, `opportunity`, `competitor`, `quote`, `salesorder`, `invoice`
 
 完整列表请参考 `config/naming_rules.yaml`。
+
+---
+
+## 元数据文件组织
+
+### 项目目录结构
+
+```
+power-platform-agent/
+├── framework/             # 框架层 (可复用核心组件)
+│   ├── agents/            # 代理实现
+│   │   ├── core_agent.py
+│   │   ├── metadata_agent.py
+│   │   ├── plugin_agent.py
+│   │   └── solution_agent.py
+│   ├── utils/             # 工具函数
+│   └── mcp_serve.py       # MCP服务入口
+│
+├── metadata/              # 元数据层
+│   ├── _schema/           # Schema 定义文件
+│   ├── tables/            # 表定义 (*.yaml)
+│   ├── forms/             # 表单定义 (*.yaml)
+│   ├── views/             # 视图定义 (*.yaml)
+│   ├── optionsets/        # 选项集定义
+│   ├── webresources/      # Web Resource 配置
+│   ├── ribbon/            # 命令栏定义
+│   └── sitemap/           # 应用导航定义
+│
+├── sources/               # 源文件层
+│   ├── templates/         # Excel/Word/PPT模板
+│   ├── features/          # 按功能迭代组织
+│   └── library/           # 可复用YAML片段
+│
+├── docs/                  # 文档层
+│   ├── spec/              # 规范文档
+│   ├── guides/            # 使用指南
+│   └── data_dictionary/   # Git hook自动生成
+│
+├── scripts/               # 脚本层
+│   ├── generate_data_dictionary.py
+│   └── hooks/             # Git hooks
+│
+├── config/                # 配置文件
+├── plugins/               # .NET插件
+├── webresources/          # Web资源源文件
+└── .claude/               # Claude Code配置
+```
+
+### 命名规范
+
+**文件命名**：
+- 使用小写字母和下划线
+- 表定义文件: `{schema_name}.yaml`
+- 例如: `account.yaml`, `contact.yaml`
+
+**Schema 引用**：
+```yaml
+# 表定义文件顶部引用 Schema
+$schema: "../_schema/table_schema.yaml"
+```
+
+---
+
+## 数据字典生成
+
+### 自动生成
+
+项目配置了 Git pre-commit hook，在提交元数据变更时自动生成数据字典。
+
+### 手动生成
+
+```bash
+# 生成所有文档
+python scripts/generate_data_dictionary.py --all
+
+# 生成指定文件
+python scripts/generate_data_dictionary.py --files metadata/tables/account.yaml
+```
+
+### 生成内容
+
+```
+docs/data_dictionary/
+├── index.md              # 汇总索引
+├── all_tables.md         # 所有表结构汇总
+├── all_optionsets.md     # 所有选项集汇总
+├── tables/               # 单表详细文档
+│   ├── account.md
+│   └── contact.md
+└── optionsets/           # 选项集详细文档
+    ├── new_customer_status.md
+    └── new_payment_terms.md
+```
+
+---
+
+## 组件库复用
+
+### 表片段
+
+位于 `sources/library/table_fragments/`，包含可复用的字段组：
+
+- `standard_audit_fields.yaml` - 标准审计字段
+- `address_fields.yaml` - 地址字段
+- `contact_info_fields.yaml` - 联系人信息字段
+
+### 表单模式
+
+位于 `sources/library/form_patterns/`，包含常用表单布局：
+
+- `standard_header_form.yaml` - 标准表单头部
+
+### 视图模式
+
+位于 `sources/library/view_patterns/`，包含常用视图定义：
+
+- `active_records_view_template.yaml` - 活跃记录视图模板
+
+---
+
+## 相关文档
+
+- [架构文档](architecture.md) - 系统架构设计
+- [快速开始](../guides/getting-started.md) - 详细入门指南
+- [数据字典](../data_dictionary/index.md) - 生成的数据字典索引

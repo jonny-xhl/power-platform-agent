@@ -46,8 +46,8 @@ setup(
     # 入口点
     entry_points={
         "console_scripts": [
-            "power-platform-mcp=mcp_serve:main",
-            "pp-mcp=mcp_serve:main",
+            "power-platform-mcp=framework.mcp_serve:main",
+            "pp-mcp=framework.mcp_serve:main",
         ],
     },
 

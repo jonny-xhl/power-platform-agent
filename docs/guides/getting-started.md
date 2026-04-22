@@ -60,13 +60,15 @@ naming:
 ### 启动 MCP 服务器
 
 ```bash
-python mcp_serve.py
-```
+# 直接运行
+python framework/mcp_serve.py
 
-或使用 stdio 模式：
+# 或使用 stdio 模式
+python framework/mcp_serve.py --stdio
 
-```bash
-python mcp_serve.py --stdio
+# 或安装为包后运行
+pip install -e .
+pp-mcp
 ```
 
 ### 在 Claude Code 中使用

@@ -10,6 +10,8 @@ from pathlib import Path
 # 添加项目根目录到路径
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
+# 添加 framework 目录到路径
+sys.path.insert(0, str(project_root / "framework"))
 
 
 def test_imports():

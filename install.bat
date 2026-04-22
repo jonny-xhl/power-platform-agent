@@ -29,5 +29,9 @@ echo Installation completed!
 echo ========================================
 echo.
 echo To run the MCP server:
-echo   python mcp_serve.py
+echo   python framework\mcp_serve.py
+echo.
+echo Or install as package:
+echo   pip install -e .
+echo   pp-mcp
 echo.

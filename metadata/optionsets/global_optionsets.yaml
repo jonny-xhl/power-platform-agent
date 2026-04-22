@@ -1,0 +1,116 @@
+# 全局选项集定义
+# 本文件定义了可在多个表之间复用的全局选项集
+#
+# 使用方式：
+# 在表定义的字段中使用 option_set_ref 引用：
+#   - name: new_customer_type
+#     type: Picklist
+#     option_set_ref: new_customer_status
+
+global_optionsets:
+  # ========== 客户状态选项集 ==========
+  - name: new_customer_status
+    display_name: 客户状态
+    display_name_en: Customer Status
+    description: 客户的业务状态
+    options:
+      - value: 1
+        label_zh: 潜在客户
+        label_en: Potential
+        color: 808080
+      - value: 2
+        label_zh: 活跃客户
+        label_en: Active
+        color: 008000
+      - value: 3
+        label_zh: 休眠客户
+        label_en: Dormant
+        color: FF0000
+      - value: 4
+        label_zh: 已流失
+        label_en: Lost
+        color: FF0000
+
+  # ========== 付款条件选项集 ==========
+  - name: new_payment_terms
+    display_name: 付款条件
+    display_name_en: Payment Terms
+    description: 付款方式条款
+    options:
+      - value: 1
+        label_zh: 现金
+        label_en: Cash
+      - value: 2
+        label_zh: 月结30天
+        label_en: Net30
+      - value: 3
+        label_zh: 月结60天
+        label_en: Net60
+      - value: 4
+        label_zh: 货到付款
+        label_en: COD
+
+  # ========== 订单状态选项集 ==========
+  - name: new_order_status
+    display_name: 订单状态
+    display_name_en: Order Status
+    description: 订单处理状态
+    options:
+      - value: 1
+        label_zh: 草稿
+        label_en: Draft
+        color: C0C0C0
+      - value: 2
+        label_zh: 已提交
+        label_en: Submitted
+        color: 0000FF
+      - value: 3
+        label_zh: 处理中
+        label_en: Processing
+        color: FFA500
+      - value: 4
+        label_zh: 已完成
+        label_en: Completed
+        color: 008000
+      - value: 5
+        label_zh: 已取消
+        label_en: Cancelled
+        color: FF0000
+
+  # ========== 优先级选项集 ==========
+  - name: new_priority
+    display_name: 优先级
+    display_name_en: Priority
+    description: 任务或工单的优先级
+    options:
+      - value: 1
+        label_zh: 低
+        label_en: Low
+        color: 008000
+      - value: 2
+        label_zh: 中
+        label_en: Medium
+        color: FFA500
+      - value: 3
+        label_zh: 高
+        label_en: High
+        color: FF0000
+      - value: 4
+        label_zh: 紧急
+        label_en: Critical
+        color: 800080
+
+  # ========== 是否选项集 ==========
+  - name: new_yes_no
+    display_name: 是否
+    display_name_en: Yes/No
+    description: 通用的布尔选项集
+    options:
+      - value: 1
+        label_zh: 是
+        label_en: Yes
+        color: 008000
+      - value: 0
+        label_zh: 否
+        label_en: No
+        color: FF0000

@@ -9,6 +9,9 @@ Power Platform 开发辅助工具 - 基于 Hermes Agent 框架构建，通过 MC
 - 🔄 **双向同步**: 本地与云端元数据对比和同步
 - 📝 **命名规范**: 统一的命名转换和验证规则
 - 🧩 **多环境支持**: 管理 dev/test/prod 多环境配置
+- 📚 **数据字典**: 自动生成可导航的数据文档
+- 🗂️ **组件库**: 可复用的 YAML 模板片段
+- 🔌 **Git Hooks**: 提交前自动更新文档
 
 ## 快速开始
 
@@ -38,11 +41,15 @@ python build_and_validate.py
 ### 启动MCP服务器
 
 ```bash
-# Stdio模式（推荐用于IDE集成）
-python mcp_serve.py --stdio
+# 方式1：直接运行（推荐开发时使用）
+python framework/mcp_serve.py --stdio
+
+# 方式2：作为包安装后运行（推荐生产环境）
+pip install -e .
+pp-mcp --stdio
 
 # SSE模式（独立运行）
-python mcp_serve.py --port 8000
+python framework/mcp_serve.py --port 8000
 ```
 
 ### 测试导入
@@ -55,6 +62,18 @@ python test_imports.py
 
 ```
 power-platform-agent/
+├── framework/             # 框架层 (可复用核心组件)
+│   ├── agents/            # 代理实现
+│   │   ├── core_agent.py
+│   │   ├── metadata_agent.py
+│   │   ├── plugin_agent.py
+│   │   └── solution_agent.py
+│   ├── utils/             # 工具函数
+│   │   ├── dataverse_client.py
+│   │   ├── yaml_parser.py
+│   │   ├── schema_validator.py
+│   │   └── naming_converter.py
+│   └── mcp_serve.py       # MCP服务器入口
 ├── metadata/              # YAML元数据定义
 │   ├── _schema/           # Schema定义
 │   ├── tables/            # 表定义
@@ -62,7 +81,21 @@ power-platform-agent/
 │   ├── views/             # 视图定义
 │   ├── webresources/      # Web Resource配置
 │   ├── ribbon/            # 命令栏定义
-│   └── sitemap/           # 应用导航定义
+│   ├── sitemap/           # 应用导航定义
+│   └── optionsets/        # 全局选项集
+├── sources/               # 源文件层
+│   ├── templates/         # Excel/Word/PPT模板
+│   ├── features/          # 按功能迭代组织
+│   └── library/           # 可复用YAML片段
+├── transformers/          # 转换器层 (架构保留)
+├── docs/
+│   ├── data_dictionary/   # 自动生成的数据字典
+│   ├── spec/              # 规范文档
+│   └── guides/            # 使用指南
+├── scripts/               # 脚本工具
+│   ├── generate_data_dictionary.py
+│   ├── hooks/             # Git hooks
+│   └── install_hooks.sh
 ├── webresources/          # Web Resource源文件
 │   ├── css/
 │   ├── js/
@@ -76,19 +109,80 @@ power-platform-agent/
 │   ├── naming_rules.yaml
 │   ├── extensions.yaml
 │   └── settings.yaml
-├── agents/                # 代理实现
-│   ├── core_agent.py
-│   ├── metadata_agent.py
-│   ├── plugin_agent.py
-│   └── solution_agent.py
-├── utils/                 # 工具函数
-│   ├── dataverse_client.py
-│   ├── yaml_parser.py
-│   ├── schema_validator.py
-│   └── naming_converter.py
-├── skills/                # SKILL定义
-├── docs/                  # 文档
-└── mcp_serve.py           # MCP服务器入口
+├── .claude/               # Claude Code配置
+│   └── context_config.yaml
+├── build_and_validate.py  # 构建验证脚本
+├── setup.py               # 包安装配置
+└── test_imports.py        # 导入测试
+```
+
+---
+
+## 数据字典自动生成
+
+项目包含自动数据字典生成功能，从 YAML 元数据生成可浏览的 Markdown 文档。
+
+### 安装 Git Hooks (推荐)
+
+```bash
+bash scripts/install_hooks.sh
+```
+
+安装后，每次提交 `metadata/` 中的 YAML 文件时，会自动更新数据字典。
+
+### 手动生成
+
+```bash
+# 生成所有文档
+python scripts/generate_data_dictionary.py --all
+
+# 生成指定文件
+python scripts/generate_data_dictionary.py --files metadata/tables/account.yaml
+```
+
+### 生成的文档结构
+
+```
+docs/data_dictionary/
+├── index.md              # 汇总索引
+├── all_tables.md         # 所有表结构
+├── all_optionsets.md     # 所有选项集
+├── tables/               # 按表分块
+│   ├── account.md
+│   └── contact.md
+└── optionsets/           # 选项集文档
+    ├── new_customer_status.md
+    └── new_payment_terms.md
+```
+
+### 虚拟字段过滤
+
+生成器会自动过滤 Dataverse 虚拟字段：
+- Lookup 的 `_name` 后缀 (如 `primarycontactid_name`)
+- 计算字段 (`is_calculated: true`)
+- 汇总/Rollup 字段 (`aggregate_type` 存在)
+
+### 全局选项集
+
+在 `metadata/optionsets/global_optionsets.yaml` 中定义可复用的选项集：
+
+```yaml
+global_optionsets:
+  - name: new_customer_status
+    display_name: 客户状态
+    options:
+      - value: 1
+        label_zh: 潜在客户
+        label_en: Potential
+```
+
+在表定义中引用：
+
+```yaml
+attributes:
+  - name: status
+    type: Picklist
+    option_set_ref: new_customer_status
 ```
 
 ---
@@ -119,12 +213,24 @@ export CLIENT_SECRET="your-client-secret"
   "mcpServers": {
     "power-platform": {
       "command": "python",
-      "args": ["{your_path}/power-platform-agent/mcp_serve.py"],
+      "args": ["{your_path}/power-platform-agent/framework/mcp_serve.py"],
       "env": {
         "TENANT_ID": "${TENANT_ID}",
         "CLIENT_ID": "${CLIENT_ID}",
         "CLIENT_SECRET": "${CLIENT_SECRET}"
       }
+    }
+  }
+}
+```
+
+或安装为包后使用：
+
+```json
+{
+  "mcpServers": {
+    "power-platform": {
+      "command": "pp-mcp"
     }
   }
 }
@@ -416,6 +522,9 @@ naming:
 | 导入解决方案 | `导入 MySolution.zip` |
 | 对比差异 | `对比本地与云端差异` |
 | 同步状态 | `查看同步状态` |
+| **数据字典** | |
+| 生成文档 | `python scripts/generate_data_dictionary.py --all` |
+| 安装Hooks | `bash scripts/install_hooks.sh` |
 
 ---
 

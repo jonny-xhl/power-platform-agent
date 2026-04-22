@@ -4,6 +4,21 @@
 
 Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform 开发辅助工具。它通过 MCP (Model Context Protocol) 服务器为 Claude Code 和 Cursor 提供工具访问，实现 Power Platform 元数据的代码优先开发。
 
+## 设计原则
+
+### 内容驱动，框架服务
+
+- **内容层 (80%)**: 元数据定义、业务逻辑、配置文件
+- **框架层 (20%)**: Agent 代码、MCP 服务、工具路由
+
+### 源文件 → 元数据 → 部署 的生命周期
+
+```
+源文件层 → 转换层 → 元数据层 → 部署层
+    ↓          ↓          ↓          ↓
+  sources/  transformers/ metadata/  Dataverse
+```
+
 ## 架构图
 
 ```
@@ -24,7 +39,7 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
 │  │ - Naming     │  │ - Tables     │  │ - Build          │     │
 │  │ - Env Mgmt   │  │ - Forms      │  │ - Deploy         │     │
 │  └──────────────┘  │ - Views      │  │ - Step Register  │     │
-│  ┌──────────────┐  │ - Web Res    │  └──────────────────┘     │
+│  ┌──────────────┐  │ - OptionSets │  └──────────────────┘     │
 │  │ Solution     │  └──────────────┘  ┌──────────────────┐     │
 │  │ Agent        │                      │ State           │     │
 │  │              │                      │ Management      │     │
@@ -32,6 +47,14 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
 │  │ - Export     │                      │                 │     │
 │  │ - Sync       │                      │                 │     │
 │  └──────────────┘                      └──────────────────┘     │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+┌─────────────────────────────▼───────────────────────────────────┐
+│                    Data Dictionary Layer                        │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │         generate_data_dictionary.py                      │   │
+│  │  - YAML Parser  - Virtual Field Filter  - MD Generator  │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
 ┌─────────────────────────────▼───────────────────────────────────┐
@@ -46,6 +69,88 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
 │                    Dataverse Online                             │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+## 目录架构
+
+```
+power-platform-agent/
+├── framework/             # 框架层 (可复用核心组件)
+│   ├── agents/            # 代理实现
+│   │   ├── core_agent.py
+│   │   ├── metadata_agent.py
+│   │   ├── plugin_agent.py
+│   │   └── solution_agent.py
+│   ├── utils/             # 工具函数
+│   │   ├── dataverse_client.py
+│   │   ├── yaml_parser.py
+│   │   ├── schema_validator.py
+│   │   └── naming_converter.py
+│   └── mcp_serve.py       # MCP服务入口
+│
+├── sources/               # 源文件层
+│   ├── templates/         # Excel/Word/PPT模板
+│   ├── features/          # 按功能迭代组织
+│   │   └── feature-xxx/
+│   │       ├── 01-requirements/    # BRD/PRD/流程图
+│   │       └── 02-designs/         # Excel + Markdown
+│   └── library/           # 可复用YAML片段
+│       ├── table_fragments/
+│       ├── form_patterns/
+│       └── view_patterns/
+│
+├── transformers/          # 转换器层 (架构保留，暂不实现)
+│
+├── metadata/              # 元数据层
+│   ├── _schema/           # Schema定义
+│   ├── tables/            # 表定义YAML
+│   ├── forms/             # 表单定义
+│   ├── views/             # 视图定义
+│   ├── webresources/      # Web Resource配置
+│   ├── ribbon/            # 命令栏定义
+│   ├── sitemap/           # 应用导航定义
+│   └── optionsets/        # 全局选项集
+│
+├── docs/                  # 文档层
+│   ├── spec/              # 规范文档
+│   ├── guides/            # 使用指南
+│   └── data_dictionary/   # Git hook自动生成
+│       ├── index.md
+│       ├── all_tables.md
+│       ├── all_optionsets.md
+│       ├── tables/
+│       └── optionsets/
+│
+├── scripts/               # 脚本层
+│   ├── generate_data_dictionary.py
+│   ├── hooks/             # Git hooks
+│   │   └── pre-commit.sh
+│   └── install_hooks.sh
+│
+├── webresources/          # Web Resource源文件
+│   ├── css/
+│   ├── js/
+│   ├── html/
+│   └── img/
+│
+├── plugins/               # .NET插件源码
+│
+├── config/                # 配置文件
+│
+├── .claude/               # Claude Code配置
+│   └── context_config.yaml
+│
+├── build_and_validate.py  # 构建验证脚本
+├── setup.py               # 包安装配置
+├── test_imports.py        # 导入测试
+├── install.sh / install.bat
+└── requirements.txt
+```
+
+**说明**：
+- **framework/** - 框架代码统一管理，便于复用和迁移
+- **sources/** - 按内容生命周期分层 (源文件 → 转换 → 元数据 → 文档)
+- **metadata/** - YAML元数据定义，按类型组织
+- **docs/data_dictionary/** - Git hook自动生成，无需手动维护
 
 ## 核心组件
 
@@ -89,6 +194,26 @@ MCP 服务器是整个系统的入口点，负责：
 - 差异对比
 - 双向同步
 - 组件管理
+
+### 6. Data Dictionary Generator
+
+数据字典生成器处理：
+- YAML 元数据解析
+- 虚拟字段过滤
+- Markdown 文档生成
+- 索引自动更新
+
+**虚拟字段检测规则**：
+| 类型 | 检测模式 | 示例 |
+|------|----------|------|
+| Lookup _name 后缀 | `_[a-z]+_name$` | `primarycontactid_name` |
+| 计算字段 | `is_calculated: true` | - |
+| 汇总字段 | `aggregate_type` 存在 | - |
+
+**Git Hook 集成**：
+- 触发时机：Pre-commit
+- 处理范围：仅变更的文件
+- 自动更新：docs/data_dictionary/
 
 ## 数据流
 
@@ -160,6 +285,63 @@ custom_handlers:
 - `config/naming_rules.yaml` - 命名规则
 - `config/extensions.yaml` - 扩展配置
 - `config/settings.yaml` - 工具设置
+- `.claude/context_config.yaml` - LLM 上下文配置
+- `metadata/optionsets/global_optionsets.yaml` - 全局选项集定义
+
+## 元数据工作流
+
+### 完整开发流程
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  源文件     │ -> │ YAML元数据  │ -> │  Dataverse  │
+│  (Excel)    │    │ (metadata/) │    │  (部署)      │
+└─────────────┘    └─────────────┘    └─────────────┘
+                          │
+                          ▼
+                   ┌─────────────┐
+                   │ 数据字典    │
+                   │ (自动生成)  │
+                   └─────────────┘
+```
+
+### 选项集复用流程
+
+```
+1. 在 global_optionsets.yaml 中定义全局选项集
+   ↓
+2. 表定义中使用 option_set_ref 引用
+   ↓
+3. 数据字典自动生成选项集文档
+   ↓
+4. LLM 读取文档获取正确的选项值
+```
+
+### Git Hook 触发流程
+
+```
+1. 开发者修改 metadata/tables/*.yaml
+   ↓
+2. git add 添加文件到暂存区
+   ↓
+3. git commit 触发 pre-commit hook
+   ↓
+4. generate_data_dictionary.py 执行
+   ↓
+5. 更新 docs/data_dictionary/
+   ↓
+6. 将生成的文档添加到本次提交
+   ↓
+7. 提交完成
+```
+
+- `config/hermes_profile.yaml` - Hermes Agent 配置
+- `config/environments.yaml` - 环境配置
+- `config/naming_rules.yaml` - 命名规则
+- `config/extensions.yaml` - 扩展配置
+- `config/settings.yaml` - 工具设置
+- `.claude/context_config.yaml` - LLM 上下文配置
+- `metadata/optionsets/global_optionsets.yaml` - 全局选项集定义
 
 ## 安全考虑
 
