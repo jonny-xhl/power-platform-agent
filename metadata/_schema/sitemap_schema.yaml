@@ -1,0 +1,337 @@
+# Sitemap (应用导航) 元数据 Schema 定义
+# 用于验证Power Platform Sitemap的YAML元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/sitemap"
+title: "Power Platform Sitemap Metadata Schema"
+description: "Dataverse应用站点地图的元数据定义Schema"
+
+definitions:
+  subarea_type:
+    type: "string"
+    enum:
+      - "entity"           # 实体列表
+      - "dashboard"        # 仪表板
+      - "webresource"      # Web Resource页面
+      - "url"              # 外部URL
+    description: "子区域类型"
+
+sitemap_schema:
+  type: "object"
+  required: ["sitemap"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema引用路径"
+
+    sitemap:
+      type: "object"
+      required: ["schema_name", "display_name", "areas"]
+      properties:
+        schema_name:
+          type: "string"
+          pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+          description: "站点地图Schema名称"
+
+        display_name:
+          type: "string"
+          description: "应用显示名称"
+
+        description:
+          type: "string"
+          description: "应用描述"
+
+        version:
+          type: "string"
+          description: "版本号"
+
+        # 应用区域
+        areas:
+          type: "array"
+          items:
+            type: "object"
+            required: ["name", "display_name", "groups"]
+            properties:
+              name:
+                type: "string"
+                description: "区域唯一名称"
+
+              display_name:
+                type: "string"
+                description: "区域显示名称"
+
+              title:
+                type: "string"
+                description: "区域标题"
+
+              description:
+                type: "string"
+                description: "区域描述"
+
+              icon:
+                type: "string"
+                description: "图标Web Resource名称"
+
+              sequence:
+                type: "integer"
+                minimum: 0
+                default: 0
+                description: "显示顺序"
+
+              visible:
+                type: "boolean"
+                default: true
+                description: "是否可见"
+
+              # 区域内的组
+              groups:
+                type: "array"
+                items:
+                  type: "object"
+                  required: ["name", "display_name", "subareas"]
+                  properties:
+                    name:
+                      type: "string"
+                      description: "组唯一名称"
+
+                    display_name:
+                      type: "string"
+                      description: "组显示名称"
+
+                    title:
+                      type: "string"
+                      description: "组标题"
+
+                    description:
+                      type: "string"
+                      description: "组描述"
+
+                    sequence:
+                      type: "integer"
+                      minimum: 0
+                      default: 0
+
+                    visible:
+                      type: "boolean"
+                      default: true
+
+                    is_profile:
+                      type: "boolean"
+                      default: false
+                      description: "是否为配置文件组"
+
+                    # 组内的子区域
+                    subareas:
+                      type: "array"
+                      items:
+                        type: "object"
+                        required: ["name", "display_name"]
+                        properties:
+                          name:
+                            type: "string"
+                            description: "子区域唯一名称"
+
+                          display_name:
+                            type: "string"
+                            description: "子区域显示名称"
+
+                          title:
+                            type: "string"
+                            description: "子区域标题"
+
+                          description:
+                            type: "string"
+                            description: "子区域描述"
+
+                          type:
+                            $ref: "#/definitions/subarea_type"
+                            default: "entity"
+                            description: "子区域类型"
+
+                          sequence:
+                            type: "integer"
+                            minimum: 0
+                            default: 0
+
+                          visible:
+                            type: "boolean"
+                            default: true
+
+                          icon:
+                            type: "string"
+                            description: "图标Web Resource名称"
+
+                          # 实体相关属性
+                          entity:
+                            type: "string"
+                            description: "实体名称（entity类型）"
+
+                          default_view:
+                            type: "string"
+                            description: "默认视图名称"
+
+                          view:
+                            type: "string"
+                            description: "指定视图ID"
+
+                          # 仪表板相关属性
+                          dashboard_id:
+                            type: "string"
+                            description: "仪表板ID（dashboard类型）"
+
+                          # Web Resource相关属性
+                          url:
+                            type: "string"
+                            description: "Web Resource URL（webresource类型）"
+
+                          # 外部URL相关属性
+                          external_url:
+                            type: "string"
+                            description: "外部URL（url类型）"
+
+                          pass_params:
+                            type: "boolean"
+                            default: false
+                            description: "是否传递参数"
+
+                          offline:
+                            type: "boolean"
+                            default: false
+                            description: "是否支持离线"
+
+                          # 安全设置
+                          privileges:
+                            type: "array"
+                            description: "所需权限"
+                            items:
+                              type: "object"
+                              properties:
+                                entity:
+                                  type: "string"
+
+                                privileges:
+                                  type: "array"
+                                  items:
+                                    type: "string"
+                                    enum: ["read", "write", "create", "delete", "append", "appendto"]
+
+        # 站点地图设置
+        settings:
+          type: "object"
+          properties:
+            enable_auto_create:
+              type: "boolean"
+              default: false
+              description: "启用自动创建"
+
+            enable_data_loading:
+              type: "boolean"
+              default: true
+              description: "启用数据加载"
+
+            show_nav_bar:
+              type: "boolean"
+              default: true
+              description: "显示导航栏"
+
+            show_news:
+              type: "boolean"
+              default: false
+              description: "显示新闻"
+
+            show_help:
+              type: "boolean"
+              default: true
+              description: "显示帮助"
+
+            welcome_screen:
+              type: "boolean"
+              default: false
+              description: "显示欢迎屏幕"
+
+            # 主题设置
+            theme:
+              type: "string"
+              description: "主题名称"
+
+            # 语言设置
+            language:
+              type: "string"
+              default: "1033"
+              description: "语言代码"
+
+        # 站点地图属性
+        properties:
+          type: "object"
+          properties:
+            # 简化界面
+            simplified_ui:
+              type: "boolean"
+              default: false
+
+            # 移动优化
+            mobile_optimized:
+              type: "boolean"
+              default: false
+
+            # 快速访问
+            quick_access:
+              type: "array"
+              items:
+                type: "string"
+              description: "快速访问实体列表"
+
+# 示例
+example:
+  sitemap:
+    schema_name: "customer_app_sitemap"
+    display_name: "客户管理应用"
+    description: "客户关系管理应用"
+
+    areas:
+      - name: "customerArea"
+        display_name: "客户区域"
+        icon: "new_png/customer_icon.png"
+        sequence: 0
+        groups:
+          - name: "customerGroup"
+            display_name: "客户管理"
+            sequence: 0
+            subareas:
+              - name: "account"
+                display_name: "账户"
+                type: "entity"
+                entity: "account"
+                default_view: "account_active_view"
+                icon: "new_png/account_icon.png"
+                sequence: 0
+
+              - name: "contact"
+                display_name: "联系人"
+                type: "entity"
+                entity: "contact"
+                default_view: "contact_active_view"
+                icon: "new_png/contact_icon.png"
+                sequence: 1
+
+      - name: "dashboardArea"
+        display_name: "仪表板"
+        icon: "new_png/dashboard_icon.png"
+        sequence: 1
+        groups:
+          - name: "dashboardGroup"
+            display_name: "我的仪表板"
+            subareas:
+              - name: "accountDashboard"
+                display_name: "账户仪表板"
+                type: "dashboard"
+                dashboard_id: "account_dashboard"
+                url: "/webresources/new_html/account_dashboard.html"
+                sequence: 0
+
+    settings:
+      enable_auto_create: false
+      enable_data_loading: true
+      show_nav_bar: true
+      show_news: false

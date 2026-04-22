@@ -1,0 +1,337 @@
+# Form 元数据 Schema 定义
+# 用于验证Power Platform表单的YAML元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/form"
+title: "Power Platform Form Metadata Schema"
+description: "Dataverse表单的元数据定义Schema"
+
+definitions:
+  form_type:
+    type: "string"
+    enum:
+      - "Main"           # 主表单
+      - "QuickCreate"    # 快速创建表单
+      - "QuickView"      # 快速视图表单
+      - "Card"           # 卡片表单
+      - "MainInteraction"# 交互对话框
+    description: "表单类型"
+
+  tab_type:
+    type: "string"
+    enum: ["general", "organization", "custom"]
+    description: "选项卡类型"
+
+  cell_width:
+    type: "string"
+    pattern: "^[1-6]$|^1[0-2]$"
+    description: "单元格宽度（1-12列）"
+
+form_schema:
+  type: "object"
+  required: ["form"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema引用路径"
+
+    form:
+      type: "object"
+      required: ["schema_name", "entity", "type", "display_name"]
+      additionalProperties: false
+      properties:
+        schema_name:
+          type: "string"
+          pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+          description: "表单Schema名称"
+
+        entity:
+          type: "string"
+          description: "所属实体"
+
+        type:
+          $ref: "#/definitions/form_type"
+          description: "表单类型"
+
+        display_name:
+          type: "string"
+          description: "表单显示名称"
+
+        description:
+          type: "string"
+          description: "表单描述"
+
+        is_default:
+          type: "boolean"
+          default: false
+          description: "是否为默认表单"
+
+        options:
+          type: "object"
+          properties:
+            use_field_display_label:
+              type: "boolean"
+              default: true
+              description: "使用字段的display label"
+
+            enable_security:
+              type: "boolean"
+              default: false
+              description: "启用安全角色"
+
+            show_image:
+              type: "boolean"
+              default: false
+              description: "显示实体图片"
+
+            enable_navigation:
+              type: "boolean"
+              default: false
+              description: "启用导航菜单"
+
+            show_process_control:
+              type: "boolean"
+              default: false
+              description: "显示业务流程控制"
+
+            show_tabs_on_left:
+              type: "boolean"
+              default: false
+              description: "在左侧显示选项卡"
+
+    tabs:
+      type: "array"
+      items:
+        type: "object"
+        required: ["name", "display_name", "sections"]
+        properties:
+          name:
+            type: "string"
+            description: "选项卡名称"
+
+          display_name:
+            type: "string"
+            description: "选项卡显示名称"
+
+          label:
+            type: "string"
+            description: "选项卡标签"
+
+          visible:
+            type: "boolean"
+            default: true
+            description: "是否可见"
+
+          expand_by_default:
+            type: "boolean"
+            default: true
+            description: "默认展开"
+
+          sections:
+            type: "array"
+            items:
+              type: "object"
+              required: ["name", "display_name", "rows"]
+              properties:
+                name:
+                  type: "string"
+                  description: "分区名称"
+
+                display_name:
+                  type: "string"
+                  description: "分区显示名称"
+
+                label:
+                  type: "string"
+                  description: "分区标签"
+
+                visible:
+                  type: "boolean"
+                  default: true
+                  description: "是否可见"
+
+                rows:
+                  type: "array"
+                  items:
+                    type: "object"
+                    properties:
+                      cells:
+                        type: "array"
+                        items:
+                          type: "object"
+                          properties:
+                            attribute:
+                              type: "string"
+                              description: "字段名称"
+
+                            label:
+                              type: "string"
+                              description: "单元格标签"
+
+                            width:
+                              $ref: "#/definitions/cell_width"
+                              default: "1"
+                              description: "单元格宽度（1-12）"
+
+                            visible:
+                              type: "boolean"
+                              default: true
+
+                            control:
+                              type: "object"
+                              properties:
+                                type:
+                                  type: "string"
+                                  enum:
+                                    - "standard"
+                                    - "textarea"
+                                    - "dropdown"
+                                    - "checkbox"
+                                    - "radio"
+                                    - "datetime"
+                                    - "lookup"
+                                    - "multiline"
+                                  default: "standard"
+
+                                disabled:
+                                  type: "boolean"
+                                  default: false
+
+    webresources:
+      type: "array"
+      description: "表单级别的Web Resource引用"
+      items:
+        type: "object"
+        properties:
+          name:
+            type: "string"
+            description: "Web Resource名称"
+
+          type:
+            type: "string"
+            enum: ["css", "js", "html"]
+            description: "Web Resource类型"
+
+          path:
+            type: "string"
+            description: "源文件路径"
+
+          load_method:
+            type: "string"
+            enum: ["inline", "internal"]
+            default: "inline"
+            description: "加载方式"
+
+          functions:
+            type: "array"
+            description: "JavaScript函数（js类型）"
+            items:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                  description: "函数名称"
+
+                event:
+                  type: "string"
+                  enum:
+                    - "formOnLoad"
+                    - "formOnSave"
+                    - "attributeOnChange"
+                  description: "触发事件"
+
+                attribute:
+                  type: "string"
+                  description: "关联字段（attributeOnChange事件）"
+
+    events:
+      type: "array"
+      description: "表单事件配置"
+      items:
+        type: "object"
+        properties:
+          name:
+            type: "string"
+            enum:
+              - "onload"
+              - "onsave"
+            description: "事件名称"
+
+          handlers:
+            type: "array"
+            items:
+              type: "object"
+              properties:
+                function_name:
+                  type: "string"
+                  description: "函数名称"
+
+                library:
+                  type: "string"
+                  description: "Web Resource库"
+
+                enabled:
+                  type: "boolean"
+                  default: true
+
+                pass_context:
+                  type: "boolean"
+                  default: true
+
+# 示例
+example:
+  form:
+    schema_name: "account_main_form"
+    entity: "account"
+    type: "Main"
+    display_name: "账户主表单"
+
+    options:
+      use_field_display_label: true
+      enable_security: false
+      show_image: false
+
+  tabs:
+    - name: "general"
+      display_name: "常规信息"
+      sections:
+        - name: "basicInfo"
+          display_name: "基本信息"
+          rows:
+            - cells:
+                - attribute: "accountNumber"
+                  width: "1"
+                - attribute: "status"
+                  width: "1"
+            - cells:
+                - attribute: "balance"
+                  width: "2"
+
+    - name: "details"
+      display_name: "详细信息"
+      visible: false
+      sections:
+        - name: "contactInfo"
+          display_name: "联系信息"
+          rows:
+            - cells:
+                - attribute: "telephone1"
+                  width: "1"
+                - attribute: "emailaddress1"
+                  width: "1"
+
+  webresources:
+    - name: "account_form_css"
+      type: "css"
+      path: "css/account_form.css"
+      load_method: "inline"
+
+    - name: "account_form_handler"
+      type: "js"
+      path: "js/account_form.js"
+      functions:
+        - name: "onLoad"
+          event: "formOnLoad"
+        - name: "onSave"
+          event: "formOnSave"

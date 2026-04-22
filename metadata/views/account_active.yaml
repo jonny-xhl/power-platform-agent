@@ -1,0 +1,111 @@
+# 活跃账户视图元数据定义
+# 本文件定义了显示活跃账户的视图
+
+$schema: "../_schema/view_schema.yaml"
+
+view:
+  schema_name: "account_active_view"
+  entity: "account"
+  type: "PublicView"
+  display_name: "活跃账户"
+  description: "显示所有状态为活跃的账户"
+  is_default: true
+
+  # Fetch XML查询定义
+  fetch_xml: |
+    <fetch version="1.0" mapping="logical">
+      <entity name="account">
+        <attribute name="accountnumber" />
+        <attribute name="new_accountname" />
+        <attribute name="new_balance" />
+        <attribute name="new_status" />
+        <attribute name="new_accounttype" />
+        <attribute name="createdon" />
+        <order attribute="accountnumber" descending="false" />
+        <filter type="and">
+          <condition attribute="new_status" operator="eq" value="100000000" />
+        </filter>
+      </entity>
+    </fetch>
+
+  # 结构化的Fetch定义（便于程序处理）
+  fetchxml:
+    entity: "account"
+    attributes:
+      - name: "accountnumber"
+        alias: "accountNumber"
+      - name: "new_accountname"
+        alias: "accountName"
+      - name: "new_balance"
+        alias: "balance"
+      - name: "new_status"
+        alias: "status"
+      - name: "new_accounttype"
+        alias: "accountType"
+      - name: "createdon"
+        alias: "createdOn"
+    order:
+      - attribute: "accountnumber"
+        descending: false
+    filter:
+      type: "and"
+      conditions:
+        - attribute: "new_status"
+          operator: "eq"
+          value: "100000000"
+
+# 视图列配置
+columns:
+  - attribute: "accountNumber"
+    width: 150
+    sort_order: 1
+    format: "text"
+    align: "left"
+    sortable: true
+    filterable: true
+
+  - attribute: "accountName"
+    width: 200
+    sort_order: 2
+    format: "text"
+    align: "left"
+    sortable: true
+    filterable: true
+
+  - attribute: "accountType"
+    width: 120
+    sort_order: 3
+    format: "text"
+    align: "center"
+    sortable: true
+    filterable: true
+
+  - attribute: "balance"
+    width: 120
+    sort_order: 4
+    format: "money"
+    align: "right"
+    sortable: true
+    filterable: false
+
+  - attribute: "status"
+    width: 100
+    sort_order: 5
+    format: "text"
+    align: "center"
+    sortable: true
+    filterable: true
+
+  - attribute: "createdOn"
+    width: 150
+    sort_order: 6
+    format: "datetime"
+    align: "left"
+    sortable: true
+    filterable: false
+
+# 视图布局配置
+layout:
+  columns: 4
+  cell_height: 30
+  show_all_columns: false

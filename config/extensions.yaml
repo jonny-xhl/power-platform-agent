@@ -1,0 +1,261 @@
+# Power Platform Agent 扩展配置
+# 定义自定义处理器、钩子和扩展点
+
+extensions:
+  # 允许扩展的元数据类型
+  supported_types:
+    - "table"
+    - "attribute"
+    - "form"
+    - "view"
+    - "webresource"
+    - "ribbon"
+    - "sitemap"
+    - "plugin"
+    - "workflow"
+    - "businessrule"
+    - "optionset"
+    - "relationship"
+
+  # 自定义处理器注册
+  custom_handlers:
+    # 属性验证器
+    - name: "customAttributeValidator"
+      type: "attribute"
+      module: "extensions.custom_validators"
+      class: "CustomAttributeValidator"
+      enabled: true
+      config:
+        validate maxLength: true
+        validate required: true
+        validate format: true
+
+    # 命名转换器
+    - name: "customNamingConverter"
+      type: "naming"
+      module: "extensions.naming"
+      class: "CustomNamingConverter"
+      enabled: true
+      config:
+        preserve_standard: true
+        auto_prefix: true
+
+    # Web Resource 处理器
+    - name: "webresourceMinifier"
+      type: "webresource"
+      module: "extensions.webresource"
+      class: "WebresourceMinifier"
+      enabled: false
+      config:
+        minify_css: true
+        minify_js: false
+        source_map: false
+
+    # 元数据导出处理器
+    - name: "metadataExportFormatter"
+      type: "export"
+      module: "extensions.export"
+      class: "MetadataExportFormatter"
+      enabled: true
+      config:
+        format: "yaml"
+        include_comments: true
+        sort_keys: true
+
+  # 钩子点
+  hooks:
+    # 应用前钩子
+    before_apply:
+      - name: "validate_metadata"
+        module: "extensions.hooks.before_apply"
+        function: "validate_metadata"
+        enabled: true
+        order: 1
+        description: "验证元数据定义"
+
+      - name: "check_dependencies"
+        module: "extensions.hooks.before_apply"
+        function: "check_dependencies"
+        enabled: true
+        order: 2
+        description: "检查依赖关系"
+
+      - name: "backup_current"
+        module: "extensions.hooks.before_apply"
+        function: "backup_current"
+        enabled: true
+        order: 3
+        description: "备份当前状态"
+
+      - name: "naming_convert"
+        module: "extensions.hooks.before_apply"
+        function: "naming_convert"
+        enabled: true
+        order: 4
+        description: "执行命名转换"
+
+    # 应用后钩子
+    after_apply:
+      - name: "update_cache"
+        module: "extensions.hooks.after_apply"
+        function: "update_cache"
+        enabled: true
+        order: 1
+        description: "更新缓存"
+
+      - name: "send_notification"
+        module: "extensions.hooks.after_apply"
+        function: "send_notification"
+        enabled: false
+        order: 2
+        description: "发送通知"
+
+      - name: "log_changes"
+        module: "extensions.hooks.after_apply"
+        function: "log_changes"
+        enabled: true
+        order: 3
+        description: "记录变更日志"
+
+      - name: "trigger_webhook"
+        module: "extensions.hooks.after_apply"
+        function: "trigger_webhook"
+        enabled: false
+        order: 4
+        description: "触发Webhook"
+
+    # 错误钩子
+    on_error:
+      - name: "rollback_changes"
+        module: "extensions.hooks.on_error"
+        function: "rollback_changes"
+        enabled: true
+        order: 1
+        description: "回滚变更"
+
+      - name: "log_error"
+        module: "extensions.hooks.on_error"
+        function: "log_error"
+        enabled: true
+        order: 2
+        description: "记录错误"
+
+      - name: "alert_user"
+        module: "extensions.hooks.on_error"
+        function: "alert_user"
+        enabled: true
+        order: 3
+        description: "提醒用户"
+
+      - name: "create_issue"
+        module: "extensions.hooks.on_error"
+        function: "create_issue"
+        enabled: false
+        order: 4
+        description: "创建Issue"
+
+    # 导出前钩子
+    before_export:
+      - name: "validate_export"
+        module: "extensions.hooks.before_export"
+        function: "validate_export"
+        enabled: true
+        description: "验证导出参数"
+
+      - name: "prepare_directory"
+        module: "extensions.hooks.before_export"
+        function: "prepare_directory"
+        enabled: true
+        description: "准备导出目录"
+
+    # 导出后钩子
+    after_export:
+      - name: "format_yaml"
+        module: "extensions.hooks.after_export"
+        function: "format_yaml"
+        enabled: true
+        description: "格式化YAML输出"
+
+      - name: "create_checksum"
+        module: "extensions.hooks.after_export"
+        function: "create_checksum"
+        enabled: true
+        description: "创建校验和"
+
+  # Webhook配置
+  webhooks:
+    - name: "slack_notifications"
+      url: "${SLACK_WEBHOOK_URL}"
+      events:
+        - "apply_success"
+        - "apply_failed"
+        - "export_complete"
+      enabled: false
+      format: "slack"
+      retry_count: 3
+
+    - name: "teams_notifications"
+      url: "${TEAMS_WEBHOOK_URL}"
+      events:
+        - "apply_success"
+        - "apply_failed"
+      enabled: false
+      format: "teams"
+      retry_count: 3
+
+    - name: "email_notifications"
+      address: "${NOTIFICATION_EMAIL}"
+      events:
+        - "apply_failed"
+        - "error_occurred"
+      enabled: false
+      format: "html"
+
+  # 中间件配置
+  middleware:
+    - name: "rate_limiter"
+      module: "extensions.middleware.rate_limiter"
+      enabled: true
+      config:
+        requests_per_minute: 300
+        burst_size: 50
+
+    - name: "cache_manager"
+      module: "extensions.middleware.cache"
+      enabled: true
+      config:
+        ttl: 3600
+        max_size: 1000
+
+    - name: "request_logger"
+      module: "extensions.middleware.logger"
+      enabled: true
+      config:
+        log_level: "INFO"
+        log_body: false
+
+  # 验证器配置
+  validators:
+    - name: "schema_validator"
+      type: "jsonschema"
+      enabled: true
+      strict: true
+
+    - name: "naming_validator"
+      type: "pattern"
+      enabled: true
+
+    - name: "dependency_validator"
+      type: "graph"
+      enabled: true
+
+  # 转换器配置
+  transformers:
+    - name: "attribute_transformer"
+      enabled: true
+
+    - name: "form_transformer"
+      enabled: true
+
+    - name: "view_transformer"
+      enabled: true

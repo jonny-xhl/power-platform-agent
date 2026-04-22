@@ -1,0 +1,315 @@
+# View 元数据 Schema 定义
+# 用于验证Power Platform视图的YAML元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/view"
+title: "Power Platform View Metadata Schema"
+description: "Dataverse视图的元数据定义Schema"
+
+definitions:
+  view_type:
+    type: "string"
+    enum:
+      - "PublicView"      # 公共视图
+      - "PrivateView"     # 私有视图
+      - "AdvancedFind"    # 高级查找视图
+      - "AssociatedView"  # 关联视图
+      - "QuickFindView"   # 快速查找视图
+      - "LookupView"      # 查找视图
+    description: "视图类型"
+
+  fetch_operator:
+    type: "string"
+    enum:
+      - "eq"
+      - "ne"
+      - "gt"
+      - "ge"
+      - "lt"
+      - "le"
+      - "like"
+      - "not-like"
+      - "in"
+      - "not-in"
+      - "between"
+      - "null"
+      - "not-null"
+      - "today"
+      - "tomorrow"
+      - "yesterday"
+      - "next-seven-days"
+      - "last-seven-days"
+      - "next-x-days"
+      - "last-x-days"
+      - "next-x-weeks"
+      - "last-x-weeks"
+      - "next-x-months"
+      - "last-x-months"
+      - "this-year"
+      - "next-year"
+      - "last-year"
+      - "this-fiscal-year"
+      - "next-fiscal-year"
+      - "last-fiscal-year"
+      - "this-fiscal-period"
+      - "next-fiscal-period"
+      - "last-fiscal-period"
+    description: "Fetch XML条件运算符"
+
+view_schema:
+  type: "object"
+  required: ["view"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema引用路径"
+
+    view:
+      type: "object"
+      required: ["schema_name", "entity", "type", "display_name"]
+      additionalProperties: false
+      properties:
+        schema_name:
+          type: "string"
+          pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+          description: "视图Schema名称"
+
+        entity:
+          type: "string"
+          description: "所属实体"
+
+        type:
+          $ref: "#/definitions/view_type"
+          description: "视图类型"
+
+        display_name:
+          type: "string"
+          description: "视图显示名称"
+
+        description:
+          type: "string"
+          description: "视图描述"
+
+        is_default:
+          type: "boolean"
+          default: false
+          description: "是否为默认视图"
+
+        fetch_xml:
+          type: "string"
+          description: "Fetch XML查询定义"
+
+        fetchxml:
+          type: "object"
+          description: "结构化的Fetch定义"
+          properties:
+            entity:
+              type: "string"
+              description: "实体名称"
+
+            attributes:
+              type: "array"
+              items:
+                type: "object"
+                properties:
+                  name:
+                    type: "string"
+                    description: "属性名称"
+
+                  alias:
+                    type: "string"
+                    description: "别名"
+
+            order:
+              type: "array"
+              items:
+                type: "object"
+                properties:
+                  attribute:
+                    type: "string"
+                    description: "排序属性"
+
+                  descending:
+                    type: "boolean"
+                    default: false
+
+            filter:
+              type: "object"
+              properties:
+                type:
+                  type: "string"
+                  enum: ["and", "or"]
+                  default: "and"
+
+                conditions:
+                  type: "array"
+                  items:
+                    type: "object"
+                    properties:
+                      attribute:
+                        type: "string"
+                        description: "属性名称"
+
+                      operator:
+                        $ref: "#/definitions/fetch_operator"
+                        description: "运算符"
+
+                      value:
+                        type: "string"
+                        description: "值"
+
+                      value_of:
+                        type: "string"
+                        description: "引用另一个属性的值"
+
+    columns:
+      type: "array"
+      description: "视图列配置"
+      items:
+        type: "object"
+        properties:
+          attribute:
+            type: "string"
+            description: "属性名称"
+
+          width:
+            type: "integer"
+            minimum: 50
+            maximum: 500
+            default: 150
+            description: "列宽度（像素）"
+
+          sort_order:
+            type: "integer"
+            minimum: 0
+            description: "排序顺序"
+
+          format:
+            type: "string"
+            enum:
+              - "text"
+              - "number"
+              - "money"
+              - "date"
+              - "datetime"
+              - "email"
+              - "phone"
+              - "url"
+            default: "text"
+            description: "格式类型"
+
+          align:
+            type: "string"
+            enum: ["left", "center", "right"]
+            default: "left"
+            description: "对齐方式"
+
+          visible:
+            type: "boolean"
+            default: true
+            description: "是否可见"
+
+          sortable:
+            type: "boolean"
+            default: true
+            description: "是否可排序"
+
+          filterable:
+            type: "boolean"
+            default: true
+            description: "是否可筛选"
+
+    layout:
+      type: "object"
+      description: "视图布局配置"
+      properties:
+        columns:
+          type: "integer"
+          minimum: 1
+          maximum: 4
+          default: 4
+          description: "列数"
+
+        cell_height:
+          type: "integer"
+          minimum: 20
+          maximum: 100
+          default: 30
+          description: "单元格高度（像素）"
+
+        show_all_columns:
+          type: "boolean"
+          default: false
+          description: "显示所有列"
+
+    charts:
+      type: "array"
+      description: "关联图表"
+      items:
+        type: "object"
+        properties:
+          id:
+            type: "string"
+            description: "图表ID"
+
+          name:
+            type: "string"
+            description: "图表名称"
+
+          is_default:
+            type: "boolean"
+            default: false
+
+# 示例
+example:
+  view:
+    schema_name: "account_active_view"
+    entity: "account"
+    type: "PublicView"
+    display_name: "活跃账户"
+    is_default: true
+
+    fetch_xml: |
+      <fetch version="1.0" mapping="logical">
+        <entity name="account">
+          <attribute name="accountnumber" />
+          <attribute name="name" />
+          <attribute name="balance" />
+          <attribute name="status" />
+          <order attribute="accountnumber" descending="false" />
+          <filter type="and">
+            <condition attribute="status" operator="eq" value="100000000" />
+          </filter>
+        </entity>
+      </fetch>
+
+    fetchxml:
+      entity: "account"
+      attributes:
+        - name: "accountnumber"
+        - name: "name"
+        - name: "balance"
+        - name: "status"
+      order:
+        - attribute: "accountnumber"
+          descending: false
+      filter:
+        type: "and"
+        conditions:
+          - attribute: "status"
+            operator: "eq"
+            value: "100000000"
+
+  columns:
+    - attribute: "accountNumber"
+      width: 150
+      sort_order: 1
+    - attribute: "name"
+      width: 200
+      sort_order: 2
+    - attribute: "balance"
+      width: 100
+      format: "money"
+    - attribute: "status"
+      width: 100

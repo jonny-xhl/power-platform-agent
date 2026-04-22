@@ -1,0 +1,419 @@
+# Ribbon (命令栏) 元数据 Schema 定义
+# 用于验证Power Platform Ribbon自定义的YAML元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/ribbon"
+title: "Power Platform Ribbon Metadata Schema"
+description: "Dataverse Ribbon命令栏的元数据定义Schema"
+
+definitions:
+  command_type:
+    type: "string"
+    enum:
+      - "javascript"
+      - "popup"
+      - "navigation"
+      - "event"
+    description: "命令类型"
+
+  button_location:
+    type: "string"
+    description: "按钮位置（Ribbon Diff语法）"
+    # 示例位置：
+    # Mscrm.HomepageGrid.account.MainTab.Actions
+    # Mscrm.Form.account.MainTab.Actions
+    # Mscrm.HomepageGrid.account.ContextMenu
+
+  display_rule_type:
+    type: "string"
+    enum:
+      - "selectioncount"
+      - "customrule"
+      - "entityrule"
+      - "formrule"
+      - "ocrulerule"
+    description: "显示规则类型"
+
+ribbon_schema:
+  type: "object"
+  required: ["ribbon"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema引用路径"
+
+    ribbon:
+      type: "object"
+      required: ["entity"]
+      properties:
+        entity:
+          type: "string"
+          description: "所属实体"
+
+        display_name:
+          type: "string"
+          description: "显示名称"
+
+        description:
+          type: "string"
+          description: "描述"
+
+        # 自定义按钮
+        buttons:
+          type: "array"
+          items:
+            type: "object"
+            required: ["name", "display_name", "location", "command"]
+            properties:
+              name:
+                type: "string"
+                pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+                description: "按钮唯一名称"
+
+              display_name:
+                type: "string"
+                description: "显示名称"
+
+              tooltip:
+                type: "string"
+                description: "工具提示"
+
+              description:
+                type: "string"
+                description: "详细描述"
+
+              icon:
+                type: "string"
+                description: "图标Web Resource名称"
+
+              location:
+                $ref: "#/definitions/button_location"
+                description: "按钮位置"
+
+              sequence:
+                type: "integer"
+                minimum: 0
+                default: 10
+                description: "顺序号"
+
+              alt_key:
+                type: "string"
+                maxLength: 1
+                description: "快捷键"
+
+              # 显示规则
+              display_rules:
+                type: "array"
+                items:
+                  type: "object"
+                  properties:
+                    type:
+                      $ref: "#/definitions/display_rule_type"
+
+                    operator:
+                      type: "string"
+                      enum: ["eq", "ne", "gt", "gte", "lt", "lte"]
+                      description: "运算符"
+
+                    value:
+                      type: "string"
+                      description: "值"
+
+                    function:
+                      type: "string"
+                      description: "自定义规则函数名"
+
+                    library:
+                      type: "string"
+                      description: "函数所在库"
+
+                    invert:
+                      type: "boolean"
+                      default: false
+                      description: "是否反转结果"
+
+              # 启用规则
+              enable_rules:
+                type: "array"
+                items:
+                  type: "object"
+                  properties:
+                    type:
+                      type: "string"
+                      enum: ["customrule", "formrule", "ocrulerule"]
+
+                    function:
+                      type: "string"
+                      description: "自定义规则函数名"
+
+                    library:
+                      type: "string"
+                      description: "函数所在库"
+
+                    invert:
+                      type: "boolean"
+                      default: false
+
+              # 点击动作
+              command:
+                type: "object"
+                required: ["type", "function", "library"]
+                properties:
+                  type:
+                    $ref: "#/definitions/command_type"
+
+                  function:
+                    type: "string"
+                    description: "函数名称"
+
+                  library:
+                    type: "string"
+                    description: "Web Resource库"
+
+                  parameters:
+                    type: "array"
+                    items:
+                      type: "object"
+                      properties:
+                        type:
+                          type: "string"
+                          enum:
+                            - "selectedcontrol"
+                            - "selectedcontrolselecteditem"
+                            - "selectedcontrolallitems"
+                            - "selectedcontrolprimaryitem"
+                            - "primaryentitytype"
+                            - "primaryitemtype"
+                            - "firstselecteditemtype"
+
+                        value:
+                          type: "string"
+                          description: "固定值"
+
+                  action:
+                    type: "string"
+                    description: "导航URL（navigation类型）"
+
+                  window_size:
+                    type: "object"
+                    properties:
+                      width:
+                        type: "integer"
+                      height:
+                        type: "integer"
+
+        # 自定义菜单
+        menus:
+          type: "array"
+          items:
+            type: "object"
+            required: ["name", "display_name", "location", "items"]
+            properties:
+              name:
+                type: "string"
+                description: "菜单唯一名称"
+
+              display_name:
+                type: "string"
+                description: "显示名称"
+
+              location:
+                $ref: "#/definitions/button_location"
+                description: "菜单位置"
+
+              sequence:
+                type: "integer"
+                minimum: 0
+                default: 10
+
+              menu_type:
+                type: "string"
+                enum: ["Menu", "SplitButton"]
+                default: "Menu"
+                description: "菜单类型"
+
+              icon:
+                type: "string"
+                description: "图标Web Resource名称"
+
+              items:
+                type: "array"
+                items:
+                  type: "object"
+                  required: ["name", "display_name", "command"]
+                  properties:
+                    name:
+                      type: "string"
+                      description: "菜单项名称"
+
+                    display_name:
+                      type: "string"
+                      description: "显示名称"
+
+                    icon:
+                      type: "string"
+                      description: "图标"
+
+                    sequence:
+                      type: "integer"
+                      minimum: 0
+
+                    command:
+                      type: "object"
+                      properties:
+                        type:
+                          $ref: "#/definitions/command_type"
+
+                        function:
+                          type: "string"
+
+                        library:
+                          type: "string"
+
+                        parameters:
+                          type: "array"
+
+        # 自定义组
+        groups:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              name:
+                type: "string"
+                description: "组名称"
+
+              display_name:
+                type: "string"
+
+              location:
+                type: "string"
+                description: "组位置"
+
+              sequence:
+                type: "integer"
+                minimum: 0
+
+              buttons:
+                type: "array"
+                description: "组内按钮"
+
+        # 自定义选项卡
+        tabs:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              name:
+                type: "string"
+                description: "选项卡名称"
+
+              display_name:
+                type: "string"
+
+              location:
+                type: "string"
+                description: "选项卡位置"
+
+              sequence:
+                type: "integer"
+                minimum: 0
+
+              groups:
+                type: "array"
+
+        # 缩放定义
+        scaling:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              id:
+                type: "string"
+
+              layout:
+                type: "object"
+                properties:
+                  scale_size:
+                    type: "string"
+                    enum: ["Large", "Medium", "Small", "Popup"]
+
+                  groups:
+                    type: "array"
+
+# 示例
+example:
+  ribbon:
+    entity: "account"
+    display_name: "账户命令栏"
+
+    buttons:
+      - name: "approveAccount"
+        display_name: "批准账户"
+        tooltip: "批准当前账户"
+        icon: "new_png/approve_icon.png"
+
+        location: "Mscrm.HomepageGrid.account.MainTab.Actions"
+        sequence: 10
+
+        display_rules:
+          - type: "selectioncount"
+            operator: "eq"
+            value: "1"
+          - type: "customrule"
+            function: "canApproveAccount"
+
+        enable_rules:
+          - type: "customrule"
+            function: "isAccountActive"
+            library: "new_js/account_handler.js"
+
+        command:
+          type: "javascript"
+          function: "approveAccount"
+          library: "new_js/account_handler.js"
+          parameters:
+            - type: "selectedcontrol"
+            - type: "selectedcontrolselecteditem"
+
+      - name: "batchProcess"
+        display_name: "批量处理"
+        tooltip: "批量处理选中的账户"
+        icon: "new_png/batch_icon.png"
+
+        location: "Mscrm.HomepageGrid.account.MainTab.Actions"
+        sequence: 20
+
+        display_rules:
+          - type: "selectioncount"
+            operator: "gte"
+            value: "1"
+
+        command:
+          type: "javascript"
+          function: "batchProcessAccounts"
+          library: "new_js/account_batch.js"
+
+    menus:
+      - name: "accountActionsMenu"
+        display_name: "账户操作"
+        location: "Mscrm.HomepageGrid.account.MainTab.Actions"
+        menu_type: "Menu"
+
+        items:
+          - name: "exportToExcel"
+            display_name: "导出到Excel"
+            icon: "new_png/excel_icon.png"
+            command:
+              type: "javascript"
+              function: "exportAccounts"
+              library: "new_js/account_export.js"
+
+          - name: "sendEmail"
+            display_name: "发送邮件"
+            icon: "new_png/email_icon.png"
+            command:
+              type: "javascript"
+              function: "sendAccountEmail"
+              library: "new_js/account_email.js"

@@ -1,0 +1,325 @@
+# Table 元数据 Schema 定义
+# 用于验证Power Platform数据表的YAML元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/table"
+title: "Power Platform Table Metadata Schema"
+description: "Dataverse表的元数据定义Schema"
+
+definitions:
+  ownership_type:
+    type: "string"
+    enum: ["UserOwned", "OrganizationOwned", "BusinessOwned", "TeamOwned"]
+    description: "表的记录所有者类型"
+
+  attribute_type:
+    type: "string"
+    enum:
+      - "String"
+      - "Integer"
+      - "Money"
+      - "Picklist"
+      - "MultiSelectPicklist"
+      - "Lookup"
+      - "Customer"
+      - "Owner"
+      - "DateTime"
+      - "DateAndTime"
+      - "Boolean"
+      - "Memo"
+      - "Decimal"
+      - "Double"
+      - "BigInt"
+      - "EntityName"
+      - "State"
+      - "Status"
+      - "Uniqueidentifier"
+      - "Virtual"
+    description: "字段数据类型"
+
+  cascade_type:
+    type: "string"
+    enum:
+      - "NoCascade"
+      - "Cascade"
+      - "Active"
+      - "RemoveLink"
+      - "Restrict"
+      - "UserOwned"
+    description: "级联操作类型"
+
+  relationship_type:
+    type: "string"
+    enum:
+      - "OneToMany"
+      - "ManyToOne"
+      - "ManyToMany"
+    description: "关系类型"
+
+table_schema:
+  type: "object"
+  required: ["schema"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema引用路径"
+
+    schema:
+      type: "object"
+      required: ["schema_name", "display_name"]
+      additionalProperties: false
+      properties:
+        schema_name:
+          type: "string"
+          minLength: 2
+          maxLength: 100
+          pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+          description: "表的Schema名称（自动加前缀）"
+
+        display_name:
+          type: "string"
+          minLength: 1
+          maxLength: 255
+          description: "显示名称"
+
+        description:
+          type: "string"
+          maxLength: 1000
+          description: "表描述"
+
+        ownership_type:
+          $ref: "#/definitions/ownership_type"
+          default: "UserOwned"
+
+        has_activities:
+          type: "boolean"
+          default: false
+          description: "是否启用活动"
+
+        has_notes:
+          type: "boolean"
+          default: false
+          description: "是否启用注释"
+
+        is_audit_enabled:
+          type: "boolean"
+          default: false
+          description: "是否启用审计"
+
+        options:
+          type: "object"
+          properties:
+            import_dependencies:
+              type: "boolean"
+              default: false
+            import_subcomponents:
+              type: "boolean"
+              default: false
+            create_audit_fields:
+              type: "boolean"
+              default: false
+            enable_quick_create:
+              type: "boolean"
+              default: false
+            enable_mobile:
+              type: "boolean"
+              default: false
+            enable_external_channels:
+              type: "boolean"
+              default: false
+
+    attributes:
+      type: "array"
+      items:
+        type: "object"
+        required: ["name", "type", "display_name"]
+        properties:
+          name:
+            type: "string"
+            pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+            description: "字段名称"
+
+          type:
+            $ref: "#/definitions/attribute_type"
+            description: "字段数据类型"
+
+          display_name:
+            type: "string"
+            minLength: 1
+            description: "显示名称"
+
+          description:
+            type: "string"
+            description: "字段描述"
+
+          required:
+            type: "boolean"
+            default: false
+
+          max_length:
+            type: "integer"
+            minimum: 1
+            maximum: 4000
+            description: "最大长度（String类型）"
+
+          min_value:
+            type: "number"
+            description: "最小值"
+
+          max_value:
+            type: "number"
+            description: "最大值"
+
+          precision:
+            type: "integer"
+            minimum: 0
+            maximum: 10
+            description: "精度（小数位数）"
+
+          default_value:
+            type: "string"
+            description: "默认值"
+
+          is_primary_name:
+            type: "boolean"
+            default: false
+            description: "是否为主名称字段"
+
+          searchable:
+            type: "boolean"
+            default: true
+            description: "是否可搜索"
+
+          formula:
+            type: "string"
+            description: "计算字段公式"
+
+          options:
+            type: "array"
+            description: "选项集值（Picklist类型）"
+            items:
+              type: "object"
+              required: ["value", "label"]
+              properties:
+                value:
+                  type: "integer"
+                  minimum: 0
+                  description: "选项值"
+
+                label:
+                  type: "string"
+                  description: "选项标签"
+
+                color:
+                  type: "string"
+                  pattern: "^#[0-9A-Fa-f]{6}$"
+                  description: "选项颜色"
+
+          entity:
+            type: "string"
+            description: "关联实体（Lookup类型）"
+
+          relationship_name:
+            type: "string"
+            description: "关系名称"
+
+    relationships:
+      type: "array"
+      items:
+        type: "object"
+        required: ["name", "related_entity", "relationship_type"]
+        properties:
+          name:
+            type: "string"
+            description: "关系名称"
+
+          related_entity:
+            type: "string"
+            description: "关联实体"
+
+          relationship_type:
+            $ref: "#/definitions/relationship_type"
+
+          display_name:
+            type: "string"
+            description: "显示名称"
+
+          cascade_assign:
+            $ref: "#/definitions/cascade_type"
+            default: "NoCascade"
+
+          cascade_delete:
+            $ref: "#/definitions/cascade_type"
+            default: "RemoveLink"
+
+          cascade_reparent:
+            $ref: "#/definitions/cascade_type"
+            default: "NoCascade"
+
+          cascade_share:
+            $ref: "#/definitions/cascade_type"
+            default: "NoCascade"
+
+          cascade_unshare:
+            $ref: "#/definitions/cascade_type"
+            default: "NoCascade"
+
+          referencing_attribute:
+            type: "string"
+            description: "引用字段"
+
+          referenced_attribute:
+            type: "string"
+            default: "primarykey"
+
+# 示例
+example:
+  schema:
+    schema_name: "account"
+    display_name: "客户账户"
+    description: "存储客户账户信息"
+    ownership_type: "UserOwned"
+    has_activities: false
+    has_notes: false
+
+    options:
+      import_dependencies: false
+      import_subcomponents: false
+      create_audit_fields: false
+      enable_quick_create: false
+
+  attributes:
+    - name: "accountNumber"
+      type: "String"
+      display_name: "账户编号"
+      description: "唯一账户编号"
+      max_length: 50
+      required: true
+      is_primary_name: true
+
+    - name: "balance"
+      type: "Money"
+      display_name: "账户余额"
+      required: false
+      min_value: 0
+      precision: 2
+
+    - name: "status"
+      type: "Picklist"
+      display_name: "状态"
+      options:
+        - value: 100000000
+          label: "活跃"
+        - value: 100000001
+          label: "冻结"
+        - value: 100000002
+          label: "关闭"
+
+  relationships:
+    - name: "account_contact"
+      related_entity: "contact"
+      relationship_type: "OneToMany"
+      display_name: "账户联系人"
+      cascade_assign: "NoCascade"
+      cascade_delete: "RemoveLink"

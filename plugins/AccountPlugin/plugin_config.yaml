@@ -1,0 +1,63 @@
+# Account Plugin Configuration
+# 账户插件配置文件
+
+plugin:
+  name: "AccountPlugin"
+  description: "账户相关插件 - 处理账户创建、更新和业务规则"
+  version: "1.0.0.0"
+  author: "Your Organization"
+
+# 步骤注册配置
+steps:
+  # 创建操作 - 预操作
+  - message: "Create"
+    entity: "account"
+    stage: "pre-operation"
+    mode: "synchronous"
+    rank: 1
+    description: "账户创建时生成编号和设置默认值"
+    filtering_attributes:
+      - "new_accountnumber"
+      - "new_status"
+
+  # 更新操作 - 预操作
+  - message: "Update"
+    entity: "account"
+    stage: "pre-operation"
+    mode: "synchronous"
+    rank: 1
+    description: "账户更新时检查业务规则"
+    filtering_attributes:
+      - "new_status"
+      - "new_balance"
+
+  # 删除操作 - 预操作
+  - message: "Delete"
+    entity: "account"
+    stage: "pre-operation"
+    mode: "synchronous"
+    rank: 1
+    description: "账户删除前检查关联数据"
+
+# 构建配置
+build:
+  configuration: "Release"
+  output_path: "bin/Release/net8.0"
+  auto_deploy: false
+
+# 部署配置
+deployment:
+  environment: "dev"
+  solution_name: "MySolution_Dev"
+  auto_register_steps: true
+
+# 安全配置
+security:
+  run_in_user_context: true
+  impersonate_user: false
+
+# 日志配置
+logging:
+  enable_tracing: true
+  log_level: "Info"
+  log_to_file: true

@@ -1,0 +1,142 @@
+# Hermes Agent Profile for Power Platform Development
+# Power Platform 开发助手配置文件
+
+hermes:
+  profile_name: "power-platform-dev"
+  description: "Power Platform开发助手 - 专注于模型设计和业务逻辑开发"
+  version: "1.0.0"
+  author: "Power Platform Team"
+
+mcp:
+  server:
+    name: "power-platform-mcp"
+    version: "1.0.0"
+    description: "MCP Server for Power Platform Development Tools"
+
+  tools:
+    include:
+      - "metadata_*"
+      - "webresource_*"
+      - "ribbon_*"
+      - "sitemap_*"
+      - "plugin_*"
+      - "solution_*"
+      - "auth_*"
+      - "naming_*"
+      - "extension_*"
+    exclude:
+      - "extension_execute"  # 默认排除手动执行扩展
+
+  resources:
+    - name: "metadata_files"
+      uri: "file://./metadata/**/*.yaml"
+      description: "YAML元数据定义文件"
+    - name: "plugin_projects"
+      uri: "file://./plugins/**/*.csproj"
+      description: ".NET插件项目文件"
+    - name: "webresource_files"
+      uri: "file://./webresources/**/*"
+      description: "Web Resource源文件"
+    - name: "config_files"
+      uri: "file://./config/**/*.yaml"
+      description: "配置文件"
+
+environments:
+  current: "dev"
+  profiles:
+    dev:
+      url: "https://orgdev.crm.dynamics.com"
+      tenant_id: "${TENANT_ID}"
+      client_id: "${CLIENT_ID}"
+      client_secret: "${CLIENT_SECRET}"
+      solution: "MySolution_Dev"
+      auto_deploy: true
+      publisher_prefix: "new"
+
+    test:
+      url: "https://orgtest.crm.dynamics.com"
+      tenant_id: "${TENANT_ID}"
+      client_id: "${CLIENT_ID}"
+      client_secret: "${CLIENT_SECRET}"
+      solution: "MySolution_Test"
+      auto_deploy: false
+      publisher_prefix: "new"
+
+    production:
+      url: "https://org.crm.dynamics.com"
+      tenant_id: "${TENANT_ID}"
+      client_id: "${CLIENT_ID}"
+      client_secret: "${CLIENT_SECRET}"
+      solution: "MySolution_Prod"
+      auto_deploy: false
+      requires_approval: true
+      publisher_prefix: "new"
+
+# 命名规则配置
+naming:
+  publisher_prefix: "new"  # 发布商前缀
+
+  schema_name:
+    style: "lowercase"     # lowercase | camelCase | PascalCase
+    separator: "_"         # 分隔符，lowercase时使用
+    auto_prefix: true      # 自动添加前缀
+
+  webresource:
+    category_style: "lowercase"
+    naming_pattern: "{prefix}{category}/{name}.{ext}"
+    # 示例: new_css/account.css, new_js/form.js
+
+  # 自动命名转换规则
+  transformations:
+    - pattern: "([A-Z])"
+      replacement: "_\\1"
+      flags: "lowercase"
+
+  # 保留字列表（不自动转换）
+  reserved_words:
+    - "account"
+    - "contact"
+    - "systemuser"
+
+# 表创建默认配置
+table_options:
+  import_dependencies: false     # 默认不导入依赖项
+  import_subcomponents: false    # 默认不导入子组件
+  create_audit_fields: false     # 不自动创建审计字段
+  enable_quick_create: false     # 不启用快速创建
+  enable_mobile: false           # 不启用移动端
+  enable_external_channels: false
+
+# 表单创建默认配置
+form_options:
+  use_field_display_label: true  # 使用字段的display label
+  enable_security: false
+  show_image: false
+  enable_navigation: false
+  show_process_control: false
+
+# 插件开发配置
+plugin_options:
+  dotnet_version: "8.0"
+  target_framework: "net8.0"
+  auto_build: true
+  auto_deploy: false
+  watch_mode: false
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG | INFO | WARNING | ERROR
+  file: ".pp-local/logs/agent.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# 缓存配置
+cache:
+  enabled: true
+  directory: ".pp-local/cache"
+  ttl: 3600  # 缓存过期时间（秒）
+
+# 状态管理
+state:
+  file: ".pp-local/state.json"
+  auto_save: true

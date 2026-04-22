@@ -1,0 +1,265 @@
+# Web Resource 元数据 Schema 定义
+# 用于验证Power Platform Web Resource的YAML元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/webresource"
+title: "Power Platform Web Resource Metadata Schema"
+description: "Dataverse Web Resource的元数据定义Schema"
+
+definitions:
+  webresource_type:
+    type: "string"
+    enum:
+      - "css"              # CSS样式表
+      - "js"               # JavaScript脚本
+      - "html"             # HTML页面
+      - "png"              # PNG图片
+      - "jpg"              # JPEG图片
+      - "gif"              # GIF图片
+      - "svg"              # SVG矢量图
+      - "ico"              # 图标文件
+      - "xap"              # Silverlight应用
+      - "xml"              # XML文档
+      - "xslt"             # XSLT转换
+      - "xsl"              # XSL样式表
+      - "resx"             # 资源文件
+    description: "Web Resource类型"
+
+  webresource_display_type:
+    type: "string"
+    enum:
+      - "CSS"
+      - "Webpage (HTML)"
+      - "Script (JScript)"
+      - "Image (PNG)"
+      - "Image (JPG)"
+      - "Image (GIF)"
+      - "Image (SVG)"
+      - "Icon"
+      - "Silverlight"
+      - "XML"
+      - "XSLT"
+      - "StyleSheet (XSL)"
+    description: "显示类型名称"
+
+webresource_schema:
+  type: "object"
+  required: ["resources"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema引用路径"
+
+    # Web Resource统一命名规则
+    naming:
+      type: "object"
+      description: "命名规则配置"
+      properties:
+        prefix:
+          type: "string"
+          default: "new_"
+          description: "前缀"
+
+        category_style:
+          type: "string"
+          enum: ["lowercase", "uppercase"]
+          default: "lowercase"
+          description: "分类名称大小写"
+
+        naming_pattern:
+          type: "string"
+          default: "{prefix}{category}/{name}.{ext}"
+          description: "命名模式"
+
+    resources:
+      type: "array"
+      description: "Web Resource定义列表"
+      items:
+        type: "object"
+        required: ["name", "type", "source_path"]
+        properties:
+          name:
+            type: "string"
+            pattern: "^[a-zA-Z][a-zA-Z0-9_-]*$"
+            description: "Web Resource名称（不含前缀和扩展名）"
+
+          type:
+            $ref: "#/definitions/webresource_type"
+            description: "Web Resource类型"
+
+          display_name:
+            type: "string"
+            description: "显示名称"
+
+          description:
+            type: "string"
+            description: "描述"
+
+          source_path:
+            type: "string"
+            description: "源文件路径（相对于webresources目录）"
+
+          # 命名规则处理后: new_css/account_form.css
+          generated_name:
+            type: "string"
+            description: "生成的完整名称（只读）"
+
+          dependencies:
+            type: "array"
+            description: "依赖的其他Web Resources"
+            items:
+              type: "string"
+              description: "依赖的Web Resource名称（含前缀）"
+
+          # 类型特定属性
+          minify:
+            type: "boolean"
+            default: false
+            description: "是否压缩（CSS/JS类型）"
+
+          source_map:
+            type: "boolean"
+            default: false
+            description: "是否生成Source Map（JS类型）"
+
+          language:
+            type: "string"
+            default: "javascript"
+            description: "脚本语言（JS类型）"
+
+          async:
+            type: "boolean"
+            default: false
+            description: "异步加载（JS类型）"
+
+          defer:
+            type: "boolean"
+            default: false
+            description: "延迟加载（JS类型）"
+
+          media:
+            type: "string"
+            description: "媒体查询（CSS类型）"
+
+          width:
+            type: "integer"
+            description: "宽度（图片类型）"
+
+          height:
+            type: "integer"
+            description: "高度（图片类型）"
+
+          # 部署配置
+          deploy:
+            type: "object"
+            properties:
+              enabled:
+                type: "boolean"
+                default: true
+
+              overwrite:
+                type: "boolean"
+                default: true
+
+              publish:
+                type: "boolean"
+                default: true
+
+              customization_file:
+                type: "boolean"
+                default: false
+
+    # 类型映射配置
+    type_mapping:
+      type: "object"
+      description: "类型名称映射"
+      properties:
+        css:
+          type: "string"
+          default: "css"
+
+        js:
+          type: "string"
+          default: "javascript"
+
+        html:
+          type: "string"
+          default: "html"
+
+        png:
+          type: "string"
+          default: "png"
+
+        jpg:
+          type: "string"
+          default: "jpg"
+
+        svg:
+          type: "string"
+          default: "svg"
+
+        ico:
+          type: "string"
+          default: "icon"
+
+        xap:
+          type: "string"
+          default: "silverlight"
+
+        xml:
+          type: "string"
+          default: "xml"
+
+        xslt:
+          type: "string"
+          default: "xslt"
+
+# 示例
+example:
+  resources:
+    # CSS文件
+    - name: "account_form"
+      type: "css"
+      display_name: "账户表单样式"
+      description: "账户表单自定义样式"
+      source_path: "webresources/css/account_form.css"
+      minify: true
+      # 命名规则处理后: new_css/account_form.css
+
+    # JavaScript文件
+    - name: "account_handler"
+      type: "js"
+      display_name: "账户表单脚本"
+      description: "账户表单业务逻辑"
+      source_path: "webresources/js/account_handler.js"
+      dependencies:
+        - "new_shared/underscore.js"
+        - "new_shared/moment.js"
+      minify: true
+      source_map: true
+      # 命名规则处理后: new_js/account_handler.js
+
+    # HTML文件
+    - name: "account_dashboard"
+      type: "html"
+      display_name: "账户仪表板"
+      description: "自定义账户仪表板页面"
+      source_path: "webresources/html/account_dashboard.html"
+      # 命名规则处理后: new_html/account_dashboard.html
+
+    # Image文件
+    - name: "account_icon"
+      type: "png"
+      display_name: "账户图标"
+      source_path: "webresources/img/account_icon.png"
+      width: 32
+      height: 32
+      # 命名规则处理后: new_png/account_icon.png
+
+    # SVG图标
+    - name: "approve_icon"
+      type: "svg"
+      display_name: "批准图标"
+      source_path: "webresources/img/approve_icon.svg"
+      # 命名规则处理后: new_svg/approve_icon.svg

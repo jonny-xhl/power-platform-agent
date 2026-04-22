@@ -1,0 +1,183 @@
+# 账户命令栏(Ribbon)自定义配置
+# 本文件定义了账户实体的命令栏自定义按钮和菜单
+
+$schema: "../_schema/ribbon_schema.yaml"
+
+ribbon:
+  entity: "account"
+  display_name: "账户命令栏"
+  description: "账户实体的自定义命令栏配置"
+
+  # 自定义按钮
+  buttons:
+    # 批准账户按钮
+    - name: "approveAccount"
+      display_name: "批准账户"
+      tooltip: "批准当前选中的账户"
+      description: "将账户状态更改为已批准"
+      icon: "new_svg/approve_icon.svg"
+
+      location: "Mscrm.HomepageGrid.account.MainTab.Actions"
+      sequence: 10
+
+      # 显示规则
+      display_rules:
+        - type: "selectioncount"
+          operator: "eq"
+          value: "1"
+        - type: "customrule"
+          function: "canApproveAccount"
+          library: "new_js/account_handler.js"
+
+      # 启用规则
+      enable_rules:
+        - type: "customrule"
+          function: "isAccountActive"
+          library: "new_js/account_handler.js"
+          invert: false
+
+      # 点击动作
+      command:
+        type: "javascript"
+        function: "approveAccount"
+        library: "new_js/account_handler.js"
+        parameters:
+          - type: "selectedcontrol"
+          - type: "selectedcontrolselecteditem"
+
+    # 批量处理按钮
+    - name: "batchProcess"
+      display_name: "批量处理"
+      tooltip: "批量处理选中的账户"
+      description: "对多个账户执行批量操作"
+      icon: "new_svg/batch_icon.svg"
+
+      location: "Mscrm.HomepageGrid.account.MainTab.Actions"
+      sequence: 20
+
+      display_rules:
+        - type: "selectioncount"
+          operator: "gte"
+          value: "1"
+
+      command:
+        type: "javascript"
+        function: "batchProcessAccounts"
+        library: "new_js/account_batch.js"
+
+    # 刷新余额按钮
+    - name: "refreshBalance"
+      display_name: "刷新余额"
+      tooltip: "刷新账户余额信息"
+      description: "从外部系统获取最新的账户余额"
+      icon: "new_svg/refresh_icon.svg"
+
+      location: "Mscrm.HomepageGrid.account.MainTab.Actions"
+      sequence: 30
+
+      display_rules:
+        - type: "selectioncount"
+          operator: "gte"
+          value: "1"
+
+      command:
+        type: "javascript"
+        function: "refreshAccountBalances"
+        library: "new_js/account_handler.js"
+
+  # 自定义菜单
+  menus:
+    # 账户操作菜单
+    - name: "accountActionsMenu"
+      display_name: "账户操作"
+      location: "Mscrm.HomepageGrid.account.MainTab.Actions"
+      menu_type: "Menu"
+      sequence: 40
+      icon: "new_svg/actions_icon.svg"
+
+      items:
+        - name: "exportToExcel"
+          display_name: "导出到Excel"
+          icon: "new_svg/excel_icon.svg"
+          sequence: 1
+          command:
+            type: "javascript"
+            function: "exportAccounts"
+            library: "new_js/account_export.js"
+
+        - name: "sendEmail"
+          display_name: "发送邮件"
+          icon: "new_svg/email_icon.svg"
+          sequence: 2
+          command:
+            type: "javascript"
+            function: "sendAccountEmail"
+            library: "new_js/account_email.js"
+
+        - name: "bulkUpdate"
+          display_name: "批量更新"
+          icon: "new_svg/batch_icon.svg"
+          sequence: 3
+          command:
+            type: "javascript"
+            function: "bulkUpdateAccounts"
+            library: "new_js/account_batch.js"
+
+    # 状态变更菜单（分割按钮）
+    - name: "changeStatusMenu"
+      display_name: "更改状态"
+      location: "Mscrm.HomepageGrid.account.MainTab.Actions"
+      menu_type: "SplitButton"
+      sequence: 50
+
+      items:
+        - name: "activateAccount"
+          display_name: "激活"
+          sequence: 1
+          command:
+            type: "javascript"
+            function: "setAccountStatus"
+            library: "new_js/account_handler.js"
+
+        - name: "freezeAccount"
+          display_name: "冻结"
+          sequence: 2
+          command:
+            type: "javascript"
+            function: "setAccountStatus"
+            library: "new_js/account_handler.js"
+
+        - name: "closeAccount"
+          display_name: "关闭"
+          sequence: 3
+          command:
+            type: "javascript"
+            function: "setAccountStatus"
+            library: "new_js/account_handler.js"
+
+  # 自定义组
+  groups:
+    - name: "accountActionsGroup"
+      display_name: "账户操作"
+      location: "Mscrm.HomepageGrid.account.MainTab"
+      sequence: 10
+
+      buttons:
+        - "approveAccount"
+        - "batchProcess"
+
+  # 自定义选项卡
+  tabs:
+    - name: "accountManagementTab"
+      display_name: "账户管理"
+      location: "Mscrm.HomepageGrid.account"
+      sequence: 5
+
+      groups:
+        - name: "accountActionsGroup"
+          display_name: "操作"
+          sequence: 1
+
+        - name: "accountReportsGroup"
+          display_name: "报表"
+          sequence: 2

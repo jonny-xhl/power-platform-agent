@@ -1,0 +1,118 @@
+# 客户账户表元数据定义
+# 本文件定义了一个自定义客户账户表的完整元数据
+
+$schema: "../_schema/table_schema.yaml"
+
+schema:
+  schema_name: "account"
+  display_name: "客户账户"
+  description: "存储客户账户信息，包括账户编号、余额和状态"
+  ownership_type: "UserOwned"
+  has_activities: false
+  has_notes: false
+  is_audit_enabled: false
+
+  # 表创建配置 - 默认均为false
+  options:
+    import_dependencies: false
+    import_subcomponents: false
+    create_audit_fields: false
+    enable_quick_create: false
+
+# 字段定义
+attributes:
+  - name: "accountNumber"
+    type: "String"
+    display_name: "账户编号"
+    description: "唯一账户编号"
+    max_length: 50
+    required: true
+    is_primary_name: true
+
+  - name: "accountName"
+    type: "String"
+    display_name: "账户名称"
+    description: "账户名称"
+    max_length: 100
+    required: true
+
+  - name: "balance"
+    type: "Money"
+    display_name: "账户余额"
+    description: "当前账户余额"
+    required: false
+    min_value: 0
+    precision: 2
+
+  - name: "status"
+    type: "Picklist"
+    display_name: "状态"
+    description: "账户状态"
+    required: true
+    options:
+      - value: 100000000
+        label: "活跃"
+      - value: 100000001
+        label: "冻结"
+      - value: 100000002
+        label: "关闭"
+
+  - name: "accountType"
+    type: "Picklist"
+    display_name: "账户类型"
+    description: "客户账户类型"
+    required: false
+    options:
+      - value: 100000000
+        label: "个人"
+      - value: 100000001
+        label: "企业"
+      - value: 100000002
+        label: "政府"
+
+  - name: "creditLimit"
+    type: "Money"
+    display_name: "信用额度"
+    description: "客户信用额度"
+    required: false
+    min_value: 0
+    precision: 2
+
+  - name: "openedDate"
+    type: "DateTime"
+    display_name: "开户日期"
+    description: "账户开立日期"
+    required: false
+
+  - name: "notes"
+    type: "Memo"
+    display_name: "备注"
+    description: "账户备注信息"
+    max_length: 2000
+    required: false
+
+# 关系定义
+relationships:
+  # 一对多关系：账户 -> 联系人
+  - name: "account_contact"
+    related_entity: "contact"
+    relationship_type: "OneToMany"
+    display_name: "账户联系人"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：账户 -> 主要联系人
+  - name: "primary_contact"
+    related_entity: "contact"
+    relationship_type: "ManyToOne"
+    display_name: "主要联系人"
+    referencing_attribute: "primarycontactid"
+
+  # 多对多关系：账户 -> 产品
+  - name: "account_product"
+    related_entity: "product"
+    relationship_type: "ManyToMany"
+    display_name: "账户产品"

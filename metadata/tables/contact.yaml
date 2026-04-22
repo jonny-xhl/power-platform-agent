@@ -1,0 +1,63 @@
+# 联系人表元数据定义
+# 本文件定义了一个自定义联系人表的完整元数据
+
+$schema: "../_schema/table_schema.yaml"
+
+schema:
+  schema_name: "contact"
+  display_name: "联系人"
+  description: "存储联系人信息"
+  ownership_type: "UserOwned"
+  has_activities: true
+  has_notes: true
+  is_audit_enabled: true
+
+  options:
+    import_dependencies: false
+    import_subcomponents: false
+    create_audit_fields: false
+    enable_quick_create: false
+
+attributes:
+  - name: "firstName"
+    type: "String"
+    display_name: "名"
+    description: "联系人的名字"
+    max_length: 50
+    required: true
+
+  - name: "lastName"
+    type: "String"
+    display_name: "姓"
+    description: "联系人的姓氏"
+    max_length: 50
+    required: true
+    is_primary_name: true
+
+  - name: "email"
+    type: "String"
+    display_name: "电子邮件"
+    description: "主要电子邮件地址"
+    max_length: 100
+    required: true
+
+  - name: "phone"
+    type: "String"
+    display_name: "电话"
+    description: "主要电话号码"
+    max_length: 50
+    required: false
+
+  - name: "mobile"
+    type: "String"
+    display_name: "手机"
+    description: "手机号码"
+    max_length: 50
+    required: false
+
+relationships:
+  - name: "contact_account"
+    related_entity: "account"
+    relationship_type: "ManyToOne"
+    display_name: "所属账户"
+    referencing_attribute: "parentcustomerid"

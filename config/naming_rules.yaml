@@ -1,0 +1,229 @@
+# Power Platform 命名规则配置
+# 定义元数据对象的命名转换规则和验证规则
+
+naming:
+  prefix: "new"  # 发布商前缀
+
+  # Schema Name 命名规则
+  schema_name:
+    style: "lowercase"  # lowercase | camelCase | PascalCase
+    separator: "_"      # 分隔符，lowercase时使用
+    auto_prefix: true   # 自动添加前缀
+
+  # 标准表保护列表 - 这些表不会被命名转换影响
+  standard_entities:
+    # 系统核心表
+    - "account"
+    - "contact"
+    - "systemuser"
+    - "team"
+    - "businessunit"
+    - "role"
+    - "privilege"
+
+    # 货币和日历
+    - "transactioncurrency"
+    - "calendar"
+
+    # 知识管理
+    - "kbarticle"
+    - "kbarticlecomment"
+    - "knowledgearticle"
+
+    # 销售实体
+    - "lead"
+    - "opportunity"
+    - "competitor"
+    - "quote"
+    - "salesorder"
+    - "invoice"
+    - "opportunityproduct"
+    - "quotedetail"
+    - "salesorderdetail"
+    - "invoicedetail"
+
+    # 活动和笔记
+    - "activitypointer"
+    - "email"
+    - "appointment"
+    - "task"
+    - "phonecall"
+    - "letter"
+    - "fax"
+    - "activityparty"
+    - "annotation"
+    - "attachment"
+
+    # 客户服务
+    - "incident"
+    - "case"
+    - "activitymimeattachment"
+    - "bulkoperation"
+    - "campaign"
+    - "campaignresponse"
+    - "list"
+    - "campaignactivity"
+
+    # 工作流和流程
+    - "workflow"
+    - "template"
+    - "process"
+    - "processstage"
+    - "processsession"
+
+    # 系统管理
+    - "userquery"
+    - "savedquery"
+    - "userform"
+    - "systemform"
+    - "visualization"
+    - "chart"
+    - "dashboard"
+
+    # 连接和关系
+    - "connection"
+    - "customeraddress"
+    - "customeropportunityrole"
+    - "customerrelationship"
+
+    # 社交和反馈
+    - "feedback"
+    - "post"
+    - "postrole"
+    - "postcomment"
+    - "article"
+    - "bulkdeleteoperation"
+
+    # 导入导出
+    - "import"
+    - "importfile"
+    - "importmap"
+    - "importlog"
+
+    # 异步操作
+    - "asyncoperation"
+    - "duplicaterule"
+    - "duplicaterulecondition"
+
+    # 其他系统实体
+    - "site"
+    - "sitemap"
+    - "appmodule"
+    - "webresource"
+    - "ribboncommand"
+    - "ribboncontextgroup"
+    - "ribbondiff"
+    - "ribbonrule"
+    - "ribbontab"
+
+    # 安全相关
+    - "principalobjectaccess"
+    - "principalattributeaccessset"
+    - "fieldsecurityprofile"
+    - "fieldpermission"
+
+  # Web Resource 命名规则
+  webresource:
+    prefix: "new_"
+    naming_pattern: "{prefix}{category}/{name}.{ext}"
+    # 示例: new_css/account.css, new_js/form.js
+
+  # Web Resource 类型映射
+  webresource_types:
+    css: "css"
+    js: "javascript"
+    html: "html"
+    htm: "html"
+    png: "png"
+    jpg: "jpg"
+    jpeg: "jpg"
+    gif: "gif"
+    svg: "svg"
+    ico: "icon"
+    xap: "silverlight"
+    xml: "xml"
+    xslt: "xslt"
+    xsl: "xslt"
+
+  # 自动命名转换规则
+  transformations:
+    - pattern: "([a-z])([A-Z])"
+      replacement: "\\1_\\2"
+      description: "在小写和大写字母之间插入下划线"
+      # AccountNumber → Account_Number
+
+    - pattern: "([A-Z]+)"
+      replacement: "_\\1"
+      flags: "lowercase"
+      description: "大写字母组转为小写并加下划线"
+      # Account → _account → account
+
+  # 保留字列表（不自动转换）
+  reserved_words:
+    - "account"
+    - "contact"
+    - "systemuser"
+    - "businessunit"
+    - "team"
+    - "role"
+    - "privilege"
+
+  # 命名验证规则
+  validation:
+    schema_name:
+      max_length: 100           # schema_name最大长度
+      min_length: 2             # 最小长度
+      forbidden_chars: [" ", "-", "."]  # 禁止的字符
+      must_start_with: "letter"  # 必须以字母开头
+      allowed_pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+
+    display_name:
+      max_length: 255
+      min_length: 1
+      forbidden_chars: []  # 显示名称允许更多字符
+
+    webresource_name:
+      max_length: 256
+      forbidden_chars: [" "]
+      allowed_pattern: "^[a-zA-Z0-9_./-]+$"
+
+  # 特殊命名规则
+  special_rules:
+    # 选项集值命名
+    optionset:
+      prefix: true
+      value_prefix: true
+
+    # 字段命名
+    attribute:
+      # 是否为标准字段添加前缀
+      standard_prefix: false
+
+    # 视图命名
+    view:
+      suffix: "_view"
+      prefix: true
+
+    # 表单命名
+    form:
+      suffix_pattern: "_{type}_form"  # account_main_form, account_quick_form
+      prefix: true
+
+# 不同命名风格的转换示例
+examples:
+  input: "AccountNumber"
+
+  lowercase:
+    separator: "_"
+    prefix: "new_"
+    result: "new_account_number"
+
+  camelCase:
+    separator: ""
+    prefix: "new"
+    result: "newAccountNumber"
+
+  PascalCase:
+    separator: ""
+    prefix: "New"
+    result: "NewAccountNumber"

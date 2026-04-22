@@ -1,0 +1,102 @@
+# Power Platform 环境配置
+# 用于管理多个Dataverse环境的连接信息
+
+environments:
+  # 开发环境
+  dev:
+    name: "Development"
+    url: "https://orgdev.crm.dynamics.com"
+    environment_id: "${DEV_ENVIRONMENT_ID}"
+    tenant_id: "${DEV_TENANT_ID}"
+    client_id: "${DEV_CLIENT_ID}"
+    client_secret: "${DEV_CLIENT_SECRET}"
+    redirect_uri: "http://localhost:5000/callback"
+
+    solution:
+      name: "MySolution_Dev"
+      publisher: "MyPublisher"
+      version: "1.0.0.0"
+
+    settings:
+      auto_deploy: true
+      requires_approval: false
+      timeout: 300
+      retry_count: 3
+      retry_delay: 5
+
+  # 测试环境
+  test:
+    name: "Testing"
+    url: "https://orgtest.crm.dynamics.com"
+    environment_id: "${TEST_ENVIRONMENT_ID}"
+    tenant_id: "${TEST_TENANT_ID}"
+    client_id: "${TEST_CLIENT_ID}"
+    client_secret: "${TEST_CLIENT_SECRET}"
+    redirect_uri: "http://localhost:5000/callback"
+
+    solution:
+      name: "MySolution_Test"
+      publisher: "MyPublisher"
+      version: "1.0.0.0"
+
+    settings:
+      auto_deploy: false
+      requires_approval: true
+      timeout: 300
+      retry_count: 3
+      retry_delay: 5
+
+  # 生产环境
+  production:
+    name: "Production"
+    url: "https://org.crm.dynamics.com"
+    environment_id: "${PROD_ENVIRONMENT_ID}"
+    tenant_id: "${PROD_TENANT_ID}"
+    client_id: "${PROD_CLIENT_ID}"
+    client_secret: "${PROD_CLIENT_SECRET}"
+    redirect_uri: "http://localhost:5000/callback"
+
+    solution:
+      name: "MySolution_Prod"
+      publisher: "MyPublisher"
+      version: "1.0.0.0"
+
+    settings:
+      auto_deploy: false
+      requires_approval: true
+      timeout: 600
+      retry_count: 5
+      retry_delay: 10
+
+# 当前激活环境
+current: "dev"
+
+# 全局设置
+global:
+  # API请求配置
+  api:
+    version: "9.2"
+    timeout: 120
+    max_retries: 3
+    batch_size: 100
+
+  # 并发配置
+  concurrency:
+    max_workers: 5
+    max_parallel_requests: 10
+
+  # 限流配置
+  throttle:
+    requests_per_minute: 300
+    burst_size: 50
+
+# OAuth 2.0 配置
+oauth:
+  authority: "https://login.microsoftonline.com"
+  scope: "https://{organization}.dynamics.com/.default"
+  token_cache: ".pp-local/cache/tokens.json"
+
+# PAC CLI 配置（如使用）
+pac_cli:
+  path: "pac"  # 或完整路径
+  timeout: 600
