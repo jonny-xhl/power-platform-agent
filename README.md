@@ -119,7 +119,7 @@ export CLIENT_SECRET="your-client-secret"
   "mcpServers": {
     "power-platform": {
       "command": "python",
-      "args": ["D:/A-Space/projects/ai-projects/skills/power-platform-agent/mcp_serve.py"],
+      "args": ["{your_path}/power-platform-agent/mcp_serve.py"],
       "env": {
         "TENANT_ID": "${TENANT_ID}",
         "CLIENT_ID": "${CLIENT_ID}",
