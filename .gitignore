@@ -53,6 +53,8 @@ desktop.ini
 # Claude (但保留配置文件)
 .claude/*
 !.claude/context_config.yaml
+!.claude/skills/**/*.md
+!.claude/memory/
 
 # Power Platform Local State
 .pp-local/state/*.json
