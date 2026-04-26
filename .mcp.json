@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "power-platform": {
+      "command": "python",
+      "args": [
+        "framework/mcp_serve.py"
+      ],
+      "disabled": false
+    }
+  }
+}

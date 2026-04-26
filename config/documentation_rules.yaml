@@ -1,0 +1,220 @@
+version: "1.0"
+
+# 监控的目录和文件
+monitored_directories:
+  framework:
+    - path: "agents/"
+      doc_targets: ["CLAUDE.md", "docs/spec/architecture.md"]
+      impact_type: "agent_api"
+      confidence: 0.7
+
+    - path: "utils/"
+      doc_targets: ["CLAUDE.md", "docs/spec/architecture.md"]
+      impact_type: "utility_api"
+      confidence: 0.6
+
+    - path: "mcp_serve.py"
+      doc_targets: ["CLAUDE.md"]
+      impact_type: "mcp_tools"
+      confidence: 0.9
+
+    - path: "llm/"
+      doc_targets: ["CLAUDE.md"]
+      impact_type: "llm_integration"
+      confidence: 0.7
+
+  skills:
+    - path: ".claude/skills/*/"
+      doc_targets: ["self"]
+      impact_type: "skill_definition"
+      confidence: 0.8
+
+    - path: ".claude/skills/*/scripts/"
+      doc_targets: ["self"]
+      impact_type: "skill_implementation"
+      confidence: 0.5
+
+    - path: ".claude/skills/*/SKILL.md"
+      doc_targets: ["CLAUDE.md"]
+      impact_type: "skill_list"
+      confidence: 0.6
+
+  config:
+    - path: "config/*.yaml"
+      doc_targets: ["CLAUDE.md", "docs/guides/getting-started.md"]
+      impact_type: "configuration"
+      confidence: 0.6
+
+    - path: "config/naming_rules.yaml"
+      doc_targets: ["CLAUDE.md", "docs/spec/architecture.md"]
+      impact_type: "naming_rules"
+      confidence: 0.8
+
+    - path: "config/hermes_profile.yaml"
+      doc_targets: ["docs/guides/getting-started.md"]
+      impact_type: "profile_config"
+      confidence: 0.7
+
+  metadata:
+    - path: "metadata/_schema/"
+      doc_targets: ["docs/data_dictionary/", "CLAUDE.md"]
+      impact_type: "metadata_schema"
+      confidence: 0.7
+
+    - path: "metadata/tables/"
+      doc_targets: ["docs/data_dictionary/"]
+      impact_type: "metadata_definition"
+      confidence: 0.5
+
+    - path: "metadata/optionsets/"
+      doc_targets: ["docs/data_dictionary/"]
+      impact_type: "metadata_definition"
+      confidence: 0.5
+
+  scripts:
+    - path: "scripts/hooks/"
+      doc_targets: ["CLAUDE.md", "docs/guides/getting-started.md"]
+      impact_type: "hooks"
+      confidence: 0.6
+
+    - path: "scripts/*.py"
+      doc_targets: ["CLAUDE.md"]
+      impact_type: "scripts"
+      confidence: 0.5
+
+# 排除规则
+exclusions:
+  file_patterns:
+    - "*.log"
+    - "*.tmp"
+    - "*.cache"
+    - "*.pyc"
+    - "*.pyo"
+    - ".DS_Store"
+    - "Thumbs.db"
+    - "*.suggest"
+    - "*.bak"
+
+  directories:
+    - ".git/"
+    - "__pycache__/"
+    - ".pytest_cache/"
+    - "node_modules/"
+    - ".venv/"
+    - "venv/"
+    - "env/"
+    - ".tox/"
+    - "dist/"
+    - "build/"
+    - "*.egg-info/"
+
+  change_types:
+    - "whitespace_only"
+    - "comment_only"
+
+  documentation_files:
+    - "docs/data_dictionary/"  # 由专门的脚本处理
+    - "CHANGELOG.md"           # 避免循环更新
+
+# 更新策略
+update_strategy:
+  default_mode: "suggest"
+
+  per_document:
+    "CLAUDE.md": "suggest"
+    ".claude/skills/*/SKILL.md": "auto"
+    "docs/spec/architecture.md": "suggest"
+    "docs/guides/*.md": "suggest"
+    "CHANGELOG.md": "auto"
+
+# 置信度阈值
+confidence:
+  auto_apply: 0.8      # 高于此值自动应用
+  suggest: 0.5         # 高于此值生成建议文件
+  ignore: 0.3          # 低于此值忽略
+
+# LLM 配置
+llm:
+  provider: "${LLM_PROVIDER:anthropic}"
+  model: "${LLM_MODEL:claude-sonnet-4-20250514}"
+  temperature: 0.3
+  max_tokens: 4000
+
+  提供商配置:
+    anthropic:
+      model: "${ANTHROPIC_MODEL:claude-sonnet-4-20250514}"
+      api_key_env: "ANTHROPIC_API_KEY"
+
+    zhipu:
+      model: "${ZHIPU_MODEL:glm-4-flash}"
+      api_key_env: "ZHIPUAI_API_KEY"
+
+    qwen:
+      model: "${QWEN_MODEL:qwen-plus}"
+      api_key_env: "DASHSCOPE_API_KEY"
+
+# 影响规则（用于动态加载）
+impact_rules:
+  - name: "mcp_tools"
+    patterns:
+      - "framework/mcp_serve\\.py"
+    affects:
+      - "CLAUDE.md"
+    confidence: 0.9
+    impact_type: "mcp_tools"
+
+  - name: "agent_api"
+    patterns:
+      - "framework/agents/.*\\.py"
+    affects:
+      - "CLAUDE.md"
+      - "docs/spec/architecture.md"
+    confidence: 0.7
+    impact_type: "agent_api"
+
+  - name: "skill_definition"
+    patterns:
+      - "\\.claude/skills/[^/]+/"
+      - "\\.claude/skills/[^/]+/SKILL\\.md"
+    affects:
+      - "self"
+      - "CLAUDE.md"
+    confidence: 0.8
+    impact_type: "skill_definition"
+
+  - name: "config_change"
+    patterns:
+      - "config/.*\\.yaml"
+    affects:
+      - "CLAUDE.md"
+      - "docs/guides/getting-started.md"
+    confidence: 0.6
+    impact_type: "configuration"
+
+  - name: "naming_rules"
+    patterns:
+      - "config/naming_rules\\.yaml"
+      - "framework/utils/naming_converter\\.py"
+    affects:
+      - "CLAUDE.md"
+      - "docs/spec/architecture.md"
+    confidence: 0.8
+    impact_type: "naming_rules"
+
+# Git Hook 配置
+git_hooks:
+  pre_commit:
+    enabled: true
+    skip_patterns:
+      - "docs/"
+      - "*.md"
+      - "*.suggest"
+
+  post_commit:
+    enabled: false
+
+# 输出配置
+output:
+  suggestion_suffix: ".suggest"
+  changelog_file: "CHANGELOG.md"
+  backup_dir: ".claude/backups/"

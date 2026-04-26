@@ -1,0 +1,246 @@
+# 认款单表元数据定义
+# 用于管理客户认款业务流程
+
+$schema: "../_schema/table_schema.yaml"
+
+schema:
+  schema_name: "new_payment_recognition"
+  display_name: "认款单"
+  description: "记录客户认款信息，关联订单、发票和客户，支持审批流程"
+  ownership_type: "UserOwned"
+  has_activities: true
+  has_notes: true
+  is_audit_enabled: true
+
+  # 表创建配置
+  options:
+    import_dependencies: false
+    import_subcomponents: false
+    create_audit_fields: true
+    enable_quick_create: false
+
+# 字段定义
+attributes:
+  # ===== 主名称字段 =====
+  - name: "new_payment_number"
+    type: "String"
+    display_name: "认款单号"
+    description: "认款单唯一编号"
+    max_length: 50
+    required: true
+    is_primary_name: true
+
+  # ===== 基础信息字段 =====
+  - name: "new_payment_date"
+    type: "DateTime"
+    display_name: "认款日期"
+    description: "认款单创建日期"
+    required: true
+    date_only: true
+
+  - name: "new_payment_amount"
+    type: "Money"
+    display_name: "认款金额"
+    description: "本次认款金额"
+    required: true
+    min_value: 0
+    precision: 2
+    precision_source: "transactioncurrency"
+
+  - name: "new_remaining_amount"
+    type: "Money"
+    display_name: "剩余金额"
+    description: "剩余未认款金额"
+    required: false
+    min_value: 0
+    precision: 2
+    precision_source: "transactioncurrency"
+
+  # ===== 认款类型 =====
+  - name: "new_payment_type"
+    type: "Picklist"
+    display_name: "认款类型"
+    description: "认款分类类型"
+    required: true
+    options:
+      - value: 100000000
+        label: "预收款认款"
+      - value: 100000001
+        label: "发货认款"
+      - value: 100000002
+        label: "验收认款"
+      - value: 100000003
+        label: "尾款认款"
+      - value: 100000004
+        label: "其他认款"
+
+  # ===== 审批状态 =====
+  - name: "new_approval_status"
+    type: "Picklist"
+    display_name: "审批状态"
+    description: "认款单审批状态"
+    required: true
+    default_value: 100000000
+    options:
+      - value: 100000000
+        label: "草稿"
+        color: "#808080"
+      - value: 100000001
+        label: "待审核"
+        color: "#FFFF00"
+      - value: 100000002
+        label: "已审核"
+        color: "#008000"
+      - value: 100000003
+        label: "已拒绝"
+        color: "#FF0000"
+      - value: 100000004
+        label: "已撤回"
+        color: "#0000FF"
+
+  # ===== 关联单据信息 =====
+  - name: "new_sales_order_number"
+    type: "String"
+    display_name: "销售订单号"
+    description: "关联的销售订单编号"
+    max_length: 100
+    required: false
+
+  - name: "new_invoice_number"
+    type: "String"
+    display_name: "发票号码"
+    description: "关联的发票号码"
+    max_length: 100
+    required: false
+
+  - name: "new_contract_number"
+    type: "String"
+    display_name: "合同编号"
+    description: "关联的合同编号"
+    max_length: 100
+    required: false
+
+  # ===== 收款信息 =====
+  - name: "new_payment_method"
+    type: "Picklist"
+    display_name: "收款方式"
+    description: "款项收款方式"
+    required: false
+    options:
+      - value: 100000000
+        label: "银行转账"
+      - value: 100000001
+        label: "现金"
+      - value: 100000002
+        label: "支票"
+      - value: 100000003
+        label: "承兑汇票"
+      - value: 100000004
+        label: "其他"
+
+  - name: "new_bank_account"
+    type: "String"
+    display_name: "收款银行"
+    description: "收款银行账户"
+    max_length: 100
+    required: false
+
+  - name: "new_payment_voucher"
+    type: "String"
+    display_name: "付款凭证号"
+    description: "付款凭证编号"
+    max_length: 100
+    required: false
+
+  # ===== 经办/审批信息 =====
+  # 注意：经办人和审批人字段在lookup_attributes中定义为Lookup类型
+  # 通过关系创建（Deep Insert）时自动生成
+
+  - name: "new_approved_date"
+    type: "DateTime"
+    display_name: "审批日期"
+    description: "审批通过日期"
+    required: false
+    date_only: true
+
+  - name: "new_approval_comments"
+    type: "Memo"
+    display_name: "审批意见"
+    description: "审批人意见"
+    max_length: 2000
+    required: false
+
+  # ===== 其他信息 =====
+  - name: "new_remarks"
+    type: "Memo"
+    display_name: "备注"
+    description: "认款单备注信息"
+    max_length: 2000
+    required: false
+
+  - name: "new_attachment_url"
+    type: "String"
+    display_name: "附件地址"
+    description: "相关附件URL"
+    max_length: 500
+    required: false
+
+# 关系定义
+relationships:
+  # 多对一关系：认款单 -> 客户
+  # 关系名称遵循Microsoft约定：ReferencedEntity_ReferencingEntity
+  - name: "account_new_payment_recognition"
+    related_entity: "account"
+    relationship_type: "ManyToOne"
+    display_name: "客户"
+    referencing_attribute: "new_customerid"
+    cascade_assign: "Cascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "Cascade"
+    cascade_share: "Cascade"
+    cascade_unshare: "Cascade"
+
+  # 多对一关系：认款单 -> 经办人
+  - name: "new_systemuser_payment_recognition_handledby"
+    related_entity: "systemuser"
+    relationship_type: "ManyToOne"
+    display_name: "经办人"
+    referencing_attribute: "new_handledby"
+    cascade_assign: "Cascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "Cascade"
+    cascade_share: "Cascade"
+    cascade_unshare: "Cascade"
+
+  # 多对一关系：认款单 -> 审批人
+  - name: "new_systemuser_payment_recognition_approvedby"
+    related_entity: "systemuser"
+    relationship_type: "ManyToOne"
+    display_name: "审批人"
+    referencing_attribute: "new_approvedby"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "Cascade"
+    cascade_unshare: "Cascade"
+
+# 查找字段定义（Lookup类型）- 与关系对应
+lookup_attributes:
+  - name: "new_customerid"
+    type: "Lookup"
+    display_name: "客户"
+    description: "关联的客户"
+    required: false
+    target: "account"
+  - name: "new_handledby"
+    type: "Lookup"
+    display_name: "经办人"
+    description: "认款单经办人"
+    required: true
+    target: "systemuser"
+  - name: "new_approvedby"
+    type: "Lookup"
+    display_name: "审批人"
+    description: "认款单审批人"
+    required: false
+    target: "systemuser"
