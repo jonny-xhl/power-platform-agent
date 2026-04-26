@@ -63,6 +63,9 @@ metadata/.generated/
 # Data dictionary temp files
 docs/data_dictionary/*.tmp
 
+# Documentation agent suggestion files
+*.suggest
+
 # Logs
 *.log
 logs/

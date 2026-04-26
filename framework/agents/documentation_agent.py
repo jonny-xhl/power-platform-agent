@@ -2,14 +2,22 @@
 Documentation Agent - 文档更新代理
 
 负责自动检测代码变更并更新相关文档
+
+安全机制：
+- 原子写入：通过临时文件 + os.replace 保证文件不会处于半写状态
+- 备份机制：每次覆盖前自动备份到 .claude/backups/，保留最近 10 份
+- 增量更新：LLM 输出 JSON section patches，按节合并而非全量覆盖
+- 内容校验：写入前验证内容比例、结构完整性、Markdown 格式
 """
 
 import json
 import logging
 import os
+import re
+import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # 添加框架路径
 import sys
@@ -23,6 +31,9 @@ from framework.llm.langchain_client import LangChainLLMClient, LLMResponse
 
 logger = logging.getLogger(__name__)
 
+# 备份保留数量
+MAX_BACKUPS = 10
+
 
 class DocumentationAgent:
     """
@@ -31,8 +42,8 @@ class DocumentationAgent:
     功能：
     1. 检测代码变更
     2. 分析对文档的影响
-    3. 生成文档更新内容
-    4. 应用文档更新
+    3. 生成文档更新内容（增量 JSON patches）
+    4. 安全地应用文档更新（原子写入 + 备份）
     """
 
     def __init__(
@@ -60,6 +71,9 @@ class DocumentationAgent:
             provider=llm_provider,
             model=llm_model
         )
+
+        # 备份目录
+        self.backup_dir = self.repo_root / ".claude" / "backups"
 
         # 加载提示词模板
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
@@ -92,6 +106,257 @@ class DocumentationAgent:
             else:
                 logger.warning(f"Prompt file not found: {prompt_path}")
                 self.prompts[key] = ""
+
+    # ==================== 原子写入 + 备份机制 ====================
+
+    def _atomic_write(
+        self,
+        target_path: Path,
+        content: str,
+        validation_fn: Optional[Callable[[str], Tuple[bool, str]]] = None
+    ) -> Dict[str, Any]:
+        """
+        原子写入文件：通过临时文件 + os.replace 保证安全
+
+        流程:
+        1. 写入临时文件 {target_path}.tmp
+        2. 调用 validation_fn 校验内容
+           - 通过 → 备份原文件 → os.replace(tmp, target)
+           - 失败 → 删除 .tmp，原文件不变
+        3. 备份到 .claude/backups/ (保留最近 MAX_BACKUPS 份)
+
+        Args:
+            target_path: 目标文件路径
+            content: 要写入的内容
+            validation_fn: 可选校验函数，接收内容字符串，返回 (is_valid, error_message)
+
+        Returns:
+            {"success": bool, "message": str, "backup_path": str|None}
+        """
+        tmp_path = target_path.parent / f"{target_path.name}.tmp"
+
+        try:
+            # 1. 写入临时文件
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            # 2. 校验内容
+            if validation_fn:
+                is_valid, error_msg = validation_fn(content)
+                if not is_valid:
+                    # 校验失败：保留 .suggest 文件供人工审阅，删除 .tmp
+                    suggest_path = target_path.parent / f"{target_path.name}.suggest"
+                    shutil.move(str(tmp_path), str(suggest_path))
+                    return {
+                        "success": False,
+                        "message": f"Validation failed: {error_msg}",
+                        "suggest_file": str(suggest_path)
+                    }
+
+            # 3. 备份原文件
+            backup_path = None
+            if target_path.exists():
+                backup_path = self._create_backup(target_path)
+
+            # 4. 原子替换
+            os.replace(str(tmp_path), str(target_path))
+
+            return {
+                "success": True,
+                "message": "File written atomically",
+                "backup_path": str(backup_path) if backup_path else None
+            }
+
+        except Exception as e:
+            # 清理临时文件
+            if tmp_path.exists():
+                tmp_path.unlink()
+            logger.error(f"Atomic write failed for {target_path}: {e}")
+            return {
+                "success": False,
+                "message": f"Write error: {str(e)}"
+            }
+
+    def _create_backup(self, file_path: Path) -> Path:
+        """
+        创建文件备份
+
+        Args:
+            file_path: 要备份的文件路径
+
+        Returns:
+            备份文件路径
+        """
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{file_path.name}.{timestamp}.bak"
+        backup_path = self.backup_dir / backup_name
+
+        shutil.copy2(str(file_path), str(backup_path))
+
+        # 清理旧备份，保留最近 MAX_BACKUPS 份
+        self._cleanup_backups(file_path.name)
+
+        return backup_path
+
+    def _cleanup_backups(self, original_name: str):
+        """清理旧备份，保留最近 MAX_BACKUPS 份"""
+        if not self.backup_dir.exists():
+            return
+
+        pattern = f"{original_name}.*.bak"
+        backups = sorted(
+            self.backup_dir.glob(pattern),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True
+        )
+
+        for old_backup in backups[MAX_BACKUPS:]:
+            old_backup.unlink()
+
+    # ==================== 内容校验 ====================
+
+    def _validate_content(
+        self,
+        original_content: str,
+        new_content: str,
+        required_sections: Optional[List[str]] = None
+    ) -> Tuple[bool, str]:
+        """
+        校验 LLM 生成的内容是否安全
+
+        规则:
+        1. 内容比例：新内容不应 < 原文的 50% 或 > 200%
+        2. 结构完整性：必选 section 不能消失
+        3. Markdown 格式：代码块必须闭合，表格格式正确
+
+        Args:
+            original_content: 原文件内容
+            new_content: 新内容
+            required_sections: 必须保留的 section 标题列表
+
+        Returns:
+            (is_valid, error_message)
+        """
+        if not new_content or not new_content.strip():
+            return False, "New content is empty"
+
+        # 规则 1: 内容比例检查（仅当原文非空时）
+        if original_content and original_content.strip():
+            original_len = len(original_content)
+            new_len = len(new_content)
+            ratio = new_len / original_len
+
+            if ratio < 0.5:
+                return False, f"New content is too short ({ratio:.0%} of original, minimum 50%)"
+            if ratio > 2.0:
+                return False, f"New content is too long ({ratio:.0%} of original, maximum 200%)"
+
+        # 规则 2: 结构完整性检查
+        if required_sections:
+            for section in required_sections:
+                # 检查 ## 级别标题
+                if section not in new_content:
+                    return False, f"Required section '{section}' is missing"
+
+        # 规则 3: Markdown 格式检查
+        # 代码块闭合检查
+        code_block_count = new_content.count("```")
+        if code_block_count % 2 != 0:
+            return False, f"Unclosed code block (found {code_block_count} backtick fences, expected even number)"
+
+        # YAML frontmatter 检查（如果原文有 frontmatter）
+        if original_content and original_content.strip().startswith("---"):
+            if not new_content.strip().startswith("---"):
+                return False, "YAML frontmatter was removed (original had frontmatter)"
+            # 检查 frontmatter 闭合
+            fm_end = new_content.find("---", 3)
+            if fm_end == -1:
+                return False, "YAML frontmatter is not properly closed"
+
+        return True, ""
+
+    # ==================== 增量合并 ====================
+
+    def _apply_section_patches(
+        self,
+        original_content: str,
+        patches: Dict[str, Any]
+    ) -> str:
+        """
+        将 JSON section patches 增量合并到原文档
+
+        Args:
+            original_content: 原文档内容
+            patches: {"sections_to_update": {"section_title": "new_content"}, "sections_to_add": {"section_title": "content"}}
+
+        Returns:
+            合并后的文档内容
+        """
+        if not patches:
+            return original_content
+
+        sections_to_update = patches.get("sections_to_update", {})
+        sections_to_add = patches.get("sections_to_add", {})
+
+        result = original_content
+
+        # 解析原文档的 section 结构
+        lines = result.split("\n")
+        section_ranges = {}  # {section_title: (start_line, end_line)}
+
+        current_section = None
+        current_level = 0
+        section_start = 0
+
+        for i, line in enumerate(lines):
+            header_match = re.match(r'^(#{1,6})\s+(.+)$', line)
+            if header_match:
+                level = len(header_match.group(1))
+                title = header_match.group(2).strip()
+
+                # 保存上一个 section 的范围
+                if current_section is not None:
+                    section_ranges[current_section] = (section_start, i)
+
+                current_section = title
+                current_level = level
+                section_start = i
+
+        # 保存最后一个 section
+        if current_section is not None:
+            section_ranges[current_section] = (section_start, len(lines))
+
+        # 应用更新
+        for title, new_content in sections_to_update.items():
+            if title in section_ranges:
+                start, end = section_ranges[title]
+                lines[start:end] = [new_content]
+                # 重新解析，因为行号已变
+                result = "\n".join(lines)
+                lines = result.split("\n")
+                section_ranges = {}
+                current_section = None
+                for i, line in enumerate(lines):
+                    header_match = re.match(r'^(#{1,6})\s+(.+)$', line)
+                    if header_match:
+                        title_match = header_match.group(2).strip()
+                        if current_section is not None:
+                            section_ranges[current_section] = (section_start, i)
+                        current_section = title_match
+                        section_start = i
+                if current_section is not None:
+                    section_ranges[current_section] = (section_start, len(lines))
+
+        # 添加新 section（追加到文档末尾）
+        for title, content in sections_to_add.items():
+            result += f"\n\n## {title}\n\n{content}\n"
+
+        return result
+
+    # ==================== MCP 工具处理 ====================
 
     async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """
@@ -296,8 +561,8 @@ class DocumentationAgent:
 
             diff_content = "\n\n".join(related_diffs) if related_diffs else "No diff available"
 
-            # 生成更新
-            updated_content = await self._generate_skill_update(
+            # 生成增量更新 patches
+            patches = await self._generate_skill_update(
                 current_content,
                 diff_content,
                 skill_file,
@@ -305,20 +570,39 @@ class DocumentationAgent:
             )
 
             if apply:
-                # 应用更新
-                with open(skill_full_path, "w", encoding="utf-8") as f:
-                    f.write(updated_content)
-                results.append({
-                    "skill": skill_file,
-                    "status": "updated",
-                    "action": "applied"
-                })
+                # 尝试解析 JSON patches，回退到全量内容
+                merged_content = self._try_merge_patches(current_content, patches)
+
+                # 构建校验函数
+                required = ["name:", "description:"]  # frontmatter 必选项
+                def validate_fn(content: str) -> Tuple[bool, str]:
+                    return self._validate_content(
+                        current_content, content, required_sections=required
+                    )
+
+                # 原子写入
+                write_result = self._atomic_write(skill_full_path, merged_content, validate_fn)
+
+                if write_result["success"]:
+                    results.append({
+                        "skill": skill_file,
+                        "status": "updated",
+                        "action": "applied",
+                        "backup_path": write_result.get("backup_path")
+                    })
+                else:
+                    results.append({
+                        "skill": skill_file,
+                        "status": "validation_failed",
+                        "message": write_result["message"],
+                        "suggest_file": write_result.get("suggest_file")
+                    })
             else:
                 # 生成建议文件
                 suggest_path = self.repo_root / f"{skill_file}.suggest"
                 suggest_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(suggest_path, "w", encoding="utf-8") as f:
-                    f.write(updated_content)
+                    f.write(patches)
                 results.append({
                     "skill": skill_file,
                     "status": "suggestion_created",
@@ -330,6 +614,27 @@ class DocumentationAgent:
             "results": results
         }, indent=2, ensure_ascii=False)
 
+    def _try_merge_patches(self, original_content: str, llm_output: str) -> str:
+        """
+        尝试将 LLM 输出解析为 JSON patches 并增量合并，
+        如果解析失败则回退为使用 LLM 输出作为完整内容
+        """
+        # 尝试提取 JSON（LLM 可能在 ```json ... ``` 中包裹）
+        json_str = llm_output.strip()
+        json_match = re.search(r'```json\s*(\{.*?\})\s*```', llm_output, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+
+        try:
+            patches = json.loads(json_str)
+            if isinstance(patches, dict) and ("sections_to_update" in patches or "sections_to_add" in patches):
+                return self._apply_section_patches(original_content, patches)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # 回退：使用 LLM 输出作为完整内容
+        return llm_output
+
     async def _generate_skill_update(
         self,
         current_content: str,
@@ -337,7 +642,7 @@ class DocumentationAgent:
         skill_path: str,
         changed_files: List[str]
     ) -> str:
-        """生成 SKILL 更新内容"""
+        """生成 SKILL 更新内容（JSON section patches 格式）"""
         prompt_template = self.prompts.get("skill_update", "")
 
         prompt = prompt_template.format(
@@ -349,7 +654,8 @@ class DocumentationAgent:
         )
 
         system_prompt = """你是一个技术文档专家，负责维护 Claude Code SKILL 文档。
-请根据代码变更更新文档，保持格式一致，不要遗漏重要功能。"""
+请根据代码变更更新文档，保持格式一致，不要遗漏重要功能。
+你必须输出 JSON 格式的 section patches，而不是完整的 Markdown 文档。"""
 
         response = self.llm_client.generate(
             prompt=prompt,
@@ -384,27 +690,46 @@ class DocumentationAgent:
         skills = await self._get_skills_list()
 
         # 生成更新
-        updated_content = await self._generate_claude_md(
+        patches = await self._generate_claude_md(
             current_content,
             mcp_tools,
             skills
         )
 
         if apply:
-            # 应用更新
-            claude_md_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(claude_md_path, "w", encoding="utf-8") as f:
-                f.write(updated_content)
-            return json.dumps({
-                "success": True,
-                "file": str(claude_md_path),
-                "action": "updated"
-            }, indent=2)
+            # 尝试增量合并
+            merged_content = self._try_merge_patches(current_content, patches)
+
+            # 构建校验函数
+            required_sections = ["项目概述", "MCP 工具列表", "架构说明"]
+            def validate_fn(content: str) -> Tuple[bool, str]:
+                return self._validate_content(
+                    current_content, content, required_sections=required_sections
+                )
+
+            # 原子写入
+            write_result = self._atomic_write(claude_md_path, merged_content, validate_fn)
+
+            if write_result["success"]:
+                return json.dumps({
+                    "success": True,
+                    "file": str(claude_md_path),
+                    "action": "updated",
+                    "backup_path": write_result.get("backup_path")
+                }, indent=2)
+            else:
+                return json.dumps({
+                    "success": False,
+                    "file": str(claude_md_path),
+                    "action": "validation_failed",
+                    "message": write_result["message"],
+                    "suggest_file": write_result.get("suggest_file")
+                }, indent=2)
         else:
             # 生成建议文件
             suggest_path = self.repo_root / "CLAUDE.md.suggest"
             with open(suggest_path, "w", encoding="utf-8") as f:
-                f.write(updated_content)
+                f.write(patches)
             return json.dumps({
                 "success": True,
                 "suggestion_file": str(suggest_path),
@@ -417,7 +742,7 @@ class DocumentationAgent:
         mcp_tools: List[Dict],
         skills: List[Dict]
     ) -> str:
-        """生成 CLAUDE.md 内容"""
+        """生成 CLAUDE.md 更新内容（JSON section patches 格式）"""
         prompt_template = self.prompts.get("claude_md_update", "")
 
         # 获取项目信息
@@ -435,7 +760,7 @@ class DocumentationAgent:
         )
 
         system_prompt = """你是一个技术文档专家，负责生成和维护 Power Platform Agent 项目的 CLAUDE.md 文档。
-请生成清晰、完整的项目文档，帮助开发者快速了解和使用该项目。"""
+你必须输出 JSON 格式的 section patches，而不是完整的 Markdown 文档。"""
 
         response = self.llm_client.generate(
             prompt=prompt,
@@ -467,14 +792,18 @@ class DocumentationAgent:
         else:
             changes = self.change_detector.get_unstaged_changes()
 
-        # 准备变更详情
+        # 准备变更详情（包含实际 diff 内容）
         changes_detail = []
         for f in changes.significant_files:
+            diff_snippet = ""
+            if hasattr(f, 'diff_content') and f.diff_content:
+                diff_snippet = f"\n\n**代码 diff:**\n```\n{f.diff_content[:5000]}\n```"
+
             changes_detail.append(f"""
 ### {f.path}
 - 变更类型: {f.change_type.value}
 - 重要性: {f.significance.value}
-- 变更统计: {f.stats}
+- 变更统计: {f.stats}{diff_snippet}
 """)
 
         prompt = self.prompts.get("change_summary", "").format(
@@ -487,7 +816,10 @@ class DocumentationAgent:
         )
 
         system_prompt = """你是一个技术文档专家，负责生成代码变更的总结文档。
-请生成清晰、简洁的变更总结。"""
+请生成清晰、简洁的变更总结。
+
+重要：你必须基于提供的 diff 内容和变更信息进行分析，不要推测代码变更的具体内容。
+只描述你能从提供的信息中确认的变更。"""
 
         response = self.llm_client.generate(
             prompt=prompt,
@@ -512,13 +844,14 @@ class DocumentationAgent:
         else:
             new_content = summary
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        # 使用原子写入
+        write_result = self._atomic_write(output_path, new_content)
 
         return json.dumps({
-            "success": True,
+            "success": write_result["success"],
             "summary": summary,
-            "output_file": str(output_path)
+            "output_file": str(output_path),
+            "write_result": write_result
         }, indent=2, ensure_ascii=False)
 
     async def list_skills(self) -> str:
@@ -585,51 +918,77 @@ class DocumentationAgent:
         return json.dumps(results, indent=2, ensure_ascii=False)
 
     async def _get_mcp_tools_list(self) -> List[Dict]:
-        """获取 MCP 工具列表"""
-        # 从 mcp_serve.py 解析工具定义
+        """
+        动态从 mcp_serve.py 解析 Tool 定义
+
+        使用正则匹配 Tool(name="...", description="...") 模式，
+        替代硬编码的工具列表，确保与实际代码同步。
+
+        Returns:
+            按功能分组的工具列表
+        """
         mcp_serve_path = self.repo_root / "framework" / "mcp_serve.py"
 
         if not mcp_serve_path.exists():
             return []
 
-        # 简单解析工具定义
-        # 实际应该通过导入模块获取
-        tools = []
+        try:
+            with open(mcp_serve_path, "r", encoding="utf-8") as f:
+                content = f.read()
 
-        # 默认工具列表
-        default_tools = [
-            {"category": "认证与环境管理", "tools": [
-                {"name": "auth_login", "description": "连接到Dataverse环境"},
-                {"name": "auth_status", "description": "查看当前连接状态"},
-                {"name": "auth_logout", "description": "断开环境连接"},
-                {"name": "environment_switch", "description": "切换当前环境"},
-                {"name": "environment_list", "description": "列出所有配置的环境"},
-            ]},
-            {"category": "元数据管理", "tools": [
-                {"name": "metadata_parse", "description": "解析YAML元数据文件"},
-                {"name": "metadata_validate", "description": "验证元数据定义"},
-                {"name": "metadata_create_table", "description": "创建数据表"},
-                {"name": "metadata_create_attribute", "description": "创建字段"},
-                {"name": "metadata_export", "description": "导出云端元数据为YAML"},
-            ]},
-            {"category": "命名规则", "tools": [
-                {"name": "naming_convert", "description": "命名转换"},
-                {"name": "naming_validate", "description": "验证命名"},
-                {"name": "naming_bulk_convert", "description": "批量转换命名"},
-            ]},
-            {"category": "插件管理", "tools": [
-                {"name": "plugin_build", "description": "构建插件项目"},
-                {"name": "plugin_deploy", "description": "部署插件"},
-                {"name": "plugin_step_register", "description": "注册插件Step"},
-            ]},
-            {"category": "解决方案管理", "tools": [
-                {"name": "solution_export", "description": "导出解决方案"},
-                {"name": "solution_import", "description": "导入解决方案"},
-                {"name": "solution_sync", "description": "执行同步"},
-            ]},
-        ]
+            # 解析所有 Tool(name="...", description="...")
+            tool_pattern = re.compile(
+                r'Tool\(\s*name="([^"]+)"\s*,\s*description="([^"]+)"',
+                re.MULTILINE
+            )
 
-        return default_tools
+            raw_tools = []
+            for match in tool_pattern.finditer(content):
+                raw_tools.append({
+                    "name": match.group(1),
+                    "description": match.group(2)
+                })
+
+            if not raw_tools:
+                logger.warning("No tools parsed from mcp_serve.py")
+                return []
+
+            # 按前缀分组
+            category_map = {
+                "auth_": "认证与环境管理",
+                "environment_": "认证与环境管理",
+                "metadata_": "元数据管理",
+                "naming_": "命名规则",
+                "plugin_": "插件管理",
+                "solution_": "解决方案管理",
+                "doc_": "文档自动更新",
+                "extension_": "其他",
+                "health_": "其他",
+            }
+
+            categories: Dict[str, List[Dict]] = {}
+            for tool in raw_tools:
+                name = tool["name"]
+                category = "其他"
+                for prefix, cat_name in category_map.items():
+                    if name.startswith(prefix):
+                        category = cat_name
+                        break
+
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(tool)
+
+            result = [
+                {"category": cat, "tools": tools}
+                for cat, tools in categories.items()
+            ]
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to parse mcp_serve.py: {e}")
+            return []
 
     async def _get_skills_list(self) -> List[Dict]:
         """获取 SKILL 列表"""

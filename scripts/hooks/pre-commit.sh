@@ -69,43 +69,25 @@ echo ""
 echo "📚 检测到框架/配置/技能变更，正在自动更新文档..."
 echo "$DOC_TRIGGER_FILES" | sed 's/^/  - /'
 
-# 调用 update_docs.py 的 auto 模式
-# --apply: 直接应用更新（不生成 .suggest 文件）
+# 调用 update_docs.py 的 suggest 模式
+# --mode suggest: 生成 .suggest 建议文件，不直接修改原文档
 # --scope staged: 仅分析暂存区变更
-# --no-llm 时的降级处理在脚本内部完成
-if $PYTHON_CMD scripts/update_docs.py --mode auto --apply --scope staged 2>&1; then
-    # 将更新后的文档添加到本次提交
-    DOCS_UPDATED=false
-
-    if git diff --name-only -- CLAUDE.md | grep -q .; then
-        git add CLAUDE.md
-        DOCS_UPDATED=true
-    fi
-
-    if git diff --name-only -- .claude/skills/*/SKILL.md | grep -q .; then
-        git add .claude/skills/*/SKILL.md
-        DOCS_UPDATED=true
-    fi
-
-    if git diff --name-only -- docs/spec/architecture.md | grep -q .; then
-        git add docs/spec/architecture.md
-        DOCS_UPDATED=true
-    fi
-
-    if git diff --name-only -- docs/guides/*.md | grep -q .; then
-        git add docs/guides/*.md
-        DOCS_UPDATED=true
-    fi
-
-    if [ "$DOCS_UPDATED" = true ]; then
-        echo "📝 文档更新已添加到本次提交"
+# 开发者需要审阅 .suggest 文件后手动应用
+if $PYTHON_CMD scripts/update_docs.py --mode suggest --scope staged 2>&1; then
+    # 检查是否生成了建议文件
+    SUGGEST_FILES=$(find . -name "*.suggest" -maxdepth 4 2>/dev/null || true)
+    if [ -n "$SUGGEST_FILES" ]; then
+        echo "💡 文档更新建议已生成，请审阅后手动应用："
+        echo "$SUGGEST_FILES" | sed 's/^/   /'
+        echo ""
+        echo "   审阅无误后执行: cp <file>.suggest <file>"
     else
         echo "ℹ️  文档无需更新"
     fi
 else
     # 文档更新失败不阻塞提交（可能是 LLM API 未配置）
     echo "⚠️  文档自动更新失败（LLM 可能未配置），请手动运行："
-    echo "   python scripts/update_docs.py --mode auto --apply"
+    echo "   python scripts/update_docs.py --mode suggest"
 fi
 
 exit 0
