@@ -87,7 +87,9 @@ class MetadataAgent:
 
             elif tool_name == "metadata_create_form":
                 return await self.create_form(
-                    arguments.get("form_yaml")  # type: ignore[arg-type]
+                    arguments.get("form_yaml"),
+                    arguments.get("mode", "auto"),
+                    arguments.get("target_form_id")
                 )
 
             elif tool_name == "metadata_create_view":
@@ -648,21 +650,140 @@ class MetadataAgent:
         resp.raise_for_status()
         return new_id
 
-    async def create_form(self, form_yaml: str) -> str:
+
+    async def list_main_forms(self, entity: str) -> str:
         """
-        创建或更新表单（委托给 update_form）
+        列出实体的所有 Main 窗体，用于交互式选择
+
+        Args:
+            entity: 实体名称
+
+        Returns:
+            窗体列表，包含 form_id、name、isdefault、is_auto_generated 等信息
+        """
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client()
+
+            # 获取所有 Main 窗体 (form_type=2)
+            forms = client.get_forms(entity, form_type=2)
+
+            form_list = []
+            for form in forms:
+                form_id = form.get("formid")
+                name = form.get("name")
+                is_default = form.get("isdefault", False)
+                formxml = form.get("formxml", "")
+
+                # 检测是否为自动生成的默认窗体
+                is_auto = self._is_auto_generated_form(form)
+
+                form_list.append({
+                    "form_id": form_id,
+                    "name": name,
+                    "is_default": is_default,
+                    "is_auto_generated": is_auto,
+                    "formxml_length": len(formxml) if formxml else 0,
+                    "description": form.get("description", "")
+                })
+
+            return json.dumps({
+                "entity": entity,
+                "count": len(form_list),
+                "forms": form_list
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            return json.dumps({
+                "error": f"Failed to list forms: {str(e)}"
+            }, indent=2)
+
+    async def create_form(
+        self,
+        form_yaml: str,
+        mode: str = "auto",
+        target_form_id: str = None
+    ) -> str:
+        """
+        创建或更新表单
 
         Args:
             form_yaml: 表单YAML文件路径
+            mode: 操作模式
+                - "auto": 自动判断（默认），根据现有窗体情况自动决定创建或更新
+                - "list": 仅列出窗体，不执行创建/更新操作
+                - "create_new": 强制创建新窗体
+                - "update": 更新指定窗体（需配合 target_form_id）
+            target_form_id: 目标窗体ID（mode="update" 时必填）
 
         Returns:
             执行结果
         """
-        if isinstance(form_yaml, str) and Path(form_yaml).exists():
+        try:
+            # 解析 YAML 获取实体名
+            yaml_file = Path(form_yaml)
+            if not yaml_file.exists():
+                return json.dumps({"error": f"File not found: {form_yaml}"}, indent=2)
+
+            import yaml
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                form_design = yaml.safe_load(f)
+
+            form_meta = form_design.get("form", {})
+            entity_name = form_meta.get("entity")
+
+            if not entity_name:
+                return json.dumps({"error": "form.entity is required in YAML"}, indent=2)
+
+            # list 模式：仅列出窗体
+            if mode == "list":
+                return await self.list_main_forms(entity_name)
+
+            # create_new 模式：强制创建新窗体
+            if mode == "create_new":
+                # 临时移除 form_id 以强制创建
+                if "form_id" in form_meta:
+                    form_meta_copy = dict(form_design)
+                    form_meta_copy["form"] = dict(form_meta)
+                    del form_meta_copy["form"]["form_id"]
+                    # 创建临时文件
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tf:
+                        yaml.dump(form_meta_copy, tf, allow_unicode=True)
+                        temp_path = tf.name
+                    result = await self.update_form(temp_path)
+                    Path(temp_path).unlink(missing_ok=True)
+                    return result
+                return await self.update_form(form_yaml)
+
+            # update 模式：更新指定窗体
+            if mode == "update":
+                if not target_form_id:
+                    return json.dumps({
+                        "error": "target_form_id is required when mode='update'"
+                    }, indent=2)
+                # 在 YAML 中设置 form_id
+                form_meta_copy = dict(form_design)
+                form_meta_copy["form"] = dict(form_meta)
+                form_meta_copy["form"]["form_id"] = target_form_id
+                # 创建临时文件
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tf:
+                    yaml.dump(form_meta_copy, tf, allow_unicode=True)
+                    temp_path = tf.name
+                result = await self.update_form(temp_path)
+                Path(temp_path).unlink(missing_ok=True)
+                return result
+
+            # auto 模式：默认行为
             return await self.update_form(form_yaml)
-        return json.dumps({
-            "error": "create_form requires a YAML file path argument"
-        }, indent=2)
+
+        except Exception as e:
+            return json.dumps({
+                "error": f"Failed to create form: {str(e)}"
+            }, indent=2)
 
     # ==================== 视图管理 ====================
 

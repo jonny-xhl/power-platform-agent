@@ -230,13 +230,23 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="metadata_create_form",
-            description="创建表单",
+            description="创建或更新表单。支持交互式模式：mode='list' 可先列出现有窗体，然后选择 mode='create_new' 创建新窗体或 mode='update' 更新现有窗体。",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "form_yaml": {
                         "type": "string",
-                        "description": "表单YAML文件路径或JSON格式数据"
+                        "description": "表单YAML文件路径"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "操作模式: auto=自动判断(默认), list=仅列出现有窗体, create_new=强制创建新窗体, update=更新指定窗体",
+                        "enum": ["auto", "list", "create_new", "update"],
+                        "default": "auto"
+                    },
+                    "target_form_id": {
+                        "type": "string",
+                        "description": "目标窗体ID (mode='update' 时必填)"
                     }
                 },
                 "required": ["form_yaml"]
