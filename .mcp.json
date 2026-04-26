@@ -3,7 +3,8 @@
     "power-platform": {
       "command": "python",
       "args": [
-        "framework/mcp_serve.py"
+        "-m",
+        "framework.mcp_serve"
       ],
       "disabled": false
     }

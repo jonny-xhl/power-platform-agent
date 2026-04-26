@@ -361,7 +361,7 @@ async def list_tools() -> List[Tool]:
                     "is_standard": {
                         "type": "boolean",
                         "description": "是否为标准实体",
-                        "default": false
+                        "default": False
                     }
                 },
                 "required": ["input"]
@@ -808,31 +808,21 @@ async def list_resources() -> List[Resource]:
 
 # ==================== 主函数 ====================
 
+async def _run_stdio():
+    """以 stdio 模式运行 MCP 服务器"""
+    from mcp.server.stdio import stdio_server
+
+    async with stdio_server() as (read_stream, write_stream):
+        await app.run(
+            read_stream,
+            write_stream,
+            app.create_initialization_options(),
+        )
+
+
 def main():
     """主函数"""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Power Platform MCP Server")
-    parser.add_argument(
-        "--stdio",
-        action="store_true",
-        help="使用stdio模式运行"
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="SSE模式端口（默认8000）"
-    )
-
-    args = parser.parse_args()
-
-    if args.stdio:
-        # Stdio模式
-        app.run(transport="stdio")
-    else:
-        # SSE模式
-        app.run(transport="sse", port=args.port)
+    asyncio.run(_run_stdio())
 
 
 if __name__ == "__main__":
