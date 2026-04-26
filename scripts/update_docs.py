@@ -267,10 +267,30 @@ async def main():
 
     # 初始化代理
     print("🔧 初始化文档代理...")
-    agent = DocumentationAgent(
-        llm_provider=args.provider,
-        llm_model=args.model
-    )
+    try:
+        agent = DocumentationAgent(
+            llm_provider=args.provider,
+            llm_model=args.model
+        )
+    except ValueError as e:
+        # LLM 未配置（如缺少 API key）
+        if args.mode == "analyze" or args.no_llm:
+            # 分析模式不需要 LLM，但 ChangeDetector 等组件已经依赖 agent
+            print(f"⚠️  LLM 未配置: {e}")
+            print("   仅执行变更分析...")
+            # 创建不含 LLM 的轻量 agent
+            agent = DocumentationAgent.__new__(DocumentationAgent)
+            agent.repo_root = Path.cwd()
+            agent.prompts = {}
+            agent.llm_client = None
+            from framework.utils.change_detector import ChangeDetector
+            from framework.utils.impact_analyzer import ImpactAnalyzer
+            agent.change_detector = ChangeDetector(repo_root=agent.repo_root)
+            agent.impact_analyzer = ImpactAnalyzer()
+        else:
+            print(f"❌ LLM 未配置，无法执行文档更新: {e}")
+            print("   请设置 API key 或使用 --mode analyze 模式")
+            sys.exit(1)
 
     # 执行相应操作
     if args.mode == "analyze" or args.no_llm:
