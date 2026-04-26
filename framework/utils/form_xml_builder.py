@@ -4,7 +4,7 @@ Generates COMPLETE formxml suitable for both POST (new form) and PATCH (update).
 """
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 import xml.etree.ElementTree as ET
 
 
@@ -28,11 +28,11 @@ CONTROL_CLASSIDS = {
 class FormXmlBuilder:
     """Builds complete Dataverse FormXml from YAML form design."""
 
-    def __init__(self, entity_fields: Dict[str, str]):
+    def __init__(self, entity_fields: dict[str, str]):
         self.entity_fields = entity_fields
-        self._id_map: Dict[str, str] = {}
+        self._id_map: dict[str, str] = {}
 
-    def build(self, form_design: Dict[str, Any]) -> str:
+    def build(self, form_design: dict[str, Any]) -> str:
         """Build COMPLETE FormXml string from form YAML design."""
         form_el = ET.Element("form")
 
@@ -44,7 +44,7 @@ class FormXmlBuilder:
 
         return ET.tostring(form_el, encoding="unicode")
 
-    def _build_tab(self, tab_def: Dict[str, Any], index: int) -> ET.Element:
+    def _build_tab(self, tab_def: dict[str, Any], index: int) -> ET.Element:
         name = tab_def.get("name", f"tab_{index}")
         display_name = tab_def.get("display_name", f"Tab {index + 1}")
 
@@ -71,7 +71,7 @@ class FormXmlBuilder:
 
         return tab_el
 
-    def _build_section(self, sec_def: Dict[str, Any]) -> ET.Element:
+    def _build_section(self, sec_def: dict[str, Any]) -> ET.Element:
         name = sec_def.get("name", "")
         display_name = sec_def.get("display_name", "Section")
 
@@ -95,7 +95,7 @@ class FormXmlBuilder:
 
         return section_el
 
-    def _build_cell(self, cell_def: Dict[str, Any]) -> ET.Element:
+    def _build_cell(self, cell_def: dict[str, Any]) -> ET.Element:
         attr_name = cell_def.get("attribute", "")
         field_type = self.entity_fields.get(attr_name, "String")
         classid = CONTROL_CLASSIDS.get(field_type, CONTROL_CLASSIDS["String"])

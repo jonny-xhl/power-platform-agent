@@ -11,10 +11,12 @@ LangChain LLM Client - 统一的 LLM 客户端
 5. 默认值
 """
 
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from enum import Enum
 
 
@@ -82,9 +84,9 @@ class LLMResponse:
     content: str
     model: str
     provider: str
-    tokens_used: Optional[int] = None
-    finish_reason: Optional[str] = None
-    raw_response: Optional[Dict[str, Any]] = field(default_factory=dict)
+    tokens_used: int | None = None
+    finish_reason: str | None = None
+    raw_response: dict[str, Any] | None = field(default_factory=dict)
 
     @property
     def is_success(self) -> bool:
@@ -96,19 +98,19 @@ class LLMResponse:
 class LLMConfig:
     """LLM 配置"""
     provider: str = "anthropic"
-    model: Optional[str] = None
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    model: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
     temperature: float = 0.3
     max_tokens: int = 4000
 
     # 环境配置
-    env_file: Optional[str] = None
-    config_file: Optional[str] = None
+    env_file: str | None = None
+    config_file: str | None = None
     env_prefix: str = ""
 
     @classmethod
-    def from_dict(cls, config: Dict[str, Any]) -> "LLMConfig":
+    def from_dict(cls, config: dict[str, Any]) -> "LLMConfig":
         """从字典创建配置"""
         return cls(**{k: v for k, v in config.items() if k in cls.__dataclass_fields__})
 
@@ -219,17 +221,17 @@ class LangChainLLMClient:
     """
 
     # 类级别的配置缓存
-    _config_cache: Optional[LLMConfig] = None
+    _config_cache: LLMConfig | None = None
 
     def __init__(
         self,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
+        provider: str | None = None,
+        model: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4000,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        _config: Optional[LLMConfig] = None
+        api_key: str | None = None,
+        base_url: str | None = None,
+        _config: LLMConfig | None = None
     ):
         """
         初始化 LLM 客户端
@@ -302,7 +304,7 @@ class LangChainLLMClient:
         """获取默认模型"""
         return DEFAULT_MODELS.get(provider, "claude-sonnet-4-20250514")
 
-    def _get_api_key(self, provider: str) -> Optional[str]:
+    def _get_api_key(self, provider: str) -> str | None:
         """获取 API 密钥"""
         # 如果在初始化时已经提供，直接返回
         if self.config.api_key:
@@ -357,10 +359,12 @@ class LangChainLLMClient:
         """设置通义千问客户端"""
         try:
             from openai import OpenAI
-            base_url = self.base_url or DEFAULT_BASE_URLS.get("qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+            base_url = self.base_url or DEFAULT_BASE_URLS.get(
+                "qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            )
             self._client = OpenAI(
                 api_key=self.api_key,
-                base_url=base_url
+                base_url=base_url  # type: ignore[arg-type]
             )
         except ImportError:
             raise ImportError(
@@ -386,7 +390,7 @@ class LangChainLLMClient:
             base_url = self.base_url or DEFAULT_BASE_URLS.get("doubao", "https://ark.cn-beijing.volces.com/api/v3")
             self._client = OpenAI(
                 api_key=self.api_key,
-                base_url=base_url
+                base_url=base_url  # type: ignore[arg-type]
             )
         except ImportError:
             raise ImportError(
@@ -397,9 +401,9 @@ class LangChainLLMClient:
     def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        system_prompt: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
         **kwargs
     ) -> LLMResponse:
         """
@@ -436,7 +440,7 @@ class LangChainLLMClient:
     def _generate_anthropic(
         self,
         prompt: str,
-        system_prompt: Optional[str],
+        system_prompt: str | None,
         max_tokens: int,
         temperature: float,
         **kwargs
@@ -468,7 +472,7 @@ class LangChainLLMClient:
     def _generate_zhipu(
         self,
         prompt: str,
-        system_prompt: Optional[str],
+        system_prompt: str | None,
         max_tokens: int,
         temperature: float,
         **kwargs
@@ -499,7 +503,7 @@ class LangChainLLMClient:
     def _generate_openai_compat(
         self,
         prompt: str,
-        system_prompt: Optional[str],
+        system_prompt: str | None,
         max_tokens: int,
         temperature: float,
         **kwargs
@@ -545,7 +549,7 @@ class LangChainLLMClient:
     def stream_generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         **kwargs
     ):
         """
@@ -568,7 +572,7 @@ class LangChainLLMClient:
         else:
             raise ValueError(f"Streaming not supported for provider: {self.provider}")
 
-    def _stream_anthropic(self, prompt: str, system_prompt: Optional[str], **kwargs):
+    def _stream_anthropic(self, prompt: str, system_prompt: str | None, **kwargs):
         """Anthropic 流式生成"""
         messages = [{"role": "user", "content": prompt}]
         params = {
@@ -584,7 +588,7 @@ class LangChainLLMClient:
             for text in stream.text_stream:
                 yield text
 
-    def _stream_zhipu(self, prompt: str, system_prompt: Optional[str], **kwargs):
+    def _stream_zhipu(self, prompt: str, system_prompt: str | None, **kwargs):
         """智谱 AI 流式生成"""
         messages = []
         if system_prompt:
@@ -603,7 +607,7 @@ class LangChainLLMClient:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
 
-    def _stream_openai_compat(self, prompt: str, system_prompt: Optional[str], **kwargs):
+    def _stream_openai_compat(self, prompt: str, system_prompt: str | None, **kwargs):
         """OpenAI 兼容流式生成"""
         messages = []
         if system_prompt:
@@ -624,7 +628,7 @@ class LangChainLLMClient:
 
 
 def create_llm_client(
-    provider: Optional[str] = None,
+    provider: str | None = None,
     **kwargs
 ) -> LangChainLLMClient:
     """

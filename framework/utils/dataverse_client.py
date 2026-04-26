@@ -6,7 +6,7 @@ Power Platform Dataverse Client
 import json
 import logging
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Union
 from pathlib import Path
 import requests
 from requests.adapters import HTTPAdapter
@@ -22,8 +22,8 @@ class DataverseClient:
     def __init__(
         self,
         environment: str = "dev",
-        config_path: Optional[str] = None,
-        access_token: Optional[str] = None
+        config_path: str = None,
+        access_token: str = None
     ):
         """
         初始化Dataverse客户端
@@ -36,13 +36,13 @@ class DataverseClient:
         self.environment = environment
         self.config_path = config_path or "config/environments.yaml"
         self.access_token = access_token
-        self._config: Optional[Dict[str, Any]] = None
-        self._session: Optional[requests.Session] = None
-        self._base_url: Optional[str] = None
+        self._config: dict[str, Any] | None = None
+        self._session: requests.Session | None = None
+        self._base_url: str | None = None
         self._api_version = "9.2"
 
     @property
-    def config(self) -> Dict[str, Any]:
+    def config(self) -> dict[str, Any]:
         """获取环境配置"""
         if self._config is None:
             self._load_config()
@@ -133,8 +133,8 @@ class DataverseClient:
     def create_record(
         self,
         entity_name: str,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         创建实体记录
 
@@ -156,8 +156,8 @@ class DataverseClient:
         self,
         entity_name: str,
         record_id: str,
-        select: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        select: list[str] = None
+    ) -> dict[str, Any]:
         """
         获取单条记录
 
@@ -181,8 +181,8 @@ class DataverseClient:
         self,
         entity_name: str,
         record_id: str,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         更新记录
 
@@ -203,7 +203,7 @@ class DataverseClient:
         self,
         entity_name: str,
         record_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         删除记录
 
@@ -222,12 +222,12 @@ class DataverseClient:
     def query_records(
         self,
         entity_name: str,
-        select: Optional[List[str]] = None,
-        filter: Optional[str] = None,
-        order_by: Optional[str] = None,
-        top: Optional[int] = None,
-        expand: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        select: list[str] = None,
+        filter: str = None,
+        order_by: str = None,
+        top: int = None,
+        expand: list[str] = None
+    ) -> list[dict[str, Any]]:
         """
         查询记录
 
@@ -268,8 +268,8 @@ class DataverseClient:
 
     def get_entity_metadata(
         self,
-        entity_name: Optional[str] = None
-    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        entity_name: str = None
+    ) -> Union[dict[str, Any], list[dict[str, Any]]]:
         """
         获取实体元数据
 
@@ -291,7 +291,7 @@ class DataverseClient:
             return response.json()
         return response.json().get("value", [])
 
-    def create_entity(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def create_entity(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """
         创建自定义实体
 
@@ -314,8 +314,8 @@ class DataverseClient:
     def update_entity(
         self,
         entity_name: str,
-        metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         更新实体元数据
 
@@ -342,8 +342,8 @@ class DataverseClient:
     def create_attribute(
         self,
         entity_name: str,
-        attribute_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        attribute_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         创建实体属性
 
@@ -372,7 +372,7 @@ class DataverseClient:
     def get_attributes(
         self,
         entity_name: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         获取实体的所有属性
 
@@ -400,7 +400,7 @@ class DataverseClient:
     def get_relationships(
         self,
         entity_name: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         获取实体的所有关系
 
@@ -444,8 +444,8 @@ class DataverseClient:
 
     def get_webresources(
         self,
-        filter: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        filter: str = None
+    ) -> list[dict[str, Any]]:
         """
         获取Web Resources
 
@@ -467,8 +467,8 @@ class DataverseClient:
     def get_forms(
         self,
         entity_name: str,
-        form_type: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+        form_type: int = None
+    ) -> list[dict[str, Any]]:
         """
         获取实体的表单列表
 
@@ -491,12 +491,12 @@ class DataverseClient:
             filter_parts.append(f"type eq {form_type}")
 
         url = self.get_api_url("systemforms")
-        params: Dict[str, Any] = {"$filter": " and ".join(filter_parts)}
+        params: dict[str, Any] = {"$filter": " and ".join(filter_parts)}
         response = self.session.get(url, params=params)
         response.raise_for_status()
         return response.json().get("value", [])
 
-    def get_form_by_id(self, form_id: str) -> Dict[str, Any]:
+    def get_form_by_id(self, form_id: str) -> dict[str, Any]:
         """
         获取单个表单的完整数据（包含 FormXml）
 
@@ -511,7 +511,7 @@ class DataverseClient:
         response.raise_for_status()
         return response.json()
 
-    def update_form(self, form_id: str, payload: Dict[str, Any]) -> None:
+    def update_form(self, form_id: str, payload: dict[str, Any]) -> None:
         """
         更新表单（PATCH SystemForm）
 
@@ -529,7 +529,7 @@ class DataverseClient:
         display_name: str,
         content: str,
         webresource_type: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         创建Web Resource
 
@@ -566,7 +566,7 @@ class DataverseClient:
         self,
         webresource_id: str,
         content: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         更新Web Resource内容
 
@@ -594,7 +594,7 @@ class DataverseClient:
 
     # ==================== 解决方案操作 ====================
 
-    def get_solutions(self) -> List[Dict[str, Any]]:
+    def get_solutions(self) -> list[dict[str, Any]]:
         """获取所有解决方案"""
         url = self.get_api_url("solutions")
         response = self.session.get(url)
@@ -604,7 +604,7 @@ class DataverseClient:
     def get_solution_components(
         self,
         solution_unique_name: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         获取解决方案组件
 
@@ -625,9 +625,9 @@ class DataverseClient:
 
     def execute_batch(
         self,
-        batch_requests: List[Dict[str, Any]],
-        batch_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        batch_requests: list[dict[str, Any]],
+        batch_id: str = None
+    ) -> list[dict[str, Any]]:
         """
         执行批处理请求
 
@@ -658,7 +658,7 @@ class DataverseClient:
 
     def _build_batch_body(
         self,
-        batch_requests: List[Dict[str, Any]],
+        batch_requests: list[dict[str, Any]],
         batch_id: str
     ) -> str:
         """构建批处理请求体"""
@@ -685,7 +685,7 @@ class DataverseClient:
         self,
         response_text: str,
         batch_id: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """解析批处理响应"""
         # 简化的批处理响应解析
         results = []
@@ -703,8 +703,8 @@ class DataverseClient:
 
     def _convert_entity_metadata(
         self,
-        metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         转换元数据格式为Dataverse API格式
 
@@ -732,9 +732,9 @@ class DataverseClient:
 
     def _convert_attribute_metadata(
         self,
-        attribute: Dict[str, Any],
+        attribute: dict[str, Any],
         attribute_type: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         转换属性元数据
 
@@ -818,7 +818,7 @@ class DataverseClient:
             logger.debug(f"Ping failed: {e}")
             return False
 
-    def get_system_info(self) -> Dict[str, Any]:
+    def get_system_info(self) -> dict[str, Any]:
         """
         获取系统信息
 

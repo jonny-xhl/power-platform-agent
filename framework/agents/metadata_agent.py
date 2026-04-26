@@ -6,12 +6,12 @@ Power Platform Agent - 元数据代理
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from utils.yaml_parser import YAMLMetadataParser
-from utils.schema_validator import SchemaValidator
-from utils.naming_converter import NamingConverter, NamingValidator
-from utils.dataverse_client import EntityNotFoundError
+from framework.utils.yaml_parser import YAMLMetadataParser
+from framework.utils.schema_validator import SchemaValidator
+from framework.utils.naming_converter import NamingConverter, NamingValidator
+from framework.utils.dataverse_client import EntityNotFoundError
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -45,11 +45,11 @@ class MetadataAgent:
         self.naming_validator = NamingValidator(self.naming_converter)
 
         # 缓存
-        self._metadata_cache = {}
+        self._metadata_cache: dict[str, Any] = {}
 
     # ==================== 工具处理 ====================
 
-    async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    async def handle(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """
         处理MCP工具调用
 
@@ -63,75 +63,75 @@ class MetadataAgent:
         try:
             if tool_name == "metadata_parse":
                 return await self.parse(
-                    arguments.get("file_path"),
-                    arguments.get("type")
+                    arguments.get("file_path"),  # type: ignore[arg-type]
+                    arguments.get("type")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_validate":
                 return await self.validate(
-                    arguments.get("metadata_yaml"),
-                    arguments.get("schema")
+                    arguments.get("metadata_yaml"),  # type: ignore[arg-type]
+                    arguments.get("schema")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_create_table":
                 return await self.create_table(
-                    arguments.get("table_yaml"),
-                    arguments.get("options", {})
+                    arguments.get("table_yaml"),  # type: ignore[arg-type]
+                    arguments.get("options", {})  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_create_attribute":
                 return await self.create_attribute(
-                    arguments.get("attribute_yaml"),
-                    arguments.get("entity")
+                    arguments.get("attribute_yaml"),  # type: ignore[arg-type]
+                    arguments.get("entity")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_create_form":
                 return await self.create_form(
-                    arguments.get("form_yaml")
+                    arguments.get("form_yaml")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_create_view":
                 return await self.create_view(
-                    arguments.get("view_yaml")
+                    arguments.get("view_yaml")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_export":
                 return await self.export(
-                    arguments.get("entity"),
-                    arguments.get("output_dir"),
-                    arguments.get("metadata_type", "table")
+                    arguments.get("entity"),  # type: ignore[arg-type]
+                    arguments.get("output_dir"),  # type: ignore[arg-type]
+                    arguments.get("metadata_type", "table")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_diff":
                 return await self.diff(
-                    arguments.get("local_path"),
-                    arguments.get("entity")
+                    arguments.get("local_path"),  # type: ignore[arg-type]
+                    arguments.get("entity")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_apply":
                 return await self.apply(
-                    arguments.get("metadata_type"),
-                    arguments.get("name"),
-                    arguments.get("environment")
+                    arguments.get("metadata_type"),  # type: ignore[arg-type]
+                    arguments.get("name"),  # type: ignore[arg-type]
+                    arguments.get("environment")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_list":
                 return await self.list_metadata(
-                    arguments.get("type"),
-                    arguments.get("entity")
+                    arguments.get("type"),  # type: ignore[arg-type]
+                    arguments.get("entity")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_get_form":
                 return await self.get_form(
-                    arguments.get("entity"),
-                    arguments.get("form_id"),
-                    arguments.get("form_type")
+                    arguments.get("entity"),  # type: ignore[arg-type]
+                    arguments.get("form_id"),  # type: ignore[arg-type]
+                    arguments.get("form_type")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "metadata_delete":
                 return await self.delete_metadata(
-                    arguments.get("metadata_type"),
-                    arguments.get("name")
+                    arguments.get("metadata_type"),  # type: ignore[arg-type]
+                    arguments.get("name")  # type: ignore[arg-type]
                 )
 
             else:
@@ -150,7 +150,7 @@ class MetadataAgent:
     async def parse(
         self,
         file_path: str,
-        metadata_type: Optional[str] = None
+        metadata_type: str = None
     ) -> str:
         """
         解析YAML元数据文件
@@ -238,7 +238,7 @@ class MetadataAgent:
     async def create_table(
         self,
         table_yaml: str,
-        options: Dict[str, Any] = None
+        options: dict[str, Any] = None
     ) -> str:
         """
         创建数据表
@@ -363,9 +363,9 @@ class MetadataAgent:
 
     def _convert_attribute_metadata(
         self,
-        attribute: Dict[str, Any],
+        attribute: dict[str, Any],
         attribute_type: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """转换属性元数据为Dataverse格式"""
         type_mapping = {
             "String": "Microsoft.Dynamics.CRM.StringAttributeMetadata",
@@ -425,8 +425,8 @@ class MetadataAgent:
     async def get_form(
         self,
         entity: str,
-        form_id: Optional[str] = None,
-        form_type: Optional[int] = None
+        form_id: str = None,
+        form_type: int = None
     ) -> str:
         """
         获取实体表单
@@ -498,7 +498,6 @@ class MetadataAgent:
             执行结果
         """
         import yaml
-        import uuid as _uuid
         from utils.form_xml_builder import FormXmlBuilder
 
         try:
@@ -524,7 +523,7 @@ class MetadataAgent:
 
             # 2. Get entity field types
             attrs = client.get_attributes(entity_name)
-            entity_fields: Dict[str, str] = {}
+            entity_fields: dict[str, str] = {}
             for attr in attrs:
                 name = attr.get("SchemaName")
                 odata_type = attr.get("@odata.type", "")
@@ -613,7 +612,7 @@ class MetadataAgent:
             return json.dumps({"error": f"Failed to update form: {str(e)}"}, indent=2)
 
     @staticmethod
-    def _is_auto_generated_form(form: Dict[str, Any]) -> bool:
+    def _is_auto_generated_form(form: dict[str, Any]) -> bool:
         """Detect if a form is Dataverse auto-generated default form."""
         name = form.get("name", "")
         formxml = form.get("formxml", "")
@@ -623,7 +622,7 @@ class MetadataAgent:
     def _post_new_form(
         client: Any,
         entity_name: str,
-        form_meta: Dict[str, Any],
+        form_meta: dict[str, Any],
         form_xml: str,
     ) -> str:
         """POST a new Main form, return new form_id."""
@@ -753,7 +752,7 @@ class MetadataAgent:
                 "error": f"Failed to export: {str(e)}"
             }, indent=2)
 
-    def _export_entity_to_yaml(self, entity_metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def _export_entity_to_yaml(self, entity_metadata: dict[str, Any]) -> dict[str, Any]:
         """将实体元数据转换为YAML格式"""
         return {
             "$schema": "../_schema/table_schema.yaml",
@@ -815,9 +814,9 @@ class MetadataAgent:
 
     def _compare_metadata(
         self,
-        local: Dict[str, Any],
-        remote: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+        local: dict[str, Any],
+        remote: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """对比元数据差异"""
         differences = []
 
@@ -863,7 +862,7 @@ class MetadataAgent:
         self,
         metadata_type: str,
         name: str,
-        environment: Optional[str] = None
+        environment: str = None
     ) -> str:
         """
         应用元数据到Dataverse
@@ -905,7 +904,7 @@ class MetadataAgent:
     async def list_metadata(
         self,
         type: str,
-        entity: Optional[str] = None
+        entity: str = None
     ) -> str:
         """
         列出元数据

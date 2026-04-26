@@ -4,9 +4,8 @@ Power Platform YAML元数据解析器
 """
 
 import logging
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 import yaml
 
 # 设置日志
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 class YAMLMetadataParser:
     """YAML元数据解析器"""
 
-    def __init__(self, schema_dir: Optional[str] = None):
+    def __init__(self, schema_dir: str = None):
         """
         初始化解析器
 
@@ -28,7 +27,7 @@ class YAMLMetadataParser:
 
     # ==================== 通用方法 ====================
 
-    def load_yaml(self, file_path: str) -> Dict[str, Any]:
+    def load_yaml(self, file_path: str) -> dict[str, Any]:
         """
         加载YAML文件
 
@@ -47,7 +46,7 @@ class YAMLMetadataParser:
 
     def save_yaml(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         file_path: str,
         sort_keys: bool = False
     ) -> None:
@@ -75,8 +74,8 @@ class YAMLMetadataParser:
     def parse_metadata_file(
         self,
         file_path: str,
-        metadata_type: Optional[str] = None
-    ) -> Dict[str, Any]:
+        metadata_type: str = None
+    ) -> dict[str, Any]:
         """
         解析元数据文件
 
@@ -98,7 +97,7 @@ class YAMLMetadataParser:
 
     def _detect_metadata_type(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         file_path: str
     ) -> str:
         """从文件路径和内容检测元数据类型"""
@@ -138,9 +137,9 @@ class YAMLMetadataParser:
 
     def _process_metadata(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         metadata_type: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """处理元数据"""
         if metadata_type == "table":
             return self._process_table_metadata(data)
@@ -159,7 +158,7 @@ class YAMLMetadataParser:
 
     # ==================== 表元数据 ====================
 
-    def parse_table_yaml(self, file_path: str) -> Dict[str, Any]:
+    def parse_table_yaml(self, file_path: str) -> dict[str, Any]:
         """
         解析表元数据YAML文件
 
@@ -174,8 +173,8 @@ class YAMLMetadataParser:
 
     def _process_table_metadata(
         self,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """处理表元数据"""
         schema = data.get("schema", {})
 
@@ -196,9 +195,9 @@ class YAMLMetadataParser:
         self,
         schema_name: str,
         display_name: str,
-        attributes: List[Dict[str, Any]] = None,
+        attributes: list[dict[str, Any]] = None,
         **kwargs
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         生成表元数据YAML
 
@@ -237,7 +236,7 @@ class YAMLMetadataParser:
 
     # ==================== 表单元数据 ====================
 
-    def parse_form_yaml(self, file_path: str) -> Dict[str, Any]:
+    def parse_form_yaml(self, file_path: str) -> dict[str, Any]:
         """
         解析表单元数据YAML文件
 
@@ -252,8 +251,8 @@ class YAMLMetadataParser:
 
     def _process_form_metadata(
         self,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """处理表单元数据"""
         form = data.get("form", {})
 
@@ -272,7 +271,7 @@ class YAMLMetadataParser:
 
     # ==================== 视图元数据 ====================
 
-    def parse_view_yaml(self, file_path: str) -> Dict[str, Any]:
+    def parse_view_yaml(self, file_path: str) -> dict[str, Any]:
         """
         解析视图元数据YAML文件
 
@@ -287,8 +286,8 @@ class YAMLMetadataParser:
 
     def _process_view_metadata(
         self,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """处理视图元数据"""
         view = data.get("view", {})
 
@@ -308,7 +307,7 @@ class YAMLMetadataParser:
 
     # ==================== Web Resource元数据 ====================
 
-    def parse_webresource_yaml(self, file_path: str) -> Dict[str, Any]:
+    def parse_webresource_yaml(self, file_path: str) -> dict[str, Any]:
         """
         解析Web Resource元数据YAML文件
 
@@ -323,8 +322,8 @@ class YAMLMetadataParser:
 
     def _process_webresource_metadata(
         self,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """处理Web Resource元数据"""
         return {
             "naming": data.get("naming", {}),
@@ -334,7 +333,7 @@ class YAMLMetadataParser:
 
     # ==================== Ribbon元数据 ====================
 
-    def parse_ribbon_yaml(self, file_path: str) -> Dict[str, Any]:
+    def parse_ribbon_yaml(self, file_path: str) -> dict[str, Any]:
         """
         解析Ribbon元数据YAML文件
 
@@ -349,8 +348,8 @@ class YAMLMetadataParser:
 
     def _process_ribbon_metadata(
         self,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """处理Ribbon元数据"""
         ribbon = data.get("ribbon", {})
 
@@ -367,7 +366,7 @@ class YAMLMetadataParser:
 
     # ==================== Sitemap元数据 ====================
 
-    def parse_sitemap_yaml(self, file_path: str) -> Dict[str, Any]:
+    def parse_sitemap_yaml(self, file_path: str) -> dict[str, Any]:
         """
         解析Sitemap元数据YAML文件
 
@@ -382,8 +381,8 @@ class YAMLMetadataParser:
 
     def _process_sitemap_metadata(
         self,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """处理Sitemap元数据"""
         sitemap = data.get("sitemap", {})
 
@@ -401,8 +400,8 @@ class YAMLMetadataParser:
 
     def parse_attribute(
         self,
-        attribute_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        attribute_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         解析单个属性定义
 
@@ -434,10 +433,10 @@ class YAMLMetadataParser:
     def build_fetch_xml(
         self,
         entity: str,
-        attributes: List[str],
-        filter_conditions: Optional[List[Dict[str, Any]]] = None,
-        order_by: Optional[str] = None,
-        top: Optional[int] = None
+        attributes: list[str],
+        filter_conditions: list[dict[str, Any]] = None,
+        order_by: str = None,
+        top: int = None
     ) -> str:
         """
         构建Fetch XML查询
@@ -485,8 +484,8 @@ class YAMLMetadataParser:
     def parse_metadata_directory(
         self,
         directory: str,
-        metadata_type: Optional[str] = None
-    ) -> Dict[str, Dict[str, Any]]:
+        metadata_type: str = None
+    ) -> dict[str, dict[str, Any]]:
         """
         解析目录中的所有元数据文件
 
@@ -514,7 +513,7 @@ class YAMLMetadataParser:
 
     # ==================== 工具方法 ====================
 
-    def extract_schema_name(self, file_path: str) -> Optional[str]:
+    def extract_schema_name(self, file_path: str) -> str | None:
         """
         从文件路径提取Schema名称
 
@@ -526,14 +525,14 @@ class YAMLMetadataParser:
         """
         try:
             data = self.load_yaml(file_path)
-            return data.get("schema", {}).get("schema_name") or \
-                   data.get("view", {}).get("schema_name") or \
-                   data.get("form", {}).get("schema_name") or \
-                   data.get("sitemap", {}).get("schema_name")
+            return (data.get("schema", {}).get("schema_name")
+                    or data.get("view", {}).get("schema_name")
+                    or data.get("form", {}).get("schema_name")
+                    or data.get("sitemap", {}).get("schema_name"))
         except Exception:
             return None
 
-    def get_display_name(self, metadata: Dict[str, Any]) -> Optional[str]:
+    def get_display_name(self, metadata: dict[str, Any]) -> str | None:
         """
         从元数据获取显示名称
 

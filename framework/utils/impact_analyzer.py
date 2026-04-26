@@ -6,7 +6,7 @@ Impact Analyzer - 影响分析器
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 from pathlib import Path
 
 
@@ -33,8 +33,8 @@ class Significance:
 class ImpactRule:
     """影响规则"""
     name: str
-    patterns: List[str]          # 文件路径模式
-    affects: List[str]           # 影响的文档
+    patterns: list[str]          # 文件路径模式
+    affects: list[str]           # 影响的文档
     confidence: float            # 置信度 (0-1)
     impact_type: str             # 影响类型
 
@@ -45,28 +45,28 @@ class DocumentImpact:
     doc_path: str                # 文档路径
     impact_type: str             # 影响类型
     confidence: float            # 置信度
-    related_changes: List[str]   # 相关的变更文件
+    related_changes: list[str]   # 相关的变更文件
     suggested_action: str        # 建议操作
 
 
 @dataclass
 class ImpactReport:
     """影响报告"""
-    impacts: List[DocumentImpact] = field(default_factory=list)
-    summary: Dict[str, Any] = field(default_factory=dict)
+    impacts: list[DocumentImpact] = field(default_factory=list)
+    summary: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def affected_docs(self) -> List[str]:
+    def affected_docs(self) -> list[str]:
         """受影响的文档列表"""
         return [impact.doc_path for impact in self.impacts]
 
     @property
-    def high_confidence_impacts(self) -> List[DocumentImpact]:
+    def high_confidence_impacts(self) -> list[DocumentImpact]:
         """高置信度的影响"""
         return [i for i in self.impacts if i.confidence >= 0.7]
 
     @property
-    def medium_confidence_impacts(self) -> List[DocumentImpact]:
+    def medium_confidence_impacts(self) -> list[DocumentImpact]:
         """中等置信度的影响"""
         return [i for i in self.impacts if 0.4 <= i.confidence < 0.7]
 
@@ -150,7 +150,7 @@ class ImpactAnalyzer:
 
     def __init__(
         self,
-        rules: Optional[List[ImpactRule]] = None,
+        rules: list[ImpactRule] = None,
         confidence_threshold: float = 0.5
     ):
         """
@@ -182,7 +182,7 @@ class ImpactAnalyzer:
             影响报告
         """
         report = ImpactReport()
-        impacts_dict: Dict[str, DocumentImpact] = {}
+        impacts_dict: dict[str, DocumentImpact] = {}
 
         for changed_file in changes.files:
             # 跳过低重要性的变更
@@ -294,7 +294,7 @@ class ImpactAnalyzer:
         }
         return base_confidence * multipliers.get(significance, 1.0)
 
-    def _find_skill_document(self, file_path: str) -> Optional[str]:
+    def _find_skill_document(self, file_path: str) -> str | None:
         """
         查找 SKILL 文档路径
 

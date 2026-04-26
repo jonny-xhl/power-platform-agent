@@ -5,7 +5,7 @@ Power Platform Schema验证器
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 import yaml
 
 # 设置日志
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class SchemaValidator:
     """Schema验证器"""
 
-    def __init__(self, schema_dir: Optional[str] = None):
+    def __init__(self, schema_dir: str = None):
         """
         初始化验证器
 
@@ -27,7 +27,7 @@ class SchemaValidator:
 
     # ==================== 加载Schema ====================
 
-    def load_schema(self, schema_name: str) -> Dict[str, Any]:
+    def load_schema(self, schema_name: str) -> dict[str, Any]:
         """
         加载Schema定义
 
@@ -54,9 +54,9 @@ class SchemaValidator:
 
     def validate(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         schema_name: str
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """
         验证数据是否符合Schema
 
@@ -96,9 +96,9 @@ class SchemaValidator:
 
     def _validate_table(
         self,
-        data: Dict[str, Any],
-        schema: Dict[str, Any]
-    ) -> List[str]:
+        data: dict[str, Any],
+        schema: dict[str, Any]
+    ) -> list[str]:
         """验证表元数据"""
         errors = []
 
@@ -144,9 +144,9 @@ class SchemaValidator:
 
     def _validate_attribute(
         self,
-        attr: Dict[str, Any],
+        attr: dict[str, Any],
         index: int
-    ) -> List[str]:
+    ) -> list[str]:
         """验证属性定义"""
         errors = []
         prefix = f"attributes[{index}]"
@@ -176,9 +176,9 @@ class SchemaValidator:
 
     def _validate_relationship(
         self,
-        rel: Dict[str, Any],
+        rel: dict[str, Any],
         index: int
-    ) -> List[str]:
+    ) -> list[str]:
         """验证关系定义"""
         errors = []
         prefix = f"relationships[{index}]"
@@ -200,9 +200,9 @@ class SchemaValidator:
 
     def _validate_form(
         self,
-        data: Dict[str, Any],
-        schema: Dict[str, Any]
-    ) -> List[str]:
+        data: dict[str, Any],
+        schema: dict[str, Any]
+    ) -> list[str]:
         """验证表单元数据"""
         errors = []
 
@@ -234,9 +234,9 @@ class SchemaValidator:
 
     def _validate_tab(
         self,
-        tab: Dict[str, Any],
+        tab: dict[str, Any],
         index: int
-    ) -> List[str]:
+    ) -> list[str]:
         """验证选项卡定义"""
         errors = []
         prefix = f"tabs[{index}]"
@@ -256,10 +256,10 @@ class SchemaValidator:
 
     def _validate_section(
         self,
-        section: Dict[str, Any],
+        section: dict[str, Any],
         tab_index: int,
         section_index: int
-    ) -> List[str]:
+    ) -> list[str]:
         """验证分区定义"""
         errors = []
         prefix = f"tabs[{tab_index}].sections[{section_index}]"
@@ -275,9 +275,9 @@ class SchemaValidator:
 
     def _validate_view(
         self,
-        data: Dict[str, Any],
-        schema: Dict[str, Any]
-    ) -> List[str]:
+        data: dict[str, Any],
+        schema: dict[str, Any]
+    ) -> list[str]:
         """验证视图元数据"""
         errors = []
 
@@ -296,7 +296,7 @@ class SchemaValidator:
         # 验证类型
         if "type" in view_data:
             valid_types = ["PublicView", "PrivateView", "AdvancedFind",
-                          "AssociatedView", "QuickFindView", "LookupView"]
+                           "AssociatedView", "QuickFindView", "LookupView"]
             if view_data["type"] not in valid_types:
                 errors.append(f"Invalid view type: {view_data['type']}")
 
@@ -306,9 +306,9 @@ class SchemaValidator:
 
     def _validate_webresource(
         self,
-        data: Dict[str, Any],
-        schema: Dict[str, Any]
-    ) -> List[str]:
+        data: dict[str, Any],
+        schema: dict[str, Any]
+    ) -> list[str]:
         """验证Web Resource元数据"""
         errors = []
 
@@ -338,9 +338,9 @@ class SchemaValidator:
 
     def _validate_ribbon(
         self,
-        data: Dict[str, Any],
-        schema: Dict[str, Any]
-    ) -> List[str]:
+        data: dict[str, Any],
+        schema: dict[str, Any]
+    ) -> list[str]:
         """验证Ribbon元数据"""
         errors = []
 
@@ -368,9 +368,9 @@ class SchemaValidator:
 
     def _validate_sitemap(
         self,
-        data: Dict[str, Any],
-        schema: Dict[str, Any]
-    ) -> List[str]:
+        data: dict[str, Any],
+        schema: dict[str, Any]
+    ) -> list[str]:
         """验证Sitemap元数据"""
         errors = []
 
@@ -396,9 +396,9 @@ class SchemaValidator:
 
     def _validate_area(
         self,
-        area: Dict[str, Any],
+        area: dict[str, Any],
         index: int
-    ) -> List[str]:
+    ) -> list[str]:
         """验证区域定义"""
         errors = []
         prefix = f"areas[{index}]"
@@ -421,7 +421,7 @@ class SchemaValidator:
     def validate_file(
         self,
         file_path: str
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """
         验证YAML文件
 
@@ -461,7 +461,7 @@ class SchemaValidator:
     def validate_directory(
         self,
         directory: str
-    ) -> Dict[str, Tuple[bool, List[str]]]:
+    ) -> dict[str, tuple[bool, list[str]]]:
         """
         验证目录中的所有YAML文件
 
@@ -485,7 +485,7 @@ class QuickValidator:
     """快速验证器，用于基本检查"""
 
     @staticmethod
-    def check_yaml_syntax(file_path: str) -> Tuple[bool, Optional[str]]:
+    def check_yaml_syntax(file_path: str) -> tuple[bool, str | None]:
         """
         检查YAML语法
 
@@ -504,9 +504,9 @@ class QuickValidator:
 
     @staticmethod
     def check_required_fields(
-        data: Dict[str, Any],
-        required: List[str]
-    ) -> List[str]:
+        data: dict[str, Any],
+        required: list[str]
+    ) -> list[str]:
         """
         检查必需字段
 
@@ -525,7 +525,7 @@ class QuickValidator:
 
     @staticmethod
     def check_field_type(
-        data: Dict[str, Any],
+        data: dict[str, Any],
         field: str,
         expected_type: type
     ) -> bool:

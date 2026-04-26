@@ -6,7 +6,7 @@ Power Platform 命名转换器
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 import yaml
 
 # 设置日志
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class NamingConverter:
     """命名转换器"""
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str = None):
         """
         初始化命名转换器
 
@@ -30,7 +30,7 @@ class NamingConverter:
         self._load_config()
 
     @property
-    def config(self) -> Dict[str, Any]:
+    def config(self) -> dict[str, Any]:
         """获取配置"""
         if self._config is None:
             self._load_config()
@@ -103,7 +103,6 @@ class NamingConverter:
     def _apply_style(self, name: str) -> str:
         """应用命名风格"""
         style = self.schema_name_style
-        separator = self.separator
 
         if style == "lowercase":
             # 转为snake_case: AccountNumber -> account_number
@@ -216,9 +215,9 @@ class NamingConverter:
 
     def convert_attributes(
         self,
-        attributes: List[Dict[str, Any]],
+        attributes: list[dict[str, Any]],
         entity_name: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         批量转换属性名称
 
@@ -245,8 +244,8 @@ class NamingConverter:
 
     def convert_relationships(
         self,
-        relationships: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        relationships: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """
         批量转换关系名称
 
@@ -272,7 +271,7 @@ class NamingConverter:
 
     # ==================== 验证 ====================
 
-    def validate_schema_name(self, name: str) -> Tuple[bool, Optional[str]]:
+    def validate_schema_name(self, name: str) -> tuple[bool, str | None]:
         """
         验证Schema名称
 
@@ -307,11 +306,11 @@ class NamingConverter:
         # 检查格式
         pattern = schema_validation.get("allowed_pattern", r"^[a-zA-Z][a-zA-Z0-9_]*$")
         if not re.match(pattern, name):
-            return False, f"Schema name does not match required pattern"
+            return False, "Schema name does not match required pattern"
 
         return True, None
 
-    def validate_webresource_name(self, name: str) -> Tuple[bool, Optional[str]]:
+    def validate_webresource_name(self, name: str) -> tuple[bool, str | None]:
         """
         验证Web Resource名称
 
@@ -338,7 +337,7 @@ class NamingConverter:
         # 检查格式
         pattern = wr_validation.get("allowed_pattern", r"^[a-zA-Z0-9_./-]+$")
         if not re.match(pattern, name):
-            return False, f"Web Resource name contains invalid characters"
+            return False, "Web Resource name contains invalid characters"
 
         return True, None
 
@@ -415,7 +414,7 @@ class NamingConverter:
 class NamingValidator:
     """命名验证器（独立类，便于单独使用）"""
 
-    def __init__(self, converter: Optional[NamingConverter] = None):
+    def __init__(self, converter: NamingConverter = None):
         """
         初始化验证器
 
@@ -426,8 +425,8 @@ class NamingValidator:
 
     def validate_table_metadata(
         self,
-        metadata: Dict[str, Any]
-    ) -> Tuple[bool, List[str]]:
+        metadata: dict[str, Any]
+    ) -> tuple[bool, list[str]]:
         """
         验证表元数据的命名
 
@@ -464,8 +463,8 @@ class NamingValidator:
 
     def validate_form_metadata(
         self,
-        metadata: Dict[str, Any]
-    ) -> Tuple[bool, List[str]]:
+        metadata: dict[str, Any]
+    ) -> tuple[bool, list[str]]:
         """
         验证表单元数据的命名
 
@@ -488,8 +487,8 @@ class NamingValidator:
 
     def check_naming_consistency(
         self,
-        metadata_files: List[str]
-    ) -> List[str]:
+        metadata_files: list[str]
+    ) -> list[str]:
         """
         检查多个元数据文件的命名一致性
 
@@ -500,7 +499,6 @@ class NamingValidator:
             警告列表
         """
         warnings = []
-        seen_names = {}
 
         for file_path in metadata_files:
             # 这里可以添加文件解析和名称检查逻辑

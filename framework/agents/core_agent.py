@@ -6,10 +6,10 @@ Power Platform Agent - 核心代理
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 import msal
-from utils.dataverse_client import DataverseClient, AuthenticationError
-from utils.naming_converter import NamingConverter
+from framework.utils.dataverse_client import DataverseClient, AuthenticationError
+from framework.utils.naming_converter import NamingConverter
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -26,11 +26,11 @@ class CoreAgent:
             config_path: 配置文件路径
         """
         self.config_path = config_path
-        self._config: Optional[Dict[str, Any]] = None
-        self._environments: Optional[Dict[str, Any]] = None
-        self._current_environment: Optional[str] = None
-        self._tokens: Dict[str, str] = {}
-        self._clients: Dict[str, DataverseClient] = {}
+        self._config: dict[str, Any] | None = None
+        self._environments: dict[str, Any] | None = None
+        self._current_environment: str | None = None
+        self._tokens: dict[str, str] = {}
+        self._clients: dict[str, DataverseClient] = {}
 
         # 初始化命名转换器
         self.naming_converter = NamingConverter()
@@ -41,7 +41,6 @@ class CoreAgent:
 
     def _load_config(self) -> None:
         """加载配置"""
-        import yaml
         from utils.env_config import load_yaml_with_env, load_env_file
 
         # 加载 .env 文件使环境变量可用
@@ -63,7 +62,7 @@ class CoreAgent:
             self._config = {"environments": {}}
             self._environments = {"environments": {}}
 
-    def get_environment_config(self, environment: Optional[str] = None) -> Dict[str, Any]:
+    def get_environment_config(self, environment: str = None) -> dict[str, Any]:
         """
         获取环境配置
 
@@ -80,11 +79,11 @@ class CoreAgent:
 
     async def login(
         self,
-        environment: Optional[str] = None,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
-        tenant_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+        environment: str = None,
+        client_id: str = None,
+        client_secret: str = None,
+        tenant_id: str = None
+    ) -> dict[str, Any]:
         """
         登录到Dataverse环境
 
@@ -151,7 +150,7 @@ class CoreAgent:
                 "error": str(e)
             }
 
-    async def logout(self, environment: Optional[str] = None) -> Dict[str, Any]:
+    async def logout(self, environment: str = None) -> dict[str, Any]:
         """
         登出
 
@@ -171,7 +170,7 @@ class CoreAgent:
 
         return {"success": True, "environment": env}
 
-    async def status(self) -> Dict[str, Any]:
+    async def status(self) -> dict[str, Any]:
         """
         获取当前状态
 
@@ -189,7 +188,7 @@ class CoreAgent:
 
     # ==================== 环境切换 ====================
 
-    async def switch_environment(self, environment: str) -> Dict[str, Any]:
+    async def switch_environment(self, environment: str) -> dict[str, Any]:
         """
         切换环境
 
@@ -218,14 +217,14 @@ class CoreAgent:
             "authenticated": environment in self._tokens
         }
 
-    async def list_environments(self) -> List[Dict[str, Any]]:
+    async def list_environments(self) -> list[dict[str, Any]]:
         """
         列出所有环境
 
         Returns:
             环境列表
         """
-        environments: List[Dict[str, Any]] = []
+        environments: list[dict[str, Any]] = []
         for name, config in self._environments.get("environments", {}).items():  # type: ignore[union-attr]
             environments.append({
                 "name": name,
@@ -238,7 +237,7 @@ class CoreAgent:
 
     # ==================== 客户端获取 ====================
 
-    def get_client(self, environment: Optional[str] = None) -> DataverseClient:
+    def get_client(self, environment: str = None) -> DataverseClient:
         """
         获取Dataverse客户端
 
@@ -292,7 +291,7 @@ class CoreAgent:
         self,
         name: str,
         type: str = "schema_name"
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """
         验证名称
 
@@ -312,9 +311,9 @@ class CoreAgent:
 
     async def bulk_convert_names(
         self,
-        items: List[Dict[str, Any]],
+        items: list[dict[str, Any]],
         type: str = "schema_name"
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         批量转换名称
 
@@ -345,7 +344,7 @@ class CoreAgent:
 
     # ==================== 命名规则 ====================
 
-    async def list_naming_rules(self) -> Dict[str, Any]:
+    async def list_naming_rules(self) -> dict[str, Any]:
         """
         列出当前命名规则
 
@@ -378,7 +377,7 @@ class CoreAgent:
         module: str,
         class_name: str,
         enabled: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         注册自定义扩展
 
@@ -402,7 +401,7 @@ class CoreAgent:
             }
         }
 
-    async def list_extensions(self) -> List[Dict[str, Any]]:
+    async def list_extensions(self) -> list[dict[str, Any]]:
         """
         列出已注册的扩展
 
@@ -424,7 +423,7 @@ class CoreAgent:
 
     # ==================== 健康检查 ====================
 
-    async def health_check(self, environment: Optional[str] = None) -> Dict[str, Any]:
+    async def health_check(self, environment: str | None = None) -> dict[str, Any]:
         """
         健康检查
 
@@ -461,7 +460,7 @@ class CoreAgent:
 
     # ==================== 系统信息 ====================
 
-    async def get_system_info(self, environment: Optional[str] = None) -> Dict[str, Any]:
+    async def get_system_info(self, environment: str = None) -> dict[str, Any]:
         """
         获取系统信息
 
@@ -489,7 +488,7 @@ class ToolHandler:
     def __init__(self, core_agent: CoreAgent):
         self.core_agent = core_agent
 
-    async def handle_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    async def handle_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """
         处理MCP工具调用
 
@@ -569,14 +568,14 @@ class ToolHandler:
             logger.error(f"Error handling tool {tool_name}: {e}")
             return json.dumps({"error": str(e)}, indent=2, ensure_ascii=False)
 
-    def _format_result(self, result: Dict[str, Any]) -> str:
+    def _format_result(self, result: dict[str, Any]) -> str:
         """格式化结果"""
         return json.dumps(result, indent=2, ensure_ascii=False)
 
-    def _format_list(self, items: List[Dict[str, Any]]) -> str:
+    def _format_list(self, items: list[dict[str, Any]]) -> str:
         """格式化列表"""
         return json.dumps(items, indent=2, ensure_ascii=False)
 
-    def _format_dict(self, data: Dict[str, Any]) -> str:
+    def _format_dict(self, data: dict[str, Any]) -> str:
         """格式化字典"""
         return json.dumps(data, indent=2, ensure_ascii=False)

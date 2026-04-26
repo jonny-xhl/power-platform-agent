@@ -14,10 +14,8 @@ Power Platform Metadata Manager
 9. 全局选项集引用 (global_option_set)
 """
 
-import json
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
-from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +54,7 @@ class MetadataChange:
         target_name: str,
         current_value: Any = None,
         desired_value: Any = None,
-        metadata_id: Optional[str] = None
+        metadata_id: str = None
     ):
         self.change_type = change_type  # create, update, delete
         self.target_type = target_type  # entity, attribute, relationship, option_set
@@ -65,7 +63,7 @@ class MetadataChange:
         self.desired_value = desired_value
         self.metadata_id = metadata_id
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "change_type": self.change_type,
             "target_type": self.target_type,
@@ -81,7 +79,7 @@ class MetadataDiff:
 
     def __init__(self, entity_name: str):
         self.entity_name = entity_name
-        self.changes: List[MetadataChange] = []
+        self.changes: list[MetadataChange] = []
 
     def add_change(self, change: MetadataChange):
         self.changes.append(change)
@@ -89,20 +87,20 @@ class MetadataDiff:
     def has_changes(self) -> bool:
         return len(self.changes) > 0
 
-    def get_changes_by_type(self, change_type: str) -> List[MetadataChange]:
+    def get_changes_by_type(self, change_type: str) -> list[MetadataChange]:
         return [c for c in self.changes if c.change_type == change_type]
 
-    def get_changes_by_target(self, target_type: str) -> List[MetadataChange]:
+    def get_changes_by_target(self, target_type: str) -> list[MetadataChange]:
         return [c for c in self.changes if c.target_type == target_type]
 
-    def summary(self) -> Dict[str, int]:
+    def summary(self) -> dict[str, int]:
         summary = {}
         for change in self.changes:
             key = f"{change.target_type}_{change.change_type}"
             summary[key] = summary.get(key, 0) + 1
         return summary
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "entity_name": self.entity_name,
             "has_changes": self.has_changes(),
@@ -133,7 +131,7 @@ class MetadataManager:
 
     # ==================== 状态查询 ====================
 
-    def get_current_state(self, entity_name: str) -> Dict[str, Any]:
+    def get_current_state(self, entity_name: str) -> dict[str, Any]:
         """
         获取实体当前的完整状态
 
@@ -147,7 +145,7 @@ class MetadataManager:
 
         try:
             entity_metadata = self.client.get_entity_metadata(entity_name)
-        except Exception as e:
+        except Exception:
             # 实体不存在
             logger.info(f"Entity {entity_name} does not exist yet")
             return {
@@ -188,7 +186,7 @@ class MetadataManager:
             "option_sets": {}  # 从属性中提取选项集信息
         }
 
-    def _serialize_attribute(self, attr: Dict[str, Any]) -> Dict[str, Any]:
+    def _serialize_attribute(self, attr: dict[str, Any]) -> dict[str, Any]:
         """序列化属性元数据"""
         result = {
             "schema_name": attr.get("SchemaName"),
@@ -233,7 +231,7 @@ class MetadataManager:
 
         return result
 
-    def _serialize_relationship(self, rel: Dict[str, Any]) -> Dict[str, Any]:
+    def _serialize_relationship(self, rel: dict[str, Any]) -> dict[str, Any]:
         """序列化关系元数据"""
         rel_type = rel.get("@odata.type", "")
 
@@ -269,7 +267,7 @@ class MetadataManager:
     def compute_diff(
         self,
         entity_name: str,
-        desired_metadata: Dict[str, Any]
+        desired_metadata: dict[str, Any]
     ) -> MetadataDiff:
         """
         计算当前状态与期望状态的差异
@@ -354,7 +352,7 @@ class MetadataManager:
         # 所以需要检查referenced实体上的关系
         for desired_rel in desired_relationships:
             rel_name = desired_rel.get("name")
-            related_entity = desired_rel.get("related_entity")
+            related_entity = desired_rel.get("related_entity")  # noqa: F841
 
             # 查找当前关系中是否存在
             current_rel = None
@@ -395,8 +393,8 @@ class MetadataManager:
 
     def _compare_attribute(
         self,
-        current: Dict[str, Any],
-        desired: Dict[str, Any]
+        current: dict[str, Any],
+        desired: dict[str, Any]
     ) -> bool:
         """比较属性是否需要更新"""
         # 比较关键字段
@@ -443,8 +441,8 @@ class MetadataManager:
 
     def _compare_relationship(
         self,
-        current: Dict[str, Any],
-        desired: Dict[str, Any]
+        current: dict[str, Any],
+        desired: dict[str, Any]
     ) -> bool:
         """比较关系是否需要更新
 
@@ -484,9 +482,9 @@ class MetadataManager:
     def apply_diff(
         self,
         diff: MetadataDiff,
-        entity_metadata: Dict[str, Any],
-        options: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
+        entity_metadata: dict[str, Any],
+        options: dict[str, Any] = None
+    ) -> dict[str, Any]:
         """
         应用差异到Dataverse
 
@@ -522,13 +520,13 @@ class MetadataManager:
         # 获取实体metadata_id（用于后续操作）
         try:
             entity_info = self.client.get_entity_metadata(diff.entity_name)
-            entity_metadata_id = entity_info.get("MetadataId")
-        except:
-            entity_metadata_id = None
+            entity_metadata_id = entity_info.get("MetadataId")  # noqa: F841
+        except Exception:
+            entity_metadata_id = None  # noqa: F841
 
         # 2. 创建/更新属性（排除Lookup，Lookup通过关系创建）
         attr_changes = [c for c in diff.get_changes_by_target("attribute")
-                       if c.desired_value.get("type") not in ("Lookup", "Customer", "Owner")]
+                        if c.desired_value.get("type") not in ("Lookup", "Customer", "Owner")]
 
         for change in attr_changes:
             try:
@@ -581,7 +579,10 @@ class MetadataManager:
                         "action": "update",
                         "name": change.target_name,
                         "skipped": True,
-                        "message": "Relationship update skipped - Dataverse does not support PUT on existing relationships"
+                        "message": (
+                            "Relationship update skipped - "
+                            "Dataverse does not support PUT on existing relationships"
+                        )
                     }
                 else:
                     result = {"success": False, "message": f"Unsupported change type: {change.change_type}"}
@@ -605,7 +606,7 @@ class MetadataManager:
 
         return results
 
-    def _create_entity(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_entity(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """创建实体"""
         try:
             logger.info(f"Creating entity: {metadata.get('schema', {}).get('schema_name')}")
@@ -625,7 +626,7 @@ class MetadataManager:
                 "error": str(e)
             }
 
-    def _create_attribute(self, entity_name: str, attr_def: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_attribute(self, entity_name: str, attr_def: dict[str, Any]) -> dict[str, Any]:
         """创建属性"""
         try:
             attr_type = attr_def.get("type")
@@ -651,12 +652,12 @@ class MetadataManager:
         self,
         entity_name: str,
         metadata_id: str,
-        attr_def: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        attr_def: dict[str, Any]
+    ) -> dict[str, Any]:
         """更新属性"""
         try:
             # 构建更新元数据（只包含可更新的字段）
-            attr_type = attr_def.get("type")
+            attr_type = attr_def.get("type")  # noqa: F841
             update_metadata = {
                 "DisplayName": self._create_localized_label(attr_def.get("display_name", "")),
                 "Description": self._create_localized_label(attr_def.get("description", "")),
@@ -694,11 +695,11 @@ class MetadataManager:
     def _create_relationship_with_lookup(
         self,
         entity_name: str,
-        rel_def: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        rel_def: dict[str, Any]
+    ) -> dict[str, Any]:
         """创建关系（包含Lookup的Deep Insert）"""
         try:
-            related_entity = rel_def.get("related_entity")
+            related_entity = rel_def.get("related_entity")  # noqa: F841
             lookup_attr = rel_def.get("lookup_attribute")
 
             result = self.client.create_relationship(
@@ -727,8 +728,8 @@ class MetadataManager:
         self,
         entity_name: str,
         metadata_id: str,
-        rel_def: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        rel_def: dict[str, Any]
+    ) -> dict[str, Any]:
         """更新关系的级联配置"""
         try:
             # 关系更新需要从referenced实体端操作
@@ -780,7 +781,7 @@ class MetadataManager:
                 "error": str(e)
             }
 
-    def _create_localized_label(self, label: str) -> Dict[str, Any]:
+    def _create_localized_label(self, label: str) -> dict[str, Any]:
         """创建本地化标签"""
         if not label:
             return None

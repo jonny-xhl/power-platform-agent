@@ -8,10 +8,8 @@ import hashlib
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from datetime import datetime
-import yaml
-
 # 设置日志
 logger = logging.getLogger(__name__)
 
@@ -34,7 +32,7 @@ class SolutionAgent:
 
     # ==================== 工具处理 ====================
 
-    async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    async def handle(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """
         处理MCP工具调用
 
@@ -118,9 +116,9 @@ class SolutionAgent:
 
     async def export(
         self,
-        solution_name: str,
+        solution_name: str | None,
         managed: bool = False,
-        output_path: Optional[str] = None
+        output_path: str | None = None
     ) -> str:
         """
         导出解决方案
@@ -139,8 +137,8 @@ class SolutionAgent:
                 suffix = "_managed" if managed else ""
                 output_path = f"solutions/{solution_name}{suffix}_{timestamp}.zip"
 
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path_obj = Path(output_path)
+            output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
             # 检查PAC CLI是否可用
             pac_available = await self._check_pac_cli()
@@ -149,24 +147,24 @@ class SolutionAgent:
                 result = await self._export_with_pac(
                     solution_name,
                     managed,
-                    str(output_path)
+                    str(output_path_obj)
                 )
             else:
                 # 使用Web API导出
                 result = await self._export_with_api(
                     solution_name,
                     managed,
-                    str(output_path)
+                    str(output_path_obj)
                 )
 
             # 更新状态
-            self._update_export_status(solution_name, str(output_path), managed)
+            self._update_export_status(solution_name, str(output_path_obj), managed)
 
             return json.dumps({
                 "success": True,
                 "solution": solution_name,
                 "managed": managed,
-                "output_path": str(output_path),
+                "output_path": str(output_path_obj),
                 "method": result.get("method", "unknown")
             }, indent=2, ensure_ascii=False)
 
@@ -180,7 +178,7 @@ class SolutionAgent:
         solution_name: str,
         managed: bool,
         output_path: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """使用PAC CLI导出解决方案"""
         cmd = [
             "pac", "solution", "export",
@@ -205,7 +203,7 @@ class SolutionAgent:
         solution_name: str,
         managed: bool,
         output_path: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """使用Web API导出解决方案"""
         if not self.core_agent:
             raise Exception("No core agent available")
@@ -225,7 +223,7 @@ class SolutionAgent:
             raise Exception(f"Solution not found: {solution_name}")
 
         # 导出解决方案
-        export_url = client.get_api_url(f"ExportSolution")
+        export_url = client.get_api_url("ExportSolution")
 
         export_request = {
             "SolutionName": solution_name,
@@ -258,8 +256,8 @@ class SolutionAgent:
 
     async def import_solution(
         self,
-        solution_path: str,
-        environment: Optional[str] = None,
+        solution_path: str | None,
+        environment: str | None = None,
         publish: bool = True
     ) -> str:
         """
@@ -314,9 +312,9 @@ class SolutionAgent:
     async def _import_with_pac(
         self,
         solution_path: str,
-        environment: Optional[str],
+        environment: str | None,
         publish: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """使用PAC CLI导入解决方案"""
         cmd = [
             "pac", "solution", "import",
@@ -340,9 +338,9 @@ class SolutionAgent:
     async def _import_with_api(
         self,
         solution_path: str,
-        environment: Optional[str],
+        environment: str | None,
         publish: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """使用Web API导入解决方案"""
         if not self.core_agent:
             raise Exception("No core agent available")
@@ -383,8 +381,8 @@ class SolutionAgent:
 
     async def diff(
         self,
-        local_path: str,
-        solution_name: str
+        local_path: str | None,
+        solution_name: str | None
     ) -> str:
         """
         对比本地与解决方案差异
@@ -428,9 +426,6 @@ class SolutionAgent:
                 "identical": []
             }
 
-            # 这里简化处理，实际需要更复杂的比较逻辑
-            solution_items = {c.get("objecttypecode"): c for c in components}
-
             return json.dumps({
                 "solution": solution_name,
                 "local_path": str(local_path),
@@ -448,9 +443,9 @@ class SolutionAgent:
 
     async def sync(
         self,
-        direction: str,
-        components: Optional[List[str]] = None,
-        environment: Optional[str] = None
+        direction: str | None,
+        components: list[str] | None = None,
+        environment: str | None = None
     ) -> str:
         """
         执行同步
@@ -491,9 +486,9 @@ class SolutionAgent:
 
     async def _sync_local_to_remote(
         self,
-        components: List[str],
-        environment: Optional[str]
-    ) -> Dict[str, Any]:
+        components: list[str],
+        environment: str | None
+    ) -> dict[str, Any]:
         """从本地同步到远程"""
         # 这里实现本地到远程的同步逻辑
         return {
@@ -504,9 +499,9 @@ class SolutionAgent:
 
     async def _sync_remote_to_local(
         self,
-        components: List[str],
-        environment: Optional[str]
-    ) -> Dict[str, Any]:
+        components: list[str],
+        environment: str | None
+    ) -> dict[str, Any]:
         """从远程同步到本地"""
         # 这里实现远程到本地的同步逻辑
         return {
@@ -517,9 +512,9 @@ class SolutionAgent:
 
     async def _sync_bidirectional(
         self,
-        components: List[str],
-        environment: Optional[str]
-    ) -> Dict[str, Any]:
+        components: list[str],
+        environment: str | None
+    ) -> dict[str, Any]:
         """双向同步"""
         # 这里实现双向同步逻辑
         return {
@@ -533,8 +528,8 @@ class SolutionAgent:
 
     async def pack(
         self,
-        components: List[Dict[str, Any]],
-        output_path: str
+        components: list[dict[str, Any]] | None,
+        output_path: str | None
     ) -> str:
         """
         打包解决方案
@@ -577,7 +572,7 @@ class SolutionAgent:
             "tracked_solutions": list(self._state.get("solutions", {}).keys())
         }, indent=2, ensure_ascii=False)
 
-    def _load_state(self) -> Dict[str, Any]:
+    def _load_state(self) -> dict[str, Any]:
         """加载状态"""
         state_file = self.state_dir / "state.json"
 
@@ -619,9 +614,9 @@ class SolutionAgent:
 
     async def add_component(
         self,
-        component_type: str,
-        component_id: str,
-        solution_name: str
+        component_type: str | None,
+        component_id: str | None,
+        solution_name: str | None
     ) -> str:
         """
         添加组件到解决方案
@@ -734,8 +729,8 @@ class SolutionAgent:
 
     async def clone(
         self,
-        source_solution: str,
-        target_solution: str
+        source_solution: str | None,
+        target_solution: str | None
     ) -> str:
         """
         克隆解决方案
@@ -756,7 +751,7 @@ class SolutionAgent:
 
     # ==================== 升级解决方案 ====================
 
-    async def upgrade(self, solution_name: str) -> str:
+    async def upgrade(self, solution_name: str | None) -> str:
         """
         升级解决方案
 
@@ -783,13 +778,13 @@ class SolutionAgent:
                 timeout=5
             )
             return result.returncode == 0
-        except:
+        except Exception:
             return False
 
     async def _get_solution_id(
         self,
         solution_name: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """获取解决方案ID"""
         if not self.core_agent:
             return None

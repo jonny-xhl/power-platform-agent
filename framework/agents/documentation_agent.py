@@ -17,7 +17,7 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable
 
 # 添加框架路径
 import sys
@@ -25,9 +25,9 @@ framework_path = Path(__file__).parent.parent
 if str(framework_path) not in sys.path:
     sys.path.insert(0, str(framework_path))
 
-from framework.utils.change_detector import ChangeDetector, ChangeReport, ChangedFile
-from framework.utils.impact_analyzer import ImpactAnalyzer, ImpactReport
-from framework.llm.langchain_client import LangChainLLMClient, LLMResponse
+from framework.utils.change_detector import ChangeDetector, ChangeReport, ChangedFile  # noqa: E402,F401
+from framework.utils.impact_analyzer import ImpactAnalyzer, ImpactReport  # noqa: E402,F401
+from framework.llm.langchain_client import LangChainLLMClient  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +48,9 @@ class DocumentationAgent:
 
     def __init__(
         self,
-        repo_root: Optional[Path] = None,
-        llm_provider: Optional[str] = None,
-        llm_model: Optional[str] = None
+        repo_root: Path = None,
+        llm_provider: str = None,
+        llm_model: str = None
     ):
         """
         初始化文档代理
@@ -113,8 +113,8 @@ class DocumentationAgent:
         self,
         target_path: Path,
         content: str,
-        validation_fn: Optional[Callable[[str], Tuple[bool, str]]] = None
-    ) -> Dict[str, Any]:
+        validation_fn: Callable[[str], tuple[bool, str]] = None
+    ) -> dict[str, Any]:
         """
         原子写入文件：通过临时文件 + os.replace 保证安全
 
@@ -222,8 +222,8 @@ class DocumentationAgent:
         self,
         original_content: str,
         new_content: str,
-        required_sections: Optional[List[str]] = None
-    ) -> Tuple[bool, str]:
+        required_sections: list[str] = None
+    ) -> tuple[bool, str]:
         """
         校验 LLM 生成的内容是否安全
 
@@ -283,14 +283,15 @@ class DocumentationAgent:
     def _apply_section_patches(
         self,
         original_content: str,
-        patches: Dict[str, Any]
+        patches: dict[str, Any]
     ) -> str:
         """
         将 JSON section patches 增量合并到原文档
 
         Args:
             original_content: 原文档内容
-            patches: {"sections_to_update": {"section_title": "new_content"}, "sections_to_add": {"section_title": "content"}}
+            patches: {"sections_to_update": {"section_title": "new_content"},
+                      "sections_to_add": {"section_title": "content"}}
 
         Returns:
             合并后的文档内容
@@ -322,7 +323,7 @@ class DocumentationAgent:
                     section_ranges[current_section] = (section_start, i)
 
                 current_section = title
-                current_level = level
+                current_level = level  # noqa: F841
                 section_start = i
 
         # 保存最后一个 section
@@ -358,7 +359,7 @@ class DocumentationAgent:
 
     # ==================== MCP 工具处理 ====================
 
-    async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    async def handle(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """
         处理 MCP 工具调用
 
@@ -492,7 +493,7 @@ class DocumentationAgent:
 
     async def update_skill(
         self,
-        skill_path: Optional[str],
+        skill_path: str | None,
         apply: bool = False
     ) -> str:
         """
@@ -555,8 +556,8 @@ class DocumentationAgent:
             # 准备 diff 内容
             related_diffs = [
                 f.diff_content for f in skill_files
-                if skill_file.replace("/SKILL.md", "") in f.path or
-                   any(p in f.path for p in parts if ".claude" in p and "skills" in p)
+                if skill_file.replace("/SKILL.md", "") in f.path
+                or any(p in f.path for p in parts if ".claude" in p and "skills" in p)
             ]
 
             diff_content = "\n\n".join(related_diffs) if related_diffs else "No diff available"
@@ -575,7 +576,8 @@ class DocumentationAgent:
 
                 # 构建校验函数
                 required = ["name:", "description:"]  # frontmatter 必选项
-                def validate_fn(content: str) -> Tuple[bool, str]:
+
+                def validate_fn(content: str) -> tuple[bool, str]:
                     return self._validate_content(
                         current_content, content, required_sections=required
                     )
@@ -640,7 +642,7 @@ class DocumentationAgent:
         current_content: str,
         diff_content: str,
         skill_path: str,
-        changed_files: List[str]
+        changed_files: list[str]
     ) -> str:
         """生成 SKILL 更新内容（JSON section patches 格式）"""
         prompt_template = self.prompts.get("skill_update", "")
@@ -702,7 +704,8 @@ class DocumentationAgent:
 
             # 构建校验函数
             required_sections = ["项目概述", "MCP 工具列表", "架构说明"]
-            def validate_fn(content: str) -> Tuple[bool, str]:
+
+            def validate_fn(content: str) -> tuple[bool, str]:
                 return self._validate_content(
                     current_content, content, required_sections=required_sections
                 )
@@ -739,8 +742,8 @@ class DocumentationAgent:
     async def _generate_claude_md(
         self,
         current_content: str,
-        mcp_tools: List[Dict],
-        skills: List[Dict]
+        mcp_tools: list[dict],
+        skills: list[dict]
     ) -> str:
         """生成 CLAUDE.md 更新内容（JSON section patches 格式）"""
         prompt_template = self.prompts.get("claude_md_update", "")
@@ -774,7 +777,7 @@ class DocumentationAgent:
     async def generate_summary(
         self,
         scope: str = "staged",
-        output_file: Optional[str] = None
+        output_file: str = None
     ) -> str:
         """
         生成变更总结
@@ -917,7 +920,7 @@ class DocumentationAgent:
 
         return json.dumps(results, indent=2, ensure_ascii=False)
 
-    async def _get_mcp_tools_list(self) -> List[Dict]:
+    async def _get_mcp_tools_list(self) -> list[dict]:
         """
         动态从 mcp_serve.py 解析 Tool 定义
 
@@ -966,7 +969,7 @@ class DocumentationAgent:
                 "health_": "其他",
             }
 
-            categories: Dict[str, List[Dict]] = {}
+            categories: dict[str, list[dict]] = {}
             for tool in raw_tools:
                 name = tool["name"]
                 category = "其他"
@@ -990,7 +993,7 @@ class DocumentationAgent:
             logger.error(f"Failed to parse mcp_serve.py: {e}")
             return []
 
-    async def _get_skills_list(self) -> List[Dict]:
+    async def _get_skills_list(self) -> list[dict]:
         """获取 SKILL 列表"""
         skills_dir = self.repo_root / ".claude" / "skills"
 

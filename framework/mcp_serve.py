@@ -20,7 +20,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # 设置日志
 logging.basicConfig(
@@ -33,16 +33,14 @@ logger = logging.getLogger(__name__)
 # framework/mcp_serve.py 在 framework/ 目录下，需要向上两级到达项目根目录
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-# 同时添加 framework/ 目录到路径，用于导入 agents 和 utils
-sys.path.insert(0, str(project_root / "framework"))
 
 from mcp.server import Server  # noqa: E402
 from mcp.types import Tool, Resource, TextContent  # noqa: E402
 
-from agents.core_agent import CoreAgent, ToolHandler as CoreToolHandler  # noqa: E402
-from agents.metadata_agent import MetadataAgent  # noqa: E402
-from agents.plugin_agent import PluginAgent  # noqa: E402
-from agents.solution_agent import SolutionAgent  # noqa: E402
+from framework.agents.core_agent import CoreAgent, ToolHandler as CoreToolHandler  # noqa: E402
+from framework.agents.metadata_agent import MetadataAgent  # noqa: E402
+from framework.agents.plugin_agent import PluginAgent  # noqa: E402
+from framework.agents.solution_agent import SolutionAgent  # noqa: E402
 
 
 # ==================== MCP服务器 ====================
@@ -50,13 +48,13 @@ from agents.solution_agent import SolutionAgent  # noqa: E402
 app = Server("power-platform-mcp")
 
 # 全局代理实例
-_core_agent: Optional[CoreAgent] = None
-_metadata_agent: Optional[MetadataAgent] = None
-_plugin_agent: Optional[PluginAgent] = None
-_solution_agent: Optional[SolutionAgent] = None
+_core_agent: CoreAgent | None = None
+_metadata_agent: MetadataAgent | None = None
+_plugin_agent: PluginAgent | None = None
+_solution_agent: SolutionAgent | None = None
 
 
-def get_agents() -> tuple:
+def get_agents() -> tuple[CoreAgent | None, MetadataAgent | None, PluginAgent | None, SolutionAgent | None]:
     """获取所有代理实例（懒加载）"""
     global _core_agent, _metadata_agent, _plugin_agent, _solution_agent
 
@@ -72,7 +70,7 @@ def get_agents() -> tuple:
 # ==================== 工具定义 ====================
 
 @app.list_tools()
-async def list_tools() -> List[Tool]:
+async def list_tools() -> list[Tool]:
     """列出所有可用的MCP工具"""
 
     tools = [
@@ -734,7 +732,7 @@ async def list_tools() -> List[Tool]:
 # ==================== 工具调用处理 ====================
 
 @app.call_tool()
-async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """
     处理工具调用
 
@@ -748,6 +746,11 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
     try:
         # 获取代理实例
         core_agent, metadata_agent, plugin_agent, solution_agent = get_agents()
+        # get_agents() 确保所有代理都已初始化，这里断言它们不为 None
+        assert core_agent is not None
+        assert metadata_agent is not None
+        assert plugin_agent is not None
+        assert solution_agent is not None
 
         # 路由到相应的代理
         if name.startswith("auth_") or name.startswith("environment_"):
@@ -795,33 +798,36 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
 # ==================== 资源定义 ====================
 
 @app.list_resources()
-async def list_resources() -> List[Resource]:
+async def list_resources() -> list[Resource]:
     """列出可用资源"""
 
     # framework/ 目录下的文件需要向上两级到达项目根目录
     project_root = Path(__file__).parent.parent
 
+    # 导入 AnyUrl 来正确处理 URI 类型
+    from pydantic import AnyUrl
+
     resources = [
         Resource(
-            uri=str(project_root / "metadata" / "**" / "*.yaml"),
+            uri=AnyUrl(str(project_root / "metadata" / "**" / "*.yaml")),
             name="metadata_files",
             description="YAML元数据定义文件",
             mimeType="text/yaml"
         ),
         Resource(
-            uri=str(project_root / "plugins" / "**" / "*.csproj"),
+            uri=AnyUrl(str(project_root / "plugins" / "**" / "*.csproj")),
             name="plugin_projects",
             description=".NET插件项目文件",
             mimeType="text/xml"
         ),
         Resource(
-            uri=str(project_root / "webresources" / "**" / "*"),
+            uri=AnyUrl(str(project_root / "webresources" / "**" / "*")),
             name="webresource_files",
             description="Web Resource源文件",
             mimeType="text/plain"
         ),
         Resource(
-            uri=str(project_root / "config" / "**" / "*.yaml"),
+            uri=AnyUrl(str(project_root / "config" / "**" / "*.yaml")),
             name="config_files",
             description="配置文件",
             mimeType="text/yaml"

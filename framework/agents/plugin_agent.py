@@ -7,7 +7,7 @@ import json
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 import yaml
 
 # 设置日志
@@ -26,11 +26,11 @@ class PluginAgent:
         """
         self.core_agent = core_agent
         self.plugin_dir = Path("plugins")
-        self._build_cache = {}
+        self._build_cache: dict[str, dict[str, Any]] = {}
 
     # ==================== 工具处理 ====================
 
-    async def handle(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    async def handle(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """
         处理MCP工具调用
 
@@ -44,29 +44,29 @@ class PluginAgent:
         try:
             if tool_name == "plugin_build":
                 return await self.build(
-                    arguments.get("project_path"),
+                    arguments.get("project_path"),  # type: ignore[arg-type]
                     arguments.get("configuration", "Release")
                 )
 
             elif tool_name == "plugin_deploy":
                 return await self.deploy(
-                    arguments.get("assembly_path"),
+                    arguments.get("assembly_path"),  # type: ignore[arg-type]
                     arguments.get("environment")
                 )
 
             elif tool_name == "plugin_step_register":
                 return await self.register_step(
-                    arguments.get("plugin_name"),
-                    arguments.get("entity"),
-                    arguments.get("message"),
-                    arguments.get("stage"),
+                    arguments.get("plugin_name"),  # type: ignore[arg-type]
+                    arguments.get("entity"),  # type: ignore[arg-type]
+                    arguments.get("message"),  # type: ignore[arg-type]
+                    arguments.get("stage"),  # type: ignore[arg-type]
                     arguments.get("config", {})
                 )
 
             elif tool_name == "plugin_step_update":
                 return await self.update_step(
-                    arguments.get("step_id"),
-                    arguments.get("config")
+                    arguments.get("step_id"),  # type: ignore[arg-type]
+                    arguments.get("config")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "plugin_step_list":
@@ -77,7 +77,7 @@ class PluginAgent:
 
             elif tool_name == "plugin_step_delete":
                 return await self.delete_step(
-                    arguments.get("step_id")
+                    arguments.get("step_id")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "plugin_assembly_list":
@@ -85,12 +85,12 @@ class PluginAgent:
 
             elif tool_name == "plugin_watch":
                 return await self.watch(
-                    arguments.get("project_path")
+                    arguments.get("project_path")  # type: ignore[arg-type]
                 )
 
             elif tool_name == "plugin_info":
                 return await self.get_info(
-                    arguments.get("project_path")
+                    arguments.get("project_path")  # type: ignore[arg-type]
                 )
 
             else:
@@ -121,18 +121,18 @@ class PluginAgent:
         Returns:
             构建结果
         """
-        project_path = Path(project_path)
+        project_path_obj = Path(project_path)
 
         # 如果是目录，查找.csproj文件
-        if project_path.is_dir():
-            csproj_files = list(project_path.glob("*.csproj"))
+        if project_path_obj.is_dir():
+            csproj_files = list(project_path_obj.glob("*.csproj"))
             if not csproj_files:
                 return json.dumps({
-                    "error": f"No .csproj file found in {project_path}"
+                    "error": f"No .csproj file found in {project_path_obj}"
                 }, indent=2)
             project_file = csproj_files[0]
         else:
-            project_file = project_path
+            project_file = project_path_obj
 
         if not project_file.exists():
             return json.dumps({
@@ -203,7 +203,7 @@ class PluginAgent:
     async def deploy(
         self,
         assembly_path: str,
-        environment: Optional[str] = None
+        environment: str = None
     ) -> str:
         """
         部署插件程序集
@@ -215,17 +215,17 @@ class PluginAgent:
         Returns:
             部署结果
         """
-        assembly_path = Path(assembly_path)
+        assembly_path_obj = Path(assembly_path)
 
-        if not assembly_path.exists():
+        if not assembly_path_obj.exists():
             # 尝试从缓存获取
             for build_info in self._build_cache.values():
                 if build_info.get("output_dll"):
-                    assembly_path = Path(build_info["output_dll"])
+                    assembly_path_obj = Path(build_info["output_dll"])
                     break
             else:
                 return json.dumps({
-                    "error": f"Assembly not found: {assembly_path}"
+                    "error": f"Assembly not found: {assembly_path_obj}"
                 }, indent=2)
 
         try:
@@ -235,7 +235,7 @@ class PluginAgent:
                 }, indent=2)
 
             # 读取程序集
-            with open(assembly_path, "rb") as f:
+            with open(assembly_path_obj, "rb") as f:
                 assembly_data = f.read()
 
             # 转换为Base64
@@ -247,11 +247,11 @@ class PluginAgent:
 
             # 使用Plugin Registration API部署
             # 注意：这需要通过Plugin Registration Tool或专用API
-            result = await self._deploy_assembly(client, assembly_path.name, assembly_base64)
+            result = await self._deploy_assembly(client, assembly_path_obj.name, assembly_base64)
 
             return json.dumps({
                 "success": True,
-                "assembly": assembly_path.name,
+                "assembly": assembly_path_obj.name,
                 "environment": environment or self.core_agent._current_environment,
                 "result": result
             }, indent=2, ensure_ascii=False)
@@ -266,7 +266,7 @@ class PluginAgent:
         client,
         assembly_name: str,
         assembly_base64: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """部署程序集到Dataverse"""
         # 创建pluginassembly记录
         plugin_assembly = {
@@ -291,7 +291,7 @@ class PluginAgent:
         entity: str,
         message: str,
         stage: str,
-        config: Dict[str, Any] = None
+        config: dict[str, Any] = None
     ) -> str:
         """
         注册插件Step
@@ -375,7 +375,7 @@ class PluginAgent:
                 "error": f"Step registration failed: {str(e)}"
             }, indent=2)
 
-    async def _get_assembly_id(self, client, plugin_name: str) -> Optional[str]:
+    async def _get_assembly_id(self, client, plugin_name: str) -> str | None:
         """获取程序集ID"""
         url = client.get_api_url("pluginassemblies")
         filter_expr = f"name eq '{plugin_name}'"
@@ -387,7 +387,7 @@ class PluginAgent:
                 return data["value"][0]["pluginassemblyid"]
         return None
 
-    async def _get_sdk_message_id(self, client, message: str, entity: str) -> Optional[str]:
+    async def _get_sdk_message_id(self, client, message: str, entity: str) -> str | None:
         """获取SDK消息ID"""
         url = client.get_api_url("sdkmessages")
         filter_expr = f"name eq '{message}'"
@@ -403,7 +403,7 @@ class PluginAgent:
         self,
         client,
         step_id: str,
-        type_config: Dict[str, Any]
+        type_config: dict[str, Any]
     ) -> None:
         """注册Step类型"""
         type_data = {
@@ -423,7 +423,7 @@ class PluginAgent:
     async def update_step(
         self,
         step_id: str,
-        config: Dict[str, Any]
+        config: dict[str, Any]
     ) -> str:
         """
         更新Step配置
@@ -447,7 +447,7 @@ class PluginAgent:
 
             # 移除不允许更新的字段
             update_data = {k: v for k, v in config.items()
-                          if k not in ["pluginassemblyid", "sdkmessageid"]}
+                           if k not in ["pluginassemblyid", "sdkmessageid"]}
 
             response = client.session.patch(url, json=update_data)
             response.raise_for_status()
@@ -498,8 +498,8 @@ class PluginAgent:
 
     async def list_steps(
         self,
-        plugin_name: Optional[str] = None,
-        entity: Optional[str] = None
+        plugin_name: str = None,
+        entity: str = None
     ) -> str:
         """
         列出Steps
@@ -628,17 +628,17 @@ class PluginAgent:
         Returns:
             项目信息
         """
-        project_path = Path(project_path)
+        project_path_obj = Path(project_path)
 
-        if project_path.is_dir():
-            csproj_files = list(project_path.glob("*.csproj"))
+        if project_path_obj.is_dir():
+            csproj_files = list(project_path_obj.glob("*.csproj"))
             if not csproj_files:
                 return json.dumps({
-                    "error": f"No .csproj file found in {project_path}"
+                    "error": f"No .csproj file found in {project_path_obj}"
                 }, indent=2)
             project_file = csproj_files[0]
         else:
-            project_file = project_path
+            project_file = project_path_obj
 
         if not project_file.exists():
             return json.dumps({
@@ -688,7 +688,7 @@ class PluginAgent:
                             "file": cs_file.name,
                             "path": str(cs_file.relative_to(project_file.parent))
                         })
-                except:
+                except Exception:
                     pass
 
             return json.dumps(info, indent=2, ensure_ascii=False)
@@ -700,7 +700,7 @@ class PluginAgent:
 
     # ==================== 插件配置 ====================
 
-    def parse_plugin_config(self, config_path: str) -> Dict[str, Any]:
+    def parse_plugin_config(self, config_path: str) -> dict[str, Any]:
         """
         解析插件配置YAML
 
@@ -718,8 +718,8 @@ class PluginAgent:
     def generate_plugin_config(
         self,
         plugin_name: str,
-        config: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        config: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         生成插件配置
 

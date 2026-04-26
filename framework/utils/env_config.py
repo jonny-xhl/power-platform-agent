@@ -7,10 +7,10 @@ Provides utilities for loading and expanding environment variables in configurat
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-def load_env_file(env_file: Optional[str] = None) -> None:
+def load_env_file(env_file: str = None) -> None:
     """
     Load environment variables from .env file
 
@@ -66,7 +66,7 @@ def expand_env_vars(value: Any) -> Any:
         return value
 
 
-def load_yaml_with_env(yaml_path: str) -> Dict[str, Any]:
+def load_yaml_with_env(yaml_path: str) -> dict[str, Any]:
     """
     Load YAML file with environment variable expansion
 
@@ -93,9 +93,9 @@ def load_yaml_with_env(yaml_path: str) -> Dict[str, Any]:
 
 
 def get_env_config(
-    env_file: Optional[str] = None,
-    config_file: Optional[str] = None
-) -> Dict[str, Any]:
+    env_file: str = None,
+    config_file: str = None
+) -> dict[str, Any]:
     """
     Get complete environment configuration
 
@@ -152,8 +152,8 @@ class EnvConfig:
 
     def __init__(
         self,
-        env_file: Optional[str] = None,
-        config_dir: Optional[str] = None
+        env_file: str = None,
+        config_dir: str = None
     ):
         """
         Initialize environment configuration
@@ -164,7 +164,7 @@ class EnvConfig:
         """
         self.env_file = env_file
         self.config_dir = config_dir or "config"
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
 
         # Load .env file immediately
         load_env_file(env_file)
@@ -214,7 +214,7 @@ class EnvConfig:
 
         return default
 
-    def _get_nested_value(self, data: Dict, key: str) -> Any:
+    def _get_nested_value(self, data: dict, key: str) -> Any:
         """Get value from nested dictionary using dot notation"""
         keys = key.split(".")
         value = data
@@ -227,7 +227,7 @@ class EnvConfig:
 
         return value
 
-    def get_all(self) -> Dict[str, Any]:
+    def get_all(self) -> dict[str, Any]:
         """Get all configuration as a dictionary"""
         config = {}
 

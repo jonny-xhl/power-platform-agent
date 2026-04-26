@@ -4,14 +4,12 @@ Change Detector - 代码变更检测器
 通过 Git diff 检测代码变更，判断是否为有意义变更
 """
 
-import os
-import re
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Set
+# from typing import Optional  # Not needed in Python 3.10+
 
 
 class ChangeType(Enum):
@@ -64,23 +62,23 @@ class ChangedFile:
 @dataclass
 class ChangeReport:
     """变更报告"""
-    files: List[ChangedFile] = field(default_factory=list)
+    files: list[ChangedFile] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
-    commit_hash: Optional[str] = None
-    commit_message: Optional[str] = None
+    commit_hash: str | None = None
+    commit_message: str | None = None
 
     @property
-    def significant_files(self) -> List[ChangedFile]:
+    def significant_files(self) -> list[ChangedFile]:
         """有意义变更的文件"""
         return [f for f in self.files if f.significance != Significance.INSIGNIFICANT]
 
     @property
-    def python_files(self) -> List[ChangedFile]:
+    def python_files(self) -> list[ChangedFile]:
         """Python 文件变更"""
         return [f for f in self.files if f.is_python]
 
     @property
-    def yaml_files(self) -> List[ChangedFile]:
+    def yaml_files(self) -> list[ChangedFile]:
         """YAML 文件变更"""
         return [f for f in self.files if f.is_yaml]
 
@@ -124,9 +122,9 @@ class ChangeDetector:
 
     def __init__(
         self,
-        repo_root: Optional[Path] = None,
-        excluded_dirs: Optional[Set[str]] = None,
-        excluded_patterns: Optional[Set[str]] = None
+        repo_root: Path = None,
+        excluded_dirs: set[str] = None,
+        excluded_patterns: set[str] = None
     ):
         """
         初始化变更检测器
@@ -184,7 +182,7 @@ class ChangeDetector:
         """
         return self._get_changes("--no-diff-index")
 
-    def get_head_changes(self, commit: Optional[str] = None) -> ChangeReport:
+    def get_head_changes(self, commit: str = None) -> ChangeReport:
         """
         获取与指定提交的差异
 
@@ -413,7 +411,7 @@ class ChangeDetector:
         """
         return change.significance != Significance.INSIGNIFICANT
 
-    def get_related_files(self, file_path: str) -> List[str]:
+    def get_related_files(self, file_path: str) -> list[str]:
         """
         获取相关的文件（如测试文件、文档文件等）
 
