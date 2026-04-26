@@ -1,20 +1,26 @@
 # Power Platform 环境配置
 # 用于管理多个Dataverse环境的连接信息
+#
+# 认证方式说明：
+# 1. Client模式 (推荐): 直接提供 access_token，不需要 tenant_id
+#    - 通过 auth_login 工具传入 access_token 参数
+# 2. Confidential模式: 使用 client_id + client_secret 获取 token
+#    - tenant_id 为可选，默认使用 organizations 端点（适用于多租户应用）
 
 environments:
   # 开发环境
   dev:
     name: "Development"
-    url: "https://orgdev.crm.dynamics.com"
+    url: "https://ninebotcsdev.crm5.dynamics.com"
     environment_id: "${DEV_ENVIRONMENT_ID}"
-    tenant_id: "${DEV_TENANT_ID}"
+    tenant_id: "${DEV_TENANT_ID}"  # 可选，Client模式不需要
     client_id: "${DEV_CLIENT_ID}"
     client_secret: "${DEV_CLIENT_SECRET}"
     redirect_uri: "http://localhost:5000/callback"
 
     solution:
-      name: "MySolution_Dev"
-      publisher: "MyPublisher"
+      name: "ninebot-auto-create-component"
+      publisher: "new"
       version: "1.0.0.0"
 
     settings:
@@ -29,7 +35,7 @@ environments:
     name: "Testing"
     url: "https://orgtest.crm.dynamics.com"
     environment_id: "${TEST_ENVIRONMENT_ID}"
-    tenant_id: "${TEST_TENANT_ID}"
+    # tenant_id: "${TEST_TENANT_ID}"  # 可选
     client_id: "${TEST_CLIENT_ID}"
     client_secret: "${TEST_CLIENT_SECRET}"
     redirect_uri: "http://localhost:5000/callback"
@@ -51,7 +57,7 @@ environments:
     name: "Production"
     url: "https://org.crm.dynamics.com"
     environment_id: "${PROD_ENVIRONMENT_ID}"
-    tenant_id: "${PROD_TENANT_ID}"
+    # tenant_id: "${PROD_TENANT_ID}"  # 可选
     client_id: "${PROD_CLIENT_ID}"
     client_secret: "${PROD_CLIENT_SECRET}"
     redirect_uri: "http://localhost:5000/callback"

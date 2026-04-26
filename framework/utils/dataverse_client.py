@@ -36,9 +36,9 @@ class DataverseClient:
         self.environment = environment
         self.config_path = config_path or "config/environments.yaml"
         self.access_token = access_token
-        self._config = None
-        self._session = None
-        self._base_url = None
+        self._config: Optional[Dict[str, Any]] = None
+        self._session: Optional[requests.Session] = None
+        self._base_url: Optional[str] = None
         self._api_version = "9.2"
 
     @property
@@ -46,7 +46,7 @@ class DataverseClient:
         """获取环境配置"""
         if self._config is None:
             self._load_config()
-        return self._config
+        return self._config  # type: ignore[return-value]
 
     @property
     def base_url(self) -> str:
@@ -54,7 +54,7 @@ class DataverseClient:
         if self._base_url is None:
             env_config = self.config.get("environments", {}).get(self.environment, {})
             self._base_url = env_config.get("url", "")
-        return self._base_url
+        return self._base_url  # type: ignore[return-value]
 
     @property
     def session(self) -> requests.Session:
@@ -79,7 +79,10 @@ class DataverseClient:
 
         # 配置重试策略
         retry_strategy = Retry(
-            total=self.config.get("environments", {}).get(self.environment, {}).get("settings", {}).get("retry_count", 3),
+            total=self.config.get("environments", {})
+            .get(self.environment, {})
+            .get("settings", {})
+            .get("retry_count", 3),
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "POST", "PUT", "PATCH", "DELETE"]
@@ -461,6 +464,65 @@ class DataverseClient:
 
         return response.json().get("value", [])
 
+    def get_forms(
+        self,
+        entity_name: str,
+        form_type: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        获取实体的表单列表
+
+        Args:
+            entity_name: 实体逻辑名称
+            form_type: 表单类型过滤 (2=Main, 5=Mobile, 6=QuickCreate, 7=QuickView, 11=Card)
+
+        Returns:
+            表单列表，包含 formid, name, formxml, isdefault 等字段
+        """
+        # 查询实体元数据获取逻辑名，验证实体存在
+        entity_meta = self.get_entity_metadata(entity_name)
+        logical_name = entity_meta.get("LogicalName")
+        if not logical_name:
+            raise ValueError(f"Entity '{entity_name}' not found")
+
+        # systemforms.objecttypecode 是 Edm.String，存储实体逻辑名称
+        filter_parts = [f"objecttypecode eq '{logical_name}'"]
+        if form_type is not None:
+            filter_parts.append(f"type eq {form_type}")
+
+        url = self.get_api_url("systemforms")
+        params: Dict[str, Any] = {"$filter": " and ".join(filter_parts)}
+        response = self.session.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_form_by_id(self, form_id: str) -> Dict[str, Any]:
+        """
+        获取单个表单的完整数据（包含 FormXml）
+
+        Args:
+            form_id: 表单 GUID
+
+        Returns:
+            表单完整数据
+        """
+        url = self.get_api_url(f"systemforms({form_id})")
+        response = self.session.get(url)
+        response.raise_for_status()
+        return response.json()
+
+    def update_form(self, form_id: str, payload: Dict[str, Any]) -> None:
+        """
+        更新表单（PATCH SystemForm）
+
+        Args:
+            form_id: 表单 GUID
+            payload: 要更新的字段，如 {"formxml": "<form>...</form>"}
+        """
+        url = self.get_api_url(f"systemforms({form_id})")
+        response = self.session.patch(url, json=payload)
+        response.raise_for_status()
+
     def create_webresource(
         self,
         name: str,
@@ -603,11 +665,9 @@ class DataverseClient:
         lines = []
 
         for i, req in enumerate(batch_requests, 1):
-            change_id = str(uuid.uuid4())
-
             lines.append(f"--batch_{batch_id}")
-            lines.append(f"Content-Type: application/http")
-            lines.append(f"Content-Transfer-Encoding: binary")
+            lines.append("Content-Type: application/http")
+            lines.append("Content-Transfer-Encoding: binary")
             lines.append(f"Content-ID: {i}")
             lines.append("")
             lines.append(f"{req['method']} {req['url']} HTTP/1.1")

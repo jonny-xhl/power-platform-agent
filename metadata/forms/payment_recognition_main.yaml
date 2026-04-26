@@ -1,0 +1,110 @@
+# 认款单主表单元数据定义
+# 基于 feature-payment-management 设计模版生成
+# update_form 自动检测并替代 Dataverse 自动生成的默认 Main 窗体
+
+$schema: "../_schema/form_schema.yaml"
+
+form:
+  schema_name: "new_payment_recognition_main_form"
+  entity: "new_payment_recognition"
+  type: "Main"
+  display_name: "认款单"
+  description: "认款单主表单，用于录入和查看认款信息"
+  is_default: true
+
+  options:
+    use_field_display_label: true
+    enable_security: false
+    show_image: false
+    enable_navigation: true
+
+# 选项卡定义
+tabs:
+  - name: "tab_basic"
+    display_name: "基本信息"
+    description: "认款基本信息和客户关联"
+    expand_by_default: true
+    sections:
+      - name: "sec_payment_core"
+        display_name: "认款核心信息"
+        rows:
+          - cells:
+              - attribute: "new_payment_number"
+                width: "2"
+          - cells:
+              - attribute: "new_payment_date"
+                width: "1"
+              - attribute: "new_payment_amount"
+                width: "1"
+          - cells:
+              - attribute: "new_payment_type"
+                width: "1"
+              - attribute: "new_approval_status"
+                width: "1"
+          - cells:
+              - attribute: "new_remaining_amount"
+                width: "1"
+
+      - name: "sec_customer"
+        display_name: "客户信息"
+        rows:
+          - cells:
+              - attribute: "new_customerid"
+                width: "2"
+
+      - name: "sec_related_docs"
+        display_name: "关联单据"
+        rows:
+          - cells:
+              - attribute: "new_sales_order_number"
+                width: "1"
+              - attribute: "new_invoice_number"
+                width: "1"
+          - cells:
+              - attribute: "new_contract_number"
+                width: "2"
+
+  - name: "tab_receipt_approval"
+    display_name: "收款与审批"
+    description: "收款详情和审批流程"
+    sections:
+      - name: "sec_receipt"
+        display_name: "收款信息"
+        rows:
+          - cells:
+              - attribute: "new_payment_method"
+                width: "1"
+              - attribute: "new_payment_voucher"
+                width: "1"
+          - cells:
+              - attribute: "new_bank_account"
+                width: "2"
+
+      - name: "sec_approval"
+        display_name: "审批信息"
+        rows:
+          - cells:
+              - attribute: "new_handledby"
+                width: "1"
+              - attribute: "new_approvedby"
+                width: "1"
+          - cells:
+              - attribute: "new_approved_date"
+                width: "1"
+          - cells:
+              - attribute: "new_approval_comments"
+                width: "2"
+
+  - name: "tab_other"
+    display_name: "其他信息"
+    description: "备注与附件"
+    sections:
+      - name: "sec_remarks"
+        display_name: "备注与附件"
+        rows:
+          - cells:
+              - attribute: "new_remarks"
+                width: "2"
+          - cells:
+              - attribute: "new_attachment_url"
+                width: "2"

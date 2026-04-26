@@ -6,13 +6,12 @@ Power Platform Agent - 元数据代理
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-import yaml
+from typing import Any, Dict, List, Optional
 
 from utils.yaml_parser import YAMLMetadataParser
 from utils.schema_validator import SchemaValidator
 from utils.naming_converter import NamingConverter, NamingValidator
-from utils.dataverse_client import DataverseClient, EntityNotFoundError
+from utils.dataverse_client import EntityNotFoundError
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -120,6 +119,13 @@ class MetadataAgent:
                 return await self.list_metadata(
                     arguments.get("type"),
                     arguments.get("entity")
+                )
+
+            elif tool_name == "metadata_get_form":
+                return await self.get_form(
+                    arguments.get("entity"),
+                    arguments.get("form_id"),
+                    arguments.get("form_type")
                 )
 
             elif tool_name == "metadata_delete":
@@ -414,39 +420,250 @@ class MetadataAgent:
         # 移除空值
         return {k: v for k, v in attribute_metadata.items() if v is not None}
 
-    # ==================== 表单管理 ====================
+    # ==================== 表单查询 ====================
 
-    async def create_form(self, form_yaml: str) -> str:
+    async def get_form(
+        self,
+        entity: str,
+        form_id: Optional[str] = None,
+        form_type: Optional[int] = None
+    ) -> str:
         """
-        创建表单
+        获取实体表单
 
         Args:
-            form_yaml: 表单YAML文件路径或数据
+            entity: 实体名称
+            form_id: 表单GUID（指定后返回单个表单完整数据）
+            form_type: 表单类型过滤 (2=Main, 5=Mobile 等)
 
         Returns:
-            创建结果
+            表单数据
         """
         try:
-            # 解析表单元数据
-            if isinstance(form_yaml, str) and Path(form_yaml).exists():
-                metadata = self.parser.parse_form_yaml(form_yaml)
-            else:
-                metadata = json.loads(form_yaml) if isinstance(form_yaml, str) else form_yaml
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
 
-            schema_name = metadata.get("schema_name")
-            entity = metadata.get("entity")
+            client = self.core_agent.get_client()
 
+            if form_id:
+                form = client.get_form_by_id(form_id)
+                return json.dumps({
+                    "formid": form.get("formid"),
+                    "name": form.get("name"),
+                    "description": form.get("description"),
+                    "type": form.get("type"),
+                    "isdefault": form.get("isdefault"),
+                    "formxml": form.get("formxml", ""),
+                    "formjson": form.get("formjson")
+                }, indent=2, ensure_ascii=False)
+
+            forms = client.get_forms(entity, form_type=form_type)
+            type_map = {2: "Main", 5: "Mobile", 6: "QuickCreate", 7: "QuickView", 11: "Card"}
             return json.dumps({
-                "success": True,
-                "schema_name": schema_name,
                 "entity": entity,
-                "message": "Form creation requires additional implementation via PAC CLI or direct API"
+                "count": len(forms),
+                "forms": [
+                    {
+                        "formid": f.get("formid"),
+                        "name": f.get("name"),
+                        "description": f.get("description"),
+                        "type": type_map.get(f.get("type", -1), str(f.get("type"))),
+                        "isdefault": f.get("isdefault"),
+                        "formxml_length": len(f.get("formxml", "")) if f.get("formxml") else 0
+                    }
+                    for f in forms
+                ]
             }, indent=2, ensure_ascii=False)
 
         except Exception as e:
+            return json.dumps({"error": f"Failed to get form: {str(e)}"}, indent=2)
+
+    # ==================== 表单管理 ====================
+
+    async def update_form(self, form_yaml_path: str) -> str:
+        """
+        基于 YAML 设计更新 Dataverse Main 窗体（始终使用 formxml）。
+
+        策略：
+        - 自动检测已有 Main 窗体是否为 Dataverse 自动生成的默认窗体
+        - 自动生成的默认窗体 (name="Information", formxml < 2KB) 无法 PATCH，
+          自动 POST 新窗体替代
+        - 已定制过的窗体直接 PATCH 更新
+        - 如 YAML 未指定 form_id，自动查找实体首个 Main 窗体
+
+        Args:
+            form_yaml_path: 表单 YAML 文件路径
+
+        Returns:
+            执行结果
+        """
+        import yaml
+        import uuid as _uuid
+        from utils.form_xml_builder import FormXmlBuilder
+
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client()
+
+            # 1. Parse YAML design
+            yaml_file = Path(form_yaml_path)
+            if not yaml_file.exists():
+                return json.dumps({"error": f"File not found: {form_yaml_path}"}, indent=2)
+
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                form_design = yaml.safe_load(f)
+
+            form_meta = form_design.get("form", {})
+            entity_name = form_meta.get("entity")
+            form_id = form_meta.get("form_id")
+
+            if not entity_name:
+                return json.dumps({"error": "form.entity is required in YAML"}, indent=2)
+
+            # 2. Get entity field types
+            attrs = client.get_attributes(entity_name)
+            entity_fields: Dict[str, str] = {}
+            for attr in attrs:
+                name = attr.get("SchemaName")
+                odata_type = attr.get("@odata.type", "")
+                if "StringAttributeMetadata" in odata_type:
+                    entity_fields[name] = "String"
+                elif "LookupAttributeMetadata" in odata_type:
+                    entity_fields[name] = "Lookup"
+                elif "DateTimeAttributeMetadata" in odata_type:
+                    entity_fields[name] = "DateTime"
+                elif "MoneyAttributeMetadata" in odata_type:
+                    entity_fields[name] = "Money"
+                elif "PicklistAttributeMetadata" in odata_type:
+                    entity_fields[name] = "Picklist"
+                elif "MemoAttributeMetadata" in odata_type:
+                    entity_fields[name] = "Memo"
+                elif "OwnerAttributeMetadata" in odata_type:
+                    entity_fields[name] = "Owner"
+                elif "CustomerAttributeMetadata" in odata_type:
+                    entity_fields[name] = "Customer"
+                else:
+                    entity_fields[name] = "Virtual"
+
+            # 3. Build formxml
+            builder = FormXmlBuilder(entity_fields)
+            form_xml = builder.build(form_design)
+
+            # 4. Resolve target form and decide PATCH vs POST
+            if form_id:
+                existing = client.get_form_by_id(form_id)
+                if self._is_auto_generated_form(existing):
+                    new_id = self._post_new_form(client, entity_name, form_meta, form_xml)
+                    return json.dumps({
+                        "success": True, "entity": entity_name,
+                        "form_id": new_id, "action": "create",
+                        "reason": "Auto-generated form cannot be patched",
+                        "previous_form_id": form_id,
+                        "form_xml_length": len(form_xml),
+                        "tabs": len(form_design.get("tabs", [])),
+                        "message": f"New form {new_id} created to replace auto-generated {form_id}"
+                    }, indent=2, ensure_ascii=False)
+                else:
+                    client.update_form(form_id, {"formxml": form_xml})
+                    return json.dumps({
+                        "success": True, "entity": entity_name,
+                        "form_id": form_id, "action": "update",
+                        "form_xml_length": len(form_xml),
+                        "tabs": len(form_design.get("tabs", [])),
+                        "message": f"Form {form_id} updated via PATCH formxml"
+                    }, indent=2, ensure_ascii=False)
+
+            # No form_id: auto-find or create
+            forms = client.get_forms(entity_name, form_type=2)
+            if not forms:
+                new_id = self._post_new_form(client, entity_name, form_meta, form_xml)
+                return json.dumps({
+                    "success": True, "entity": entity_name,
+                    "form_id": new_id, "action": "create",
+                    "form_xml_length": len(form_xml),
+                    "tabs": len(form_design.get("tabs", [])),
+                    "message": f"New form {new_id} created"
+                }, indent=2, ensure_ascii=False)
+
+            existing = client.get_form_by_id(forms[0]["formid"])
+            if self._is_auto_generated_form(existing):
+                new_id = self._post_new_form(client, entity_name, form_meta, form_xml)
+                return json.dumps({
+                    "success": True, "entity": entity_name,
+                    "form_id": new_id, "action": "create",
+                    "reason": "Auto-generated form cannot be patched",
+                    "form_xml_length": len(form_xml),
+                    "tabs": len(form_design.get("tabs", [])),
+                    "message": f"New form {new_id} created"
+                }, indent=2, ensure_ascii=False)
+
+            form_id = forms[0]["formid"]
+            client.update_form(form_id, {"formxml": form_xml})
             return json.dumps({
-                "error": f"Failed to create form: {str(e)}"
-            }, indent=2)
+                "success": True, "entity": entity_name,
+                "form_id": form_id, "action": "update",
+                "form_xml_length": len(form_xml),
+                "tabs": len(form_design.get("tabs", [])),
+                "message": f"Form {form_id} updated via PATCH formxml"
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            return json.dumps({"error": f"Failed to update form: {str(e)}"}, indent=2)
+
+    @staticmethod
+    def _is_auto_generated_form(form: Dict[str, Any]) -> bool:
+        """Detect if a form is Dataverse auto-generated default form."""
+        name = form.get("name", "")
+        formxml = form.get("formxml", "")
+        return name == "Information" and len(formxml) < 2000
+
+    @staticmethod
+    def _post_new_form(
+        client: Any,
+        entity_name: str,
+        form_meta: Dict[str, Any],
+        form_xml: str,
+    ) -> str:
+        """POST a new Main form, return new form_id."""
+        import uuid as _uuid
+
+        # 验证实体存在并获取逻辑名
+        entity_meta = client.get_entity_metadata(entity_name)
+        logical_name = entity_meta.get("LogicalName")
+        if not logical_name:
+            raise ValueError(f"Entity '{entity_name}' not found")
+
+        new_id = str(_uuid.uuid4())
+        url = client.get_api_url("systemforms")
+        payload = {
+            "formid": new_id,
+            "name": form_meta.get("display_name", "Main Form"),
+            "objecttypecode": logical_name,
+            "type": 2,
+            "isdefault": True,
+            "formxml": form_xml,
+        }
+        resp = client.session.post(url, json=payload)
+        resp.raise_for_status()
+        return new_id
+
+    async def create_form(self, form_yaml: str) -> str:
+        """
+        创建或更新表单（委托给 update_form）
+
+        Args:
+            form_yaml: 表单YAML文件路径
+
+        Returns:
+            执行结果
+        """
+        if isinstance(form_yaml, str) and Path(form_yaml).exists():
+            return await self.update_form(form_yaml)
+        return json.dumps({
+            "error": "create_form requires a YAML file path argument"
+        }, indent=2)
 
     # ==================== 视图管理 ====================
 
@@ -737,6 +954,25 @@ class MetadataAgent:
                     ]
                 }, indent=2, ensure_ascii=False)
 
+            elif type == "form" and entity:
+                forms = client.get_forms(entity)
+                type_map = {2: "Main", 5: "Mobile", 6: "QuickCreate", 7: "QuickView", 11: "Card"}
+                return json.dumps({
+                    "type": "form",
+                    "entity": entity,
+                    "items": [
+                        {
+                            "formid": f.get("formid"),
+                            "name": f.get("name"),
+                            "description": f.get("description"),
+                            "type": type_map.get(f.get("type", -1), str(f.get("type"))),
+                            "isdefault": f.get("isdefault"),
+                            "formxml_length": len(f.get("formxml", "")) if f.get("formxml") else 0
+                        }
+                        for f in forms
+                    ]
+                }, indent=2, ensure_ascii=False)
+
             else:
                 return json.dumps({
                     "error": f"Unknown type: {type}"
@@ -766,6 +1002,9 @@ class MetadataAgent:
         """
         # 元数据删除通常需要PAC CLI或特殊API
         return json.dumps({
-            "warning": f"Metadata deletion requires careful consideration and special handling for {metadata_type}: {name}",
+            "warning": (
+                f"Metadata deletion requires careful consideration and "
+                f"special handling for {metadata_type}: {name}"
+            ),
             "recommendation": "Use solution management to remove components"
         }, indent=2)

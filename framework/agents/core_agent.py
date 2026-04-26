@@ -26,11 +26,11 @@ class CoreAgent:
             config_path: 配置文件路径
         """
         self.config_path = config_path
-        self._config = None
-        self._environments = None
-        self._current_environment = None
-        self._tokens = {}
-        self._clients = {}
+        self._config: Optional[Dict[str, Any]] = None
+        self._environments: Optional[Dict[str, Any]] = None
+        self._current_environment: Optional[str] = None
+        self._tokens: Dict[str, str] = {}
+        self._clients: Dict[str, DataverseClient] = {}
 
         # 初始化命名转换器
         self.naming_converter = NamingConverter()
@@ -42,10 +42,14 @@ class CoreAgent:
     def _load_config(self) -> None:
         """加载配置"""
         import yaml
+        from utils.env_config import load_yaml_with_env, load_env_file
+
+        # 加载 .env 文件使环境变量可用
+        load_env_file()
+
         config_file = Path(self.config_path)
         if config_file.exists():
-            with open(config_file, "r", encoding="utf-8") as f:
-                self._config = yaml.safe_load(f)
+            self._config = load_yaml_with_env(str(config_file))
 
             # 加载环境配置
             env_config = self._config.get("environments", {})
@@ -54,8 +58,7 @@ class CoreAgent:
             # 加载环境配置详情
             env_file = Path("config/environments.yaml")
             if env_file.exists():
-                with open(env_file, "r", encoding="utf-8") as f:
-                    self._environments = yaml.safe_load(f)
+                self._environments = load_yaml_with_env(str(env_file))
         else:
             self._config = {"environments": {}}
             self._environments = {"environments": {}}
@@ -71,7 +74,7 @@ class CoreAgent:
             环境配置字典
         """
         env = environment or self._current_environment
-        return self._environments.get("environments", {}).get(env, {})
+        return self._environments.get("environments", {}).get(env, {})  # type: ignore[union-attr]
 
     # ==================== 认证 ====================
 
@@ -94,7 +97,7 @@ class CoreAgent:
         Returns:
             登录结果
         """
-        env = environment or self._current_environment
+        env = environment or self._current_environment or ""
         env_config = self.get_environment_config(env)
 
         # 使用提供的凭据或从配置获取
@@ -196,7 +199,7 @@ class CoreAgent:
         Returns:
             切换结果
         """
-        if environment not in self._environments.get("environments", {}):
+        if environment not in self._environments.get("environments", {}):  # type: ignore[union-attr]
             return {
                 "success": False,
                 "error": f"Environment not found: {environment}"
@@ -222,8 +225,8 @@ class CoreAgent:
         Returns:
             环境列表
         """
-        environments = []
-        for name, config in self._environments.get("environments", {}).items():
+        environments: List[Dict[str, Any]] = []
+        for name, config in self._environments.get("environments", {}).items():  # type: ignore[union-attr]
             environments.append({
                 "name": name,
                 "display_name": config.get("name", name),
@@ -248,7 +251,7 @@ class CoreAgent:
         Raises:
             AuthenticationError: 未认证
         """
-        env = environment or self._current_environment
+        env = environment or self._current_environment or ""
 
         if env not in self._clients:
             if env in self._tokens:
@@ -357,8 +360,12 @@ class CoreAgent:
                 "auto_prefix": self.naming_converter.auto_prefix
             },
             "webresource": {
-                "prefix": self.config.get("naming", {}).get("webresource", {}).get("prefix", f"{self.naming_converter.prefix}_"),
-                "naming_pattern": self.config.get("naming", {}).get("webresource", {}).get("naming_pattern", "{prefix}{category}/{name}.{ext}")
+                "prefix": self._config.get("naming", {}).get(  # type: ignore[union-attr]
+                    "webresource", {}
+                ).get("prefix", f"{self.naming_converter.prefix}_"),
+                "naming_pattern": self._config.get("naming", {}).get(  # type: ignore[union-attr]
+                    "webresource", {}
+                ).get("naming_pattern", "{prefix}{category}/{name}.{ext}")
             },
             "standard_entities_count": len(self.naming_converter._standard_entities)
         }
@@ -403,7 +410,7 @@ class CoreAgent:
             扩展列表
         """
         # 这里返回已注册的扩展
-        extensions = self._config.get("extensions", {}).get("custom_handlers", [])
+        extensions = self._config.get("extensions", {}).get("custom_handlers", [])  # type: ignore[union-attr]
         return [
             {
                 "name": ext.get("name"),
@@ -512,26 +519,26 @@ class ToolHandler:
 
             elif tool_name == "environment_switch":
                 result = await self.core_agent.switch_environment(
-                    arguments.get("environment")
+                    arguments.get("environment") or ""  # type: ignore[arg-type]
                 )
                 return self._format_result(result)
 
             elif tool_name == "environment_list":
-                result = await self.core_agent.list_environments()
-                return self._format_list(result)
+                env_list = await self.core_agent.list_environments()
+                return self._format_list(env_list)  # type: ignore[arg-type]
 
             elif tool_name == "naming_convert":
-                result = await self.core_agent.convert_name(
-                    arguments.get("input"),
-                    arguments.get("type", "schema_name"),
+                converted = await self.core_agent.convert_name(
+                    arguments.get("input") or "",
+                    arguments.get("type", "schema_name") or "schema_name",
                     arguments.get("is_standard", False)
                 )
-                return result
+                return converted
 
             elif tool_name == "naming_validate":
                 is_valid, error = await self.core_agent.validate_name(
-                    arguments.get("name"),
-                    arguments.get("type", "schema_name")
+                    arguments.get("name") or "",
+                    arguments.get("type", "schema_name") or "schema_name"
                 )
                 if is_valid:
                     return "Name is valid"
@@ -539,15 +546,15 @@ class ToolHandler:
                     return f"Validation error: {error}"
 
             elif tool_name == "naming_bulk_convert":
-                result = await self.core_agent.bulk_convert_names(
+                bulk_result = await self.core_agent.bulk_convert_names(
                     arguments.get("items", []),
-                    arguments.get("type", "schema_name")
+                    arguments.get("type", "schema_name") or "schema_name"
                 )
-                return self._format_list(result)
+                return self._format_list(bulk_result)  # type: ignore[arg-type]
 
             elif tool_name == "naming_rules_list":
-                result = await self.core_agent.list_naming_rules()
-                return self._format_dict(result)
+                rules = await self.core_agent.list_naming_rules()
+                return self._format_dict(rules)
 
             elif tool_name == "health_check":
                 result = await self.core_agent.health_check(

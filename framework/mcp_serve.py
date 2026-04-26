@@ -36,13 +36,13 @@ sys.path.insert(0, str(project_root))
 # 同时添加 framework/ 目录到路径，用于导入 agents 和 utils
 sys.path.insert(0, str(project_root / "framework"))
 
-from mcp.server import Server
-from mcp.types import Tool, Resource, TextContent
+from mcp.server import Server  # noqa: E402
+from mcp.types import Tool, Resource, TextContent  # noqa: E402
 
-from agents.core_agent import CoreAgent, ToolHandler as CoreToolHandler
-from agents.metadata_agent import MetadataAgent
-from agents.plugin_agent import PluginAgent
-from agents.solution_agent import SolutionAgent
+from agents.core_agent import CoreAgent, ToolHandler as CoreToolHandler  # noqa: E402
+from agents.metadata_agent import MetadataAgent  # noqa: E402
+from agents.plugin_agent import PluginAgent  # noqa: E402
+from agents.solution_agent import SolutionAgent  # noqa: E402
 
 
 # ==================== MCP服务器 ====================
@@ -180,7 +180,9 @@ async def list_tools() -> List[Tool]:
                     "schema": {
                         "type": "string",
                         "description": "Schema类型",
-                        "enum": ["table_schema", "form_schema", "view_schema", "webresource_schema", "ribbon_schema", "sitemap_schema"]
+                        "enum": ["table_schema", "form_schema", "view_schema",
+                                 "webresource_schema", "ribbon_schema",
+                                 "sitemap_schema"]
                     }
                 },
                 "required": ["metadata_yaml", "schema"]
@@ -257,6 +259,29 @@ async def list_tools() -> List[Tool]:
             }
         ),
         Tool(
+            name="metadata_get_form",
+            description="获取实体的表单列表或单个表单详情（包含FormXml）",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity": {
+                        "type": "string",
+                        "description": "实体名称"
+                    },
+                    "form_id": {
+                        "type": "string",
+                        "description": "表单GUID（可选，指定后返回该表单完整数据）"
+                    },
+                    "form_type": {
+                        "type": "integer",
+                        "description": "表单类型: 2=Main, 5=Mobile, 6=QuickCreate, 7=QuickView",
+                        "default": 2
+                    }
+                },
+                "required": ["entity"]
+            }
+        ),
+        Tool(
             name="metadata_export",
             description="导出云端元数据为YAML",
             inputSchema={
@@ -330,11 +355,11 @@ async def list_tools() -> List[Tool]:
                     "type": {
                         "type": "string",
                         "description": "元数据类型",
-                        "enum": ["table", "attribute"]
+                        "enum": ["table", "attribute", "form"]
                     },
                     "entity": {
                         "type": "string",
-                        "description": "实体名称 (attribute类型需要)"
+                        "description": "实体名称 (attribute/form类型需要)"
                     }
                 },
                 "required": ["type"]
