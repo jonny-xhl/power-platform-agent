@@ -136,6 +136,11 @@ class MetadataAgent:
                     arguments.get("query_type")  # type: ignore[arg-type]
                 )
 
+            elif tool_name == "metadata_list_customizable_public_views":
+                return await self.list_customizable_public_views(
+                    arguments.get("entity")  # type: ignore[arg-type]
+                )
+
             elif tool_name == "metadata_delete":
                 return await self.delete_metadata(
                     arguments.get("metadata_type"),  # type: ignore[arg-type]
@@ -656,7 +661,6 @@ class MetadataAgent:
         resp.raise_for_status()
         return new_id
 
-
     async def list_main_forms(self, entity: str) -> str:
         """
         列出实体的所有 Main 窗体，用于交互式选择
@@ -826,7 +830,6 @@ class MetadataAgent:
 
             view_name = view_meta.get("schema_name") or view_meta.get("name")
             entity = view_meta.get("entity")
-            view_type = view_meta.get("type", "PublicView")
 
             if not entity or not view_name:
                 return json.dumps({
@@ -841,23 +844,21 @@ class MetadataAgent:
                     "error": f"Entity '{entity}' not found"
                 }, indent=2)
 
-            # list 模式：仅列出视图
+            # list 模式：仅列出可自定义的公共视图
             if mode == "list":
-                views = client.get_views(logical_name)
-                type_names = {
-                    0: "Public", 1: "AdvancedFind", 2: "Associated",
-                    4: "QuickFind", 64: "Lookup"
-                }
+                views = client.get_views(logical_name, query_type=0, is_customizable_only=True)
                 return json.dumps({
                     "entity": entity,
+                    "query_type": "Public",
+                    "customizable_only": True,
                     "count": len(views),
                     "views": [
                         {
                             "savedqueryid": v.get("savedqueryid"),
                             "name": v.get("name"),
-                            "type": type_names.get(v.get("querytype", -1), str(v.get("querytype"))),
                             "is_default": v.get("isdefault", False),
-                            "is_quick_find": v.get("isquickfindquery", False)
+                            "is_customizable": v.get("iscustomizable", {}).get("Value", False),
+                            "description": v.get("description", "")
                         }
                         for v in views
                     ]
@@ -1073,7 +1074,8 @@ class MetadataAgent:
                         "name": v.get("name"),
                         "type": type_names.get(v.get("querytype", -1), str(v.get("querytype"))),
                         "is_default": v.get("isdefault", False),
-                        "is_quick_find": v.get("isquickfindquery", False)
+                        "is_quick_find": v.get("isquickfindquery", False),
+                        "is_customizable": v.get("iscustomizable", {}).get("Value", False)
                     }
                     for v in views
                 ]
@@ -1082,6 +1084,47 @@ class MetadataAgent:
         except Exception as e:
             return json.dumps({
                 "error": f"Failed to list views: {str(e)}"
+            }, indent=2)
+
+    async def list_customizable_public_views(self, entity: str) -> str:
+        """
+        列出实体的所有可自定义公共视图（IsCustomizable = true）
+
+        用于同步时让用户选择是覆盖更新还是重新创建。
+
+        Args:
+            entity: 实体名称
+
+        Returns:
+            可自定义公共视图列表，包含 savedqueryid, name, is_default, is_customizable 等信息
+        """
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client()
+
+            # 只获取 Public 视图 (querytype=0) 且可自定义的
+            views = client.get_views(entity, query_type=0, is_customizable_only=True)
+
+            return json.dumps({
+                "entity": entity,
+                "count": len(views),
+                "views": [
+                    {
+                        "savedqueryid": v.get("savedqueryid"),
+                        "name": v.get("name"),
+                        "is_default": v.get("isdefault", False),
+                        "is_customizable": v.get("iscustomizable", {}).get("Value", False),
+                        "description": v.get("description", "")
+                    }
+                    for v in views
+                ]
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            return json.dumps({
+                "error": f"Failed to list customizable views: {str(e)}"
             }, indent=2)
 
     # ==================== 导出 ====================

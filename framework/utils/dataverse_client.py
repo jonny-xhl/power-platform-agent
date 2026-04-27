@@ -535,7 +535,8 @@ class DataverseClient:
     def get_views(
         self,
         entity_name: str,
-        query_type: int = None
+        query_type: int = None,
+        is_customizable_only: bool = False
     ) -> list[dict[str, Any]]:
         """
         获取实体的视图列表
@@ -543,9 +544,10 @@ class DataverseClient:
         Args:
             entity_name: 实体逻辑名称
             query_type: 视图类型过滤 (0=Public, 1=AdvancedFind, 2=Associated, 4=QuickFind, 64=Lookup)
+            is_customizable_only: 是否只返回可自定义的视图 (IsCustomizable/CanBeModified=True)
 
         Returns:
-            视图列表，包含 savedqueryid, name, querytype, isdefault, fetchxml 等字段
+            视图列表，包含 savedqueryid, name, querytype, isdefault, fetchxml, iscustomizable 等字段
         """
         # 验证实体存在
         entity_meta = self.get_entity_metadata(entity_name)
@@ -557,9 +559,18 @@ class DataverseClient:
         filter_parts = [f"returnedtypecode eq '{logical_name}'"]
         if query_type is not None:
             filter_parts.append(f"querytype eq {query_type}")
+        if is_customizable_only:
+            # IsCustomizable 的 Value 为 true 表示可自定义
+            filter_parts.append("iscustomizable/Value eq true")
+
+        # 请求字段包含 iscustomizable
+        select_fields = "savedqueryid,name,querytype,isdefault,isquickfindquery,description,iscustomizable"
 
         url = self.get_api_url("savedqueries")
-        params: dict[str, Any] = {"$filter": " and ".join(filter_parts)}
+        params: dict[str, Any] = {
+            "$filter": " and ".join(filter_parts),
+            "$select": select_fields
+        }
         response = self.session.get(url, params=params)
         response.raise_for_status()
         return response.json().get("value", [])

@@ -366,47 +366,9 @@ print(json.dumps({'found': found}, ensure_ascii=False))
 
 如果没有发现视图 YAML，跳过此步骤，直接进入 Step 6。
 
-#### 5.6.2 视图同步预览
+#### 5.6.2 列出可自定义的公共视图
 
-读取视图 YAML，展示视图摘要：
-
-```python
-python -c "
-import yaml, json
-import xml.etree.ElementTree as ET
-
-yaml_path = 'metadata/views/payment_recognition_active.yaml'
-with open(yaml_path, 'r', encoding='utf-8') as f:
-    data = yaml.safe_load(f)
-
-view = data.get('view', {})
-display_name = view.get('display_name', view.get('schema_name', ''))
-entity = view.get('entity', '')
-
-# 解析列数
-fetchxml = view.get('fetch_xml', '')
-layoutxml = view.get('layout_xml', '')
-
-fetch_cols = []
-if fetchxml:
-    root = ET.fromstring(fetchxml)
-    fetch_cols = [attr.get('name') for attr in root.findall('.//entity/attribute')]
-
-layout_cols = []
-if layoutxml:
-    root = ET.fromstring(layoutxml)
-    layout_cols = [cell.get('name') for cell in root.findall('.//row/cell')]
-
-print(f'View: {display_name} ({entity})')
-print(f'Type: {view.get(\"type\", \"PublicView\")}')
-print(f'FetchXML columns: {len(fetch_cols)}')
-print(f'LayoutXML columns: {len(layout_cols)}')
-"
-```
-
-#### 5.6.3 执行视图同步
-
-调用 `metadata_agent.create_view()`，自动处理创建或更新：
+读取视图 YAML 后，先列出 Dataverse 中所有可自定义的公共视图（`IsCustomizable = true`）：
 
 ```python
 python -c "
@@ -414,23 +376,142 @@ import asyncio, json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path('framework').absolute()))
 
-async def sync_view():
+async def list_views():
     from agents.core_agent import CoreAgent
     from agents.metadata_agent import MetadataAgent
 
     core = CoreAgent()
     meta = MetadataAgent(core_agent=core)
-    result = await meta.create_view('metadata/views/payment_recognition_active.yaml', mode='auto')
+    result = await meta.list_customizable_public_views('new_payment_recognition')
     print(result)
 
-asyncio.run(sync_view())
+asyncio.run(list_views())
 "
 ```
 
-**视图同步策略**（`create_view` 的 mode='auto' 自动处理）：
-- 视图不存在 → 创建新视图
-- 视图已存在 → 更新现有视图（fetchxml 和 layoutxml）
-- **重要**：系统生成的视图（如 "Active 实体名"）无法通过 API 修改，会创建新的自定义视图
+使用 MCP 工具（优先）：
+```
+调用 MCP metadata_list_customizable_public_views，参数: {"entity": "<entity_name>"}
+```
+
+展示可用视图列表：
+| savedqueryid | name | is_default | is_customizable |
+|--------------|------|------------|-----------------|
+
+#### 5.6.3 用户选择同步模式 ⚠️
+
+**必须使用 AskUserQuestion 工具询问用户：**
+- "如何处理视图同步？"
+- 提供选项：
+  - **创建新视图** - 使用 YAML 中完整的 schema_name、display_name、description、fetch_xml、layout_xml 创建全新视图
+  - **更新现有视图** - 仅使用 fetch_xml 和 layout_xml 更新指定视图（需选择目标视图）
+  - **跳过** - 不执行视图同步
+
+如果用户选择"更新现有视图"，再次展示可自定义视图列表让其选择目标视图。
+
+#### 5.6.4 执行视图同步
+
+**创建新视图**（mode='create'）：
+```python
+python -c "
+import asyncio, json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path('framework').absolute()))
+
+async def create_view():
+    from agents.core_agent import CoreAgent
+    from agents.metadata_agent import MetadataAgent
+
+    core = CoreAgent()
+    meta = MetadataAgent(core_agent=core)
+    result = await meta.create_view('metadata/views/payment_recognition_active.yaml', mode='create')
+    print(result)
+
+asyncio.run(create_view())
+"
+```
+
+使用 MCP 工具（优先）：
+```
+调用 MCP metadata_create_view，参数: {"view_yaml": "<yaml_path>", "mode": "create"}
+```
+
+**更新现有视图**（mode='update'）：
+需要在 YAML 中指定目标 `savedquery_id`，或创建临时 YAML：
+
+```python
+python -c "
+import asyncio, json, sys, yaml, tempfile
+from pathlib import Path
+sys.path.insert(0, str(Path('framework').absolute()))
+
+async def update_view():
+    from agents.core_agent import CoreAgent
+    from agents.metadata_agent import MetadataAgent
+
+    core = CoreAgent()
+    meta = MetadataAgent(core_agent=core)
+
+    # 读取原始 YAML
+    yaml_path = 'metadata/views/payment_recognition_active.yaml'
+    with open(yaml_path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+
+    # 添加目标视图 ID
+    data['view']['savedquery_id'] = '<selected_savedquery_id>'
+
+    # 创建临时文件
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tf:
+        yaml.dump(data, tf, allow_unicode=True)
+        temp_path = tf.name
+
+    result = await meta.create_view(temp_path, mode='update')
+    Path(temp_path).unlink(missing_ok=True)
+    print(result)
+
+asyncio.run(update_view())
+"
+```
+
+使用 MCP 工具（优先）：
+```
+调用 MCP metadata_create_view，参数: {"view_yaml": "<yaml_path_with_savedquery_id>", "mode": "update"}
+```
+
+**视图同步策略差异**：
+- **创建**：使用完整属性（name/schema_name、display_name、description、fetchxml、layoutxml、isdefault）
+- **更新**：只更新 fetchxml、layoutxml、description（name 等核心属性不可修改）
+
+#### 5.6.5 视图验证
+
+同步完成后验证视图状态：
+
+```python
+python -c "
+import asyncio, json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path('framework').absolute()))
+
+async def verify():
+    from agents.core_agent import CoreAgent
+
+    core = CoreAgent()
+    client = core.get_client()
+
+    # 获取实体所有可自定义公共视图
+    views = client.get_views('new_payment_recognition', query_type=0, is_customizable_only=True)
+
+    # 过滤出我们同步的视图
+    view_name = 'Active 认款单'  # 或 YAML 中的 display_name
+    matched = [v for v in views if view_name in v.get('name', '')]
+
+    print(f'Found views: {len(matched)}')
+    for v in matched:
+        print(f'  {v.get(\"name\")} | id={v.get(\"savedqueryid\")} | default={v.get(\"isdefault\")}')
+
+asyncio.run(verify())
+"
+```
 
 解析结果，报告：
 - 操作类型：create（新建）或 update（更新）

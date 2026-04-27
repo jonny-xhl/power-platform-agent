@@ -254,7 +254,10 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="metadata_create_view",
-            description="创建或更新视图。支持交互式模式：mode='list' 可先列出现有视图，mode='auto' 自动判断创建或更新，mode='create' 强制创建，mode='update' 更新现有视图。",
+            description=(
+                "创建或更新视图。支持交互式模式：mode='list' 列出可自定义视图，"
+                "mode='auto' 自动判断，mode='create' 强制创建，mode='update' 更新现有视图。"
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -286,6 +289,20 @@ async def list_tools() -> list[Tool]:
                         "type": "integer",
                         "description": "视图类型过滤: 0=Public, 1=AdvancedFind, 2=Associated, 4=QuickFind, 64=Lookup",
                         "enum": [0, 1, 2, 4, 64]
+                    }
+                },
+                "required": ["entity"]
+            }
+        ),
+        Tool(
+            name="metadata_list_customizable_public_views",
+            description="列出实体的所有可自定义公共视图（IsCustomizable=true）。用于同步时让用户选择是覆盖更新还是重新创建。",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity": {
+                        "type": "string",
+                        "description": "实体名称"
                     }
                 },
                 "required": ["entity"]
