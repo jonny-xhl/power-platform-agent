@@ -335,6 +335,141 @@ asyncio.run(verify())
 - 窗体 formxml > 2000 chars（非自动生成的空壳）
 - 窗体 name 不是 "Information"（已被业务名称替代）
 
+### Step 5.6: 同步视图
+
+实体和窗体同步完成后，自动发现并同步关联的视图 YAML。
+
+#### 5.6.1 发现视图 YAML
+
+从实体名推导视图 YAML 路径：`metadata/views/{entity_name}_active.yaml`
+
+```python
+python -c "
+import os, json
+from pathlib import Path
+
+views_dir = Path('metadata/views')
+entity_name = 'new_payment_recognition'  # 从 Step 5 的实体名推导
+
+# 移除 new_ 前缀进行匹配
+base_name = entity_name.replace('new_', '') if entity_name.startswith('new_') else entity_name
+
+candidates = [
+    views_dir / f'{entity_name}_active.yaml',
+    views_dir / f'{base_name}_active.yaml',
+]
+found = [str(c) for c in candidates if c.exists()]
+
+print(json.dumps({'found': found}, ensure_ascii=False))
+"
+```
+
+如果没有发现视图 YAML，跳过此步骤，直接进入 Step 6。
+
+#### 5.6.2 视图同步预览
+
+读取视图 YAML，展示视图摘要：
+
+```python
+python -c "
+import yaml, json
+import xml.etree.ElementTree as ET
+
+yaml_path = 'metadata/views/payment_recognition_active.yaml'
+with open(yaml_path, 'r', encoding='utf-8') as f:
+    data = yaml.safe_load(f)
+
+view = data.get('view', {})
+display_name = view.get('display_name', view.get('schema_name', ''))
+entity = view.get('entity', '')
+
+# 解析列数
+fetchxml = view.get('fetch_xml', '')
+layoutxml = view.get('layout_xml', '')
+
+fetch_cols = []
+if fetchxml:
+    root = ET.fromstring(fetchxml)
+    fetch_cols = [attr.get('name') for attr in root.findall('.//entity/attribute')]
+
+layout_cols = []
+if layoutxml:
+    root = ET.fromstring(layoutxml)
+    layout_cols = [cell.get('name') for cell in root.findall('.//row/cell')]
+
+print(f'View: {display_name} ({entity})')
+print(f'Type: {view.get(\"type\", \"PublicView\")}')
+print(f'FetchXML columns: {len(fetch_cols)}')
+print(f'LayoutXML columns: {len(layout_cols)}')
+"
+```
+
+#### 5.6.3 执行视图同步
+
+调用 `metadata_agent.create_view()`，自动处理创建或更新：
+
+```python
+python -c "
+import asyncio, json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path('framework').absolute()))
+
+async def sync_view():
+    from agents.core_agent import CoreAgent
+    from agents.metadata_agent import MetadataAgent
+
+    core = CoreAgent()
+    meta = MetadataAgent(core_agent=core)
+    result = await meta.create_view('metadata/views/payment_recognition_active.yaml', mode='auto')
+    print(result)
+
+asyncio.run(sync_view())
+"
+```
+
+**视图同步策略**（`create_view` 的 mode='auto' 自动处理）：
+- 视图不存在 → 创建新视图
+- 视图已存在 → 更新现有视图（fetchxml 和 layoutxml）
+- **重要**：系统生成的视图（如 "Active 实体名"）无法通过 API 修改，会创建新的自定义视图
+
+解析结果，报告：
+- 操作类型：create（新建）或 update（更新）
+- 视图名称和 ID
+- 列数量
+
+#### 5.6.4 视图验证
+
+同步完成后验证视图状态：
+
+```python
+python -c "
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path('framework').absolute()))
+
+from agents.core_agent import CoreAgent
+import asyncio
+
+async def verify():
+    core = CoreAgent()
+    await core.login()
+    client = core.get_client()
+    
+    # 获取实体所有视图
+    views = client.get_views('new_payment_recognition')
+    
+    # 过滤出我们同步的视图
+    view_name = '认款单列表（自定义）'  # 或 YAML 中的 display_name
+    matched = [v for v in views if view_name in v.get('name', '')]
+    
+    print(f'Found views: {len(matched)}')
+    for v in matched:
+        print(f'  {v.get(\"name\")} | id={v.get(\"savedqueryid\")} | default={v.get(\"isdefault\")}')
+
+asyncio.run(verify())
+"
+```
+
 ### Step 6: 应用后验证
 
 同步完成后，查询 Dataverse 当前状态并与 YAML 定义对比：
@@ -398,6 +533,7 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 报告验证结果：
 - 所有字段和关系都已创建 → 显示 "Post-sync verification passed"
 - 如果执行了窗体同步，报告窗体验证结果（见 5.5.4）
+- 如果执行了视图同步，报告视图验证结果（见 5.6.4）
 - 有缺失项 → 列出缺失的字段和关系，建议检查错误日志或手动创建
 
 ### Step 7: 总结报告
@@ -414,6 +550,7 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 | 关系更新 | N |
 | 跳过（无变更） | N |
 | 窗体同步 | 创建/更新/跳过 |
+| 视图同步 | 创建/更新/跳过 |
 | 验证结果 | 通过/有差异 |
 
 **失败项**（如果有的话）：
@@ -425,3 +562,4 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 - 有失败项：检查错误信息，修复 YAML 或环境配置后重新执行 `/dv-sync`
 - 有验证差异：检查 Dataverse 中缺失的字段/关系，可能需要手动补充
 - 窗体同步后：在 Power Apps Maker 中打开实体验证窗体布局
+- 视图同步后：在 Power Apps Maker 中打开视图验证列显示和排序

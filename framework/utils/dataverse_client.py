@@ -658,6 +658,9 @@ class DataverseClient:
         response = self.session.post(url, json=data)
         response.raise_for_status()
 
+        # Dataverse 可能返回 204 No Content 或空响应
+        if response.status_code == 204 or not response.text:
+            return {"savedqueryid": savedquery_id}
         return response.json()
 
     def update_view(

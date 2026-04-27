@@ -994,8 +994,8 @@ class MetadataAgent:
             client = self.core_agent.get_client()
             fetchxml = client.build_fetch_xml(logical_name, attributes, order)
 
-        # 处理 layoutxml
-        layoutxml = view_meta.get("layoutxml")
+        # 处理 layoutxml - 支持 layout_xml 和 layoutxml 两种命名
+        layoutxml = view_meta.get("layout_xml") or view_meta.get("layoutxml")
         if not layoutxml:
             columns = view_data.get("columns", [])
             layout_columns = [
@@ -1020,9 +1020,13 @@ class MetadataAgent:
         }
         query_type = view_type_map.get(view_meta.get("type", "PublicView"), 0)
 
+        # 视图名称：优先使用 display_name 作为显示名称，否则使用 schema_name
+        # 注意：在 Dataverse 中，视图的 name 字段既是唯一标识符，也是显示名称
+        view_name = view_meta.get("display_name") or view_meta.get("schema_name") or view_meta.get("name")
+
         # 构建元数据
         metadata = {
-            "name": view_meta.get("schema_name") or view_meta.get("name"),
+            "name": view_name,
             "returnedtypecode": logical_name,
             "querytype": query_type,
             "fetchxml": fetchxml,
@@ -1031,6 +1035,7 @@ class MetadataAgent:
             "isquickfindquery": query_type == 4
         }
 
+        # 添加描述
         if view_meta.get("description"):
             metadata["description"] = view_meta["description"]
 

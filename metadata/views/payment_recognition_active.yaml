@@ -1,0 +1,52 @@
+# 认款单公共视图元数据定义
+# 显示活跃认款单的主要信息
+
+$schema: "../_schema/view_schema.yaml"
+
+view:
+  schema_name: "new_payment_recognition_active"
+  entity: "new_payment_recognition"
+  type: "PublicView"
+  display_name: "Active 认款单"
+  description: "显示所有活跃状态的认款单"
+  is_default: true
+
+  # Fetch XML - 定义查询的列、排序和过滤
+  fetch_xml: |
+    <fetch version="1.0" mapping="logical">
+      <entity name="new_payment_recognition">
+        <attribute name="new_payment_number" />
+        <attribute name="new_payment_date" />
+        <attribute name="new_payment_amount" />
+        <attribute name="new_payment_type" />
+        <attribute name="new_approval_status" />
+        <attribute name="new_customerid" />
+        <attribute name="new_handledby" />
+        <attribute name="new_sales_order_number" />
+        <attribute name="new_invoice_number" />
+        <attribute name="statecode" />
+        <attribute name="statuscode" />
+        <attribute name="createdon" />
+        <attribute name="new_payment_recognitionid" />
+        <order attribute="new_payment_number" descending="false" />
+        <filter type="and">
+          <condition attribute="statecode" operator="eq" value="0" />
+        </filter>
+      </entity>
+    </fetch>
+
+  # Layout XML - 定义视图列布局和宽度
+  layout_xml: |
+    <grid name="resultset" object="10036" jump="new_payment_number" select="1" icon="0" preview="1">
+      <row name="result" id="new_payment_recognitionid">
+        <cell name="new_payment_number" width="120" />
+        <cell name="new_payment_date" width="100" />
+        <cell name="new_payment_amount" width="100" />
+        <cell name="new_payment_type" width="100" />
+        <cell name="new_approval_status" width="100" />
+        <cell name="new_customerid" width="150" />
+        <cell name="new_handledby" width="120" />
+        <cell name="new_sales_order_number" width="120" />
+        <cell name="new_invoice_number" width="120" />
+      </row>
+    </grid>
