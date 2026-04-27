@@ -1,6 +1,6 @@
 # 数据字典索引
 
-*自动生成于: 2026-04-26 14:35:09*
+*自动生成于: 2026-04-27 22:33:10*
 
 ---
 
@@ -8,9 +8,9 @@
 
 | 表名 | Schema Name | 字段数 | 最后更新 | 说明 |
 |------|-------------|--------|----------|------|
-| [客户账户](tables/account.md) | `account` | 8 | 2026-04-26 | 存储客户账户信息，包括账户编号、余额和状态 |
-| [联系人](tables/contact.md) | `contact` | 5 | 2026-04-26 | 存储联系人信息 |
-| [认款单](tables/new_payment_recognition.md) | `new_payment_recognition` | 16 | 2026-04-26 | 记录客户认款信息，关联订单、发票和客户，支持审批流程 |
+| [客户账户](tables/account.md) | `account` | 7 | 2026-04-27 | 存储客户账户信息，包括账户编号、余额和状态 |
+| [联系人](tables/contact.md) | `contact` | 3 | 2026-04-27 | 存储联系人信息 |
+| [认款单](tables/new_payment_recognition.md) | `new_payment_recognition` | 16 | 2026-04-27 | 记录客户认款信息，关联订单、发票和客户，支持审批流程 |
 
 ## 选项集 (Option Sets)
 

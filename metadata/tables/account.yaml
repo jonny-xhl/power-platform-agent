@@ -21,7 +21,7 @@ schema:
 
 # 字段定义
 attributes:
-  - name: "accountNumber"
+  - name: "new_account_number"
     type: "String"
     display_name: "账户编号"
     description: "唯一账户编号"
@@ -29,14 +29,14 @@ attributes:
     required: true
     is_primary_name: true
 
-  - name: "accountName"
+  - name: "new_account_name"
     type: "String"
     display_name: "账户名称"
     description: "账户名称"
     max_length: 100
     required: true
 
-  - name: "balance"
+  - name: "new_balance"
     type: "Money"
     display_name: "账户余额"
     description: "当前账户余额"
@@ -44,7 +44,7 @@ attributes:
     min_value: 0
     precision: 2
 
-  - name: "status"
+  - name: "new_status"
     type: "Picklist"
     display_name: "状态"
     description: "账户状态"
@@ -57,7 +57,7 @@ attributes:
       - value: 100000002
         label: "关闭"
 
-  - name: "accountType"
+  - name: "new_account_type"
     type: "Picklist"
     display_name: "账户类型"
     description: "客户账户类型"
@@ -70,7 +70,7 @@ attributes:
       - value: 100000002
         label: "政府"
 
-  - name: "creditLimit"
+  - name: "new_credit_limit"
     type: "Money"
     display_name: "信用额度"
     description: "客户信用额度"
@@ -78,13 +78,13 @@ attributes:
     min_value: 0
     precision: 2
 
-  - name: "openedDate"
+  - name: "new_opened_date"
     type: "DateTime"
     display_name: "开户日期"
     description: "账户开立日期"
     required: false
 
-  - name: "notes"
+  - name: "new_notes"
     type: "Memo"
     display_name: "备注"
     description: "账户备注信息"
@@ -94,7 +94,7 @@ attributes:
 # 关系定义
 relationships:
   # 一对多关系：账户 -> 联系人
-  - name: "account_contact"
+  - name: "new_account_contact"
     related_entity: "contact"
     relationship_type: "OneToMany"
     display_name: "账户联系人"
@@ -105,14 +105,14 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：账户 -> 主要联系人
-  - name: "primary_contact"
+  - name: "new_primary_contact"
     related_entity: "contact"
     relationship_type: "ManyToOne"
     display_name: "主要联系人"
     referencing_attribute: "primarycontactid"
 
   # 多对多关系：账户 -> 产品
-  - name: "account_product"
+  - name: "new_account_product"
     related_entity: "product"
     relationship_type: "ManyToMany"
     display_name: "账户产品"
