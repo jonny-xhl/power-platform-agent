@@ -130,6 +130,12 @@ class MetadataAgent:
                     arguments.get("form_type")  # type: ignore[arg-type]
                 )
 
+            elif tool_name == "metadata_list_views":
+                return await self.list_views(
+                    arguments.get("entity"),  # type: ignore[arg-type]
+                    arguments.get("query_type")  # type: ignore[arg-type]
+                )
+
             elif tool_name == "metadata_delete":
                 return await self.delete_metadata(
                     arguments.get("metadata_type"),  # type: ignore[arg-type]
@@ -787,36 +793,290 @@ class MetadataAgent:
 
     # ==================== 视图管理 ====================
 
-    async def create_view(self, view_yaml: str) -> str:
+    async def create_view(self, view_yaml: str, mode: str = "auto") -> str:
         """
-        创建视图
+        创建或更新视图
 
         Args:
             view_yaml: 视图YAML文件路径或数据
+            mode: 操作模式
+                - "auto": 自动判断（默认），检查视图是否存在后决定创建或更新
+                - "create": 强制创建新视图
+                - "update": 更新现有视图（需在 YAML 中指定 savedquery_id）
+                - "list": 列出实体所有视图
 
         Returns:
-            创建结果
+            创建/更新结果
         """
         try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client()
+
             # 解析视图元数据
             if isinstance(view_yaml, str) and Path(view_yaml).exists():
-                metadata = self.parser.parse_view_yaml(view_yaml)
+                import yaml
+                with open(view_yaml, "r", encoding="utf-8") as f:
+                    view_data = yaml.safe_load(f)
+                view_meta = view_data.get("view", {})
             else:
-                metadata = json.loads(view_yaml) if isinstance(view_yaml, str) else view_yaml
+                view_data = json.loads(view_yaml) if isinstance(view_yaml, str) else view_yaml
+                view_meta = view_data.get("view", {})
 
-            schema_name = metadata.get("schema_name")
-            entity = metadata.get("entity")
+            view_name = view_meta.get("schema_name") or view_meta.get("name")
+            entity = view_meta.get("entity")
+            view_type = view_meta.get("type", "PublicView")
+
+            if not entity or not view_name:
+                return json.dumps({
+                    "error": "view.entity and view.schema_name are required"
+                }, indent=2)
+
+            # 验证实体存在
+            entity_meta = client.get_entity_metadata(entity)
+            logical_name = entity_meta.get("LogicalName")
+            if not logical_name:
+                return json.dumps({
+                    "error": f"Entity '{entity}' not found"
+                }, indent=2)
+
+            # list 模式：仅列出视图
+            if mode == "list":
+                views = client.get_views(logical_name)
+                type_names = {
+                    0: "Public", 1: "AdvancedFind", 2: "Associated",
+                    4: "QuickFind", 64: "Lookup"
+                }
+                return json.dumps({
+                    "entity": entity,
+                    "count": len(views),
+                    "views": [
+                        {
+                            "savedqueryid": v.get("savedqueryid"),
+                            "name": v.get("name"),
+                            "type": type_names.get(v.get("querytype", -1), str(v.get("querytype"))),
+                            "is_default": v.get("isdefault", False),
+                            "is_quick_find": v.get("isquickfindquery", False)
+                        }
+                        for v in views
+                    ]
+                }, indent=2, ensure_ascii=False)
+
+            # 检查视图是否已存在
+            existing_view = client.get_view_by_name(logical_name, view_name)
+
+            # 构建视图元数据
+            view_metadata = self._build_view_metadata(view_meta, view_data, logical_name)
+
+            # create 模式：强制创建
+            if mode == "create":
+                if existing_view:
+                    return json.dumps({
+                        "error": f"View '{view_name}' already exists. Use mode='update' to modify.",
+                        "existing_id": existing_view.get("savedqueryid")
+                    }, indent=2)
+                result = client.create_view(view_metadata)
+                return json.dumps({
+                    "success": True,
+                    "action": "create",
+                    "entity": entity,
+                    "view_name": view_name,
+                    "savedqueryid": result.get("savedqueryid"),
+                    "message": f"View '{view_name}' created successfully"
+                }, indent=2, ensure_ascii=False)
+
+            # update 模式：更新指定视图
+            if mode == "update":
+                savedquery_id = view_meta.get("savedquery_id")
+                if not savedquery_id:
+                    return json.dumps({
+                        "error": "savedquery_id is required when mode='update'"
+                    }, indent=2)
+
+                # 只更新可变字段
+                update_payload = {
+                    "fetchxml": view_metadata.get("fetchxml"),
+                    "layoutxml": view_metadata.get("layoutxml")
+                }
+                if view_meta.get("description"):
+                    update_payload["description"] = view_meta["description"]
+
+                client.update_view(savedquery_id, update_payload)
+                return json.dumps({
+                    "success": True,
+                    "action": "update",
+                    "entity": entity,
+                    "view_name": view_name,
+                    "savedqueryid": savedquery_id,
+                    "message": f"View '{view_name}' updated successfully"
+                }, indent=2, ensure_ascii=False)
+
+            # auto 模式：自动判断
+            if existing_view:
+                # 已存在，更新
+                savedquery_id = existing_view.get("savedqueryid")
+                update_payload = {
+                    "fetchxml": view_metadata.get("fetchxml"),
+                    "layoutxml": view_metadata.get("layoutxml")
+                }
+                if view_meta.get("description"):
+                    update_payload["description"] = view_meta["description"]
+
+                client.update_view(savedquery_id, update_payload)
+                return json.dumps({
+                    "success": True,
+                    "action": "update",
+                    "entity": entity,
+                    "view_name": view_name,
+                    "savedqueryid": savedquery_id,
+                    "message": f"View '{view_name}' updated (already existed)"
+                }, indent=2, ensure_ascii=False)
+            else:
+                # 不存在，创建
+                result = client.create_view(view_metadata)
+                return json.dumps({
+                    "success": True,
+                    "action": "create",
+                    "entity": entity,
+                    "view_name": view_name,
+                    "savedqueryid": result.get("savedqueryid"),
+                    "message": f"View '{view_name}' created successfully"
+                }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            import traceback
+            return json.dumps({
+                "error": f"Failed to create view: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, indent=2)
+
+    def _build_view_metadata(
+        self,
+        view_meta: dict[str, Any],
+        view_data: dict[str, Any],
+        logical_name: str
+    ) -> dict[str, Any]:
+        """
+        构建视图元数据用于 API 调用
+
+        Args:
+            view_meta: 视图元数据
+            view_data: 完整视图数据（包含 columns）
+            logical_name: 实体逻辑名称
+
+        Returns:
+            API 格式的视图元数据
+        """
+        # 处理 fetchxml
+        fetchxml = view_meta.get("fetch_xml") or view_meta.get("fetchxml")
+
+        # 如果没有提供 fetchxml，从 columns 构建
+        if not fetchxml:
+            columns = view_data.get("columns", [])
+            attributes = [c.get("attribute") for c in columns if c.get("attribute")]
+
+            # 获取排序
+            sort_column = next(
+                (c for c in columns if c.get("sort_order") == 1),
+                None
+            )
+            order = None
+            if sort_column:
+                order = {
+                    "attribute": sort_column.get("attribute"),
+                    "descending": sort_column.get("sort", "asc") == "desc"
+                }
+
+            # 构建 fetchxml
+            if not self.core_agent:
+                raise ValueError("No core agent available for building fetchxml")
+            client = self.core_agent.get_client()
+            fetchxml = client.build_fetch_xml(logical_name, attributes, order)
+
+        # 处理 layoutxml
+        layoutxml = view_meta.get("layoutxml")
+        if not layoutxml:
+            columns = view_data.get("columns", [])
+            layout_columns = [
+                {
+                    "name": c.get("attribute"),
+                    "width": c.get("width", 100)
+                }
+                for c in columns if c.get("attribute")
+            ]
+            if not self.core_agent:
+                raise ValueError("No core agent available for building layoutxml")
+            client = self.core_agent.get_client()
+            layoutxml = client.build_layout_xml(layout_columns)
+
+        # 映射视图类型
+        view_type_map = {
+            "PublicView": 0,
+            "AdvancedFind": 1,
+            "AssociatedView": 2,
+            "QuickFindView": 4,
+            "LookupView": 64
+        }
+        query_type = view_type_map.get(view_meta.get("type", "PublicView"), 0)
+
+        # 构建元数据
+        metadata = {
+            "name": view_meta.get("schema_name") or view_meta.get("name"),
+            "returnedtypecode": logical_name,
+            "querytype": query_type,
+            "fetchxml": fetchxml,
+            "layoutxml": layoutxml,
+            "isdefault": view_meta.get("is_default", False),
+            "isquickfindquery": query_type == 4
+        }
+
+        if view_meta.get("description"):
+            metadata["description"] = view_meta["description"]
+
+        return metadata
+
+    async def list_views(self, entity: str, query_type: int = None) -> str:
+        """
+        列出实体的所有视图
+
+        Args:
+            entity: 实体名称
+            query_type: 视图类型过滤 (0=Public, 1=AdvancedFind, 2=Associated, 4=QuickFind, 64=Lookup)
+
+        Returns:
+            视图列表
+        """
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client()
+            views = client.get_views(entity, query_type)
+
+            type_names = {
+                0: "Public", 1: "AdvancedFind", 2: "Associated",
+                4: "QuickFind", 64: "Lookup"
+            }
 
             return json.dumps({
-                "success": True,
-                "schema_name": schema_name,
                 "entity": entity,
-                "message": "View creation requires additional implementation via PAC CLI or direct API"
+                "count": len(views),
+                "views": [
+                    {
+                        "savedqueryid": v.get("savedqueryid"),
+                        "name": v.get("name"),
+                        "type": type_names.get(v.get("querytype", -1), str(v.get("querytype"))),
+                        "is_default": v.get("isdefault", False),
+                        "is_quick_find": v.get("isquickfindquery", False)
+                    }
+                    for v in views
+                ]
             }, indent=2, ensure_ascii=False)
 
         except Exception as e:
             return json.dumps({
-                "error": f"Failed to create view: {str(e)}"
+                "error": f"Failed to list views: {str(e)}"
             }, indent=2)
 
     # ==================== 导出 ====================

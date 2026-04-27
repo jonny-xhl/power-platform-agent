@@ -523,6 +523,248 @@ class DataverseClient:
         response = self.session.patch(url, json=payload)
         response.raise_for_status()
 
+    # ==================== 视图操作 ====================
+
+    # 视图类型常量
+    VIEW_TYPE_PUBLIC = 0
+    VIEW_TYPE_ADVANCED_FIND = 1
+    VIEW_TYPE_ASSOCIATED = 2
+    VIEW_TYPE_QUICK_FIND = 4
+    VIEW_TYPE_LOOKUP = 64
+
+    def get_views(
+        self,
+        entity_name: str,
+        query_type: int = None
+    ) -> list[dict[str, Any]]:
+        """
+        获取实体的视图列表
+
+        Args:
+            entity_name: 实体逻辑名称
+            query_type: 视图类型过滤 (0=Public, 1=AdvancedFind, 2=Associated, 4=QuickFind, 64=Lookup)
+
+        Returns:
+            视图列表，包含 savedqueryid, name, querytype, isdefault, fetchxml 等字段
+        """
+        # 验证实体存在
+        entity_meta = self.get_entity_metadata(entity_name)
+        logical_name = entity_meta.get("LogicalName")
+        if not logical_name:
+            raise ValueError(f"Entity '{entity_name}' not found")
+
+        # 构建 OData 查询
+        filter_parts = [f"returnedtypecode eq '{logical_name}'"]
+        if query_type is not None:
+            filter_parts.append(f"querytype eq {query_type}")
+
+        url = self.get_api_url("savedqueries")
+        params: dict[str, Any] = {"$filter": " and ".join(filter_parts)}
+        response = self.session.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_view_by_id(self, savedquery_id: str) -> dict[str, Any]:
+        """
+        获取单个视图的完整数据（包含 FetchXml 和 LayoutXml）
+
+        Args:
+            savedquery_id: 视图 GUID
+
+        Returns:
+            视图完整数据
+        """
+        url = self.get_api_url(f"savedqueries({savedquery_id})")
+        response = self.session.get(url)
+        response.raise_for_status()
+        return response.json()
+
+    def get_view_by_name(
+        self,
+        entity_name: str,
+        view_name: str
+    ) -> dict[str, Any] | None:
+        """
+        通过视图名称获取视图
+
+        Args:
+            entity_name: 实体逻辑名称
+            view_name: 视图名称 (name 属性)
+
+        Returns:
+            视图数据，未找到时返回 None
+        """
+        # 验证实体存在
+        entity_meta = self.get_entity_metadata(entity_name)
+        logical_name = entity_meta.get("LogicalName")
+        if not logical_name:
+            raise ValueError(f"Entity '{entity_name}' not found")
+
+        url = self.get_api_url("savedqueries")
+        params = {
+            "$filter": f"returnedtypecode eq '{logical_name}' and name eq '{view_name}'"
+        }
+        response = self.session.get(url, params=params)
+        response.raise_for_status()
+        results = response.json().get("value", [])
+        return results[0] if results else None
+
+    def create_view(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        """
+        创建公共视图（Public View, QueryType=0）
+
+        Args:
+            metadata: 视图元数据，包含:
+                - name: 视图名称（唯一标识）
+                - returnedtypecode: 实体逻辑名称
+                - fetchxml: Fetch XML 查询
+                - layoutxml: 布局 XML
+                - isdefault: 是否为默认视图
+                - description: 视图描述
+
+        Returns:
+            创建的视图数据
+        """
+        import uuid as _uuid
+
+        # 验证实体存在
+        entity_name = metadata.get("returnedtypecode")
+        entity_meta = self.get_entity_metadata(entity_name)
+        if not entity_meta.get("LogicalName"):
+            raise ValueError(f"Entity '{entity_name}' not found")
+
+        # 生成新的 savedqueryid
+        savedquery_id = str(_uuid.uuid4())
+
+        # 构建请求体
+        data = {
+            "savedqueryid": savedquery_id,
+            "name": metadata.get("name"),
+            "returnedtypecode": entity_meta.get("LogicalName"),
+            "querytype": self.VIEW_TYPE_PUBLIC,  # 公共视图必须是 0
+            "fetchxml": metadata.get("fetchxml"),
+            "layoutxml": metadata.get("layoutxml"),
+            "isdefault": metadata.get("isdefault", False),
+            "isquickfindquery": metadata.get("isquickfindquery", False)
+        }
+
+        # 可选字段
+        if metadata.get("description"):
+            data["description"] = metadata["description"]
+        if metadata.get("layoutjson"):
+            data["layoutjson"] = metadata["layoutjson"]
+
+        url = self.get_api_url("savedqueries")
+        response = self.session.post(url, json=data)
+        response.raise_for_status()
+
+        return response.json()
+
+    def update_view(
+        self,
+        savedquery_id: str,
+        payload: dict[str, Any]
+    ) -> None:
+        """
+        更新视图（PATCH SavedQuery）
+
+        注意：公共视图可以更新，但其他类型视图（AdvancedFind、Associated、QuickFind、Lookup）
+        只能更新，不能删除
+
+        Args:
+            savedquery_id: 视图 GUID
+            payload: 要更新的字段，如 {"fetchxml": "...", "layoutxml": "..."}
+        """
+        url = self.get_api_url(f"savedqueries({savedquery_id})")
+        response = self.session.patch(url, json=payload)
+        response.raise_for_status()
+
+    def delete_view(self, savedquery_id: str) -> None:
+        """
+        删除视图
+
+        注意：只能删除公共视图（QueryType=0），其他类型视图无法删除
+
+        Args:
+            savedquery_id: 视图 GUID
+        """
+        url = self.get_api_url(f"savedqueries({savedquery_id})")
+        response = self.session.delete(url)
+        response.raise_for_status()
+
+    def build_fetch_xml(
+        self,
+        entity: str,
+        attributes: list[str],
+        order: dict[str, str] = None,
+        filter_conditions: list[dict[str, Any]] = None
+    ) -> str:
+        """
+        构建 Fetch XML 查询
+
+        Args:
+            entity: 实体逻辑名称
+            attributes: 属性列表
+            order: 排序，格式 {"attribute": "name", "descending": false}
+            filter_conditions: 过滤条件列表
+
+        Returns:
+            Fetch XML 字符串
+        """
+        lines = ['<fetch version="1.0" mapping="logical">']
+        lines.append(f'  <entity name="{entity}">')
+
+        # 属性
+        for attr in attributes:
+            lines.append(f'    <attribute name="{attr}" />')
+
+        # 排序
+        if order:
+            descending = "true" if order.get("descending") else "false"
+            lines.append(f'    <order attribute="{order["attribute"]}" descending="{descending}" />')
+
+        # 过滤
+        if filter_conditions:
+            lines.append('    <filter type="and">')
+            for cond in filter_conditions:
+                attr = cond.get("attribute")
+                op = cond.get("operator", "eq")
+                val = cond.get("value", "")
+                lines.append(f'      <condition attribute="{attr}" operator="{op}" value="{val}" />')
+            lines.append('    </filter>')
+
+        lines.append('  </entity>')
+        lines.append('</fetch>')
+
+        return "\n".join(lines)
+
+    def build_layout_xml(
+        self,
+        columns: list[dict[str, Any]]
+    ) -> str:
+        """
+        构建布局 XML
+
+        Args:
+            columns: 列配置列表，每项包含:
+                - name: 属性名称
+                - width: 列宽度
+
+        Returns:
+            Layout XML 字符串
+        """
+        lines = ['<grid name="resultset" object="1" jump="name" select="1" preview="1" icon="1">']
+        lines.append('  <row name="resultset" id="resultsetId">')
+
+        for col in columns:
+            width = col.get("width", 100)
+            lines.append(f'    <cell name="{col["name"]}" width="{width}" />')
+
+        lines.append('  </row>')
+        lines.append('</grid>')
+
+        return "\n".join(lines)
+
     def create_webresource(
         self,
         name: str,
