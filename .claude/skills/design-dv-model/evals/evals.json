@@ -1,0 +1,23 @@
+{
+  "skill_name": "design-dv-model",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我设计一个订单(order)实体模型，包含订单号、客户、订单日期、金额等字段",
+      "expected_output": "生成包含order实体定义的Excel模板，02_实体模型表应包含order实体的字段定义",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "需要为客户服务系统设计Dataverse表，包括案例(case)和客户(contact)两个实体",
+      "expected_output": "生成Excel模板，02_实体模型表应包含case和contact两个实体的字段定义",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "生成一个空的Dataverse实体设计模板，我要自己填写",
+      "expected_output": "生成完整的Excel模板，所有工作表结构完整，包含示例数据供参考",
+      "files": []
+    }
+  ]
+}

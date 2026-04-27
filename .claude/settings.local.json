@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"\nimport ast\ntree = ast.parse\\(open\\('framework/agents/documentation_agent.py', encoding='utf-8'\\).read\\(\\)\\)\nmethods = [node.name for node in ast.walk\\(tree\\) if isinstance\\(node, ast.FunctionDef\\)]\nrequired = ['_atomic_write', '_create_backup', '_cleanup_backups', '_validate_content', '_apply_section_patches', '_try_merge_patches']\nfor m in required:\n    assert m in methods, f'Missing method: {m}'\n    print\\(f'  ✓ {m}'\\)\nprint\\('All required methods verified.'\\)\n\")",
+      "Bash(mv __init__.py __init__.py.bak)",
+      "Bash(python -m mypy framework/agents/core_agent.py --ignore-missing-imports --no-error-summary)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "power-platform"
+  ]
+}

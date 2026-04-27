@@ -1,0 +1,23 @@
+{
+  "skill_name": "dv-model-to-yaml",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "将 sources/features/feature-customer/02-designs/entities/customer_design.xlsx 中的实体定义转换为YAML元数据",
+      "expected_output": "在 metadata/tables/ 目录下生成对应实体的YAML文件，包含schema、attributes等完整结构",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我有一个Excel实体设计文件，需要转换成Dataverse的YAML格式",
+      "expected_output": "解析Excel文件，生成符合Schema规范的YAML元数据文件",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "将订单实体的Excel设计转换为YAML，同时处理选项集",
+      "expected_output": "生成表YAML文件和独立的选项集YAML文件",
+      "files": []
+    }
+  ]
+}
