@@ -1,0 +1,166 @@
+# 认款管理解决方案元数据定义
+# 包含认款单业务的完整组件：表、表单、视图
+# 用于管理客户认款业务流程，包括认款单创建、审批、查询等功能
+
+$schema: "../_schema/solution_schema.yaml"
+
+# ================================================================
+# 解决方案基本信息
+# ================================================================
+solution:
+  # 解决方案唯一名称（SolutionUniqueName）
+  # 命名规范：使用小写字母和下划线，描述性名称
+  name: "payment_solution"
+
+  # 解决方案显示名称（在 Dataverse 中显示）
+  display_name: "认款管理解决方案"
+
+  # 解决方案描述
+  description: |
+    管理客户认款业务流程的完整解决方案。
+    包含认款单实体、主表单和活动视图，支持认款类型管理、
+    审批流程跟踪、关联单据查询等功能。
+
+  # 版本号：主版本.次版本.内部版本.修订
+  # 格式：1.0.0.0
+  version: "1.0.0.0"
+
+  # 发布商引用（引用 config/publishers.yaml 中定义的发布商）
+  # 如果不指定，使用 current 指定的默认发布商
+  publisher: "default"
+
+  # 或者直接指定发布商信息（不推荐，应使用引用）
+  # publisher_info:
+  #   name: "DefaultPublishercrmdev"
+  #   display_name: "CrmDev 的默认发布者"
+  #   prefix: "new"
+
+  # 解决方案类型
+  # - None: 未指定
+  # - Managed: 托管解决方案（不可修改）
+  # - Unmanaged: 非托管解决方案（可修改）
+  type: "Unmanaged"
+
+# ================================================================
+# 解决方案组件
+# ================================================================
+# 按组件类型分类组织，便于管理和同步
+# 路径相对于解决方案文件的上级目录（metadata/）
+# 顺序：全局选项集 → 表 → 表单 → 视图 → Web资源 → 插件
+components:
+  # ----- 全局选项集 -----
+  # （当前解决方案不包含独立的选项集文件）
+  optionsets: []
+
+  # ----- 表（实体）定义 -----
+  tables:
+    # 认款单主表
+    - "tables/payment_recognition.yaml"
+
+  # ----- 表单定义 -----
+  forms:
+    # 认款单主表单
+    - "forms/payment_recognition_main.yaml"
+
+  # ----- 视图定义 -----
+  views:
+    # 认款单活动视图
+    - "views/payment_recognition_active.yaml"
+
+  # ----- Web 资源 -----
+  # （当前解决方案不包含 Web 资源）
+  webresources: []
+
+  # ----- 插件程序集 -----
+  # （当前解决方案不包含自定义插件）
+  plugins: []
+
+  # ----- 其他组件 -----
+  # 用于指定通过 component_type 和 id 的组件
+  other: []
+
+# ================================================================
+# 同步配置
+# ================================================================
+sync:
+  # 是否启用同步
+  enabled: true
+
+  # 同步方向
+  # - local_to_remote: 本地 YAML → Dataverse（部署）
+  # - remote_to_local: Dataverse → 本地 YAML（导出）
+  # - bidirectional: 双向同步
+  direction: "local_to_remote"
+
+  # 冲突解决策略
+  # - skip: 跳过已存在的组件（默认，安全）
+  # - overwrite: 用本地定义覆盖云端
+  # - merge: 尝试合并变更
+  # - ask: 同步前询问用户
+  on_conflict: "skip"
+
+  # 组件同步顺序（遵循依赖关系）
+  # 顺序：全局选项集 → 表 → 表单 → 视图 → Web资源 → 插件
+  order:
+    - "optionset"    # 全局选项集（必须先于表，因为表字段会引用）
+    - "table"        # 表（实体）定义
+    - "form"         # 表单（依赖表的字段）
+    - "view"         # 视图（依赖表的字段）
+    - "webresource"  # Web 资源
+    - "plugin"       # 插件程序集
+
+  # 排除同步的组件（文件路径模式匹配）
+  exclude: []
+
+  # 目标环境名称（从 environments.yaml 中选择）
+  # 留空使用当前激活环境
+  environment: ""
+
+# ================================================================
+# 验证配置
+# ================================================================
+validation:
+  # 严格模式：任何验证失败都阻止同步
+  strict_mode: false
+
+  # 检查组件依赖关系
+  check_dependencies: true
+
+  # 检查命名规范（schema_name、display_name 等）
+  check_naming: true
+
+  # 跳过警告（仅显示错误）
+  skip_warnings: false
+
+# ================================================================
+# 构建配置
+# ================================================================
+build:
+  # 自动递增版本号（每次同步后自动修订版本号）
+  auto_increment_version: false
+
+  # 导出为托管解决方案
+  export_as_managed: false
+
+  # 导出文件输出路径
+  # 留空使用默认路径：exports/solutions/{solution_name}_{version}.zip
+  output_path: ""
+
+  # 包含依赖组件（自动检测并包含所需的标准组件）
+  include_dependencies: true
+
+# ================================================================
+# 使用说明
+# ================================================================
+# 1. 同步到 Dataverse：
+#    solution_sync --solution metadata/solutions/payment_solution.yaml
+#
+# 2. 导出解决方案：
+#    solution_export --solution payment_solution --output exports/
+#
+# 3. 验证解决方案定义：
+#    metadata_validate --metadata metadata/solutions/payment_solution.yaml --schema solution_schema
+#
+# 4. 查看解决方案状态：
+#    solution_status
+# ================================================================

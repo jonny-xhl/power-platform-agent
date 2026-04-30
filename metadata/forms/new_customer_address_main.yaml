@@ -1,0 +1,91 @@
+# 客户地址主表单元数据定义
+# 基于 feature-customer 设计模版生成
+
+$schema: "../_schema/form_schema.yaml"
+
+form:
+  schema_name: "new_customer_address_main_form"
+  entity: "new_customer_address"
+  type: "Main"
+  display_name: "客户地址"
+  description: "客户地址主表单，用于录入和查看地址信息"
+  is_default: true
+
+  options:
+    use_field_display_label: true
+    enable_security: false
+    show_image: false
+    enable_navigation: true
+
+# 选项卡定义
+tabs:
+  - name: "tab_general"
+    display_name: "常规"
+    expand_by_default: true
+    sections:
+      - name: "sec_basic_info"
+        display_name: "基本信息"
+        rows:
+          - cells:
+              - attribute: "new_name"
+                width: "1"
+              - attribute: "new_country_id"
+                width: "1"
+          - cells:
+              - attribute: "new_province_id"
+                width: "1"
+              - attribute: "new_city_id"
+                width: "1"
+          - cells:
+              - attribute: "new_address"
+                width: "2"
+          - cells:
+              - attribute: "new_type"
+                width: "1"
+              - attribute: "new_account_id"
+                width: "1"
+          - cells:
+              - attribute: "new_contact"
+                width: "1"
+              - attribute: "new_contactphone"
+                width: "1"
+
+      - name: "sec_approval"
+        display_name: "审批信息"
+        rows:
+          - cells:
+              - attribute: "new_approvalstatus"
+                width: "1"
+              - attribute: "new_appro_process"
+                width: "1"
+          - cells:
+              - attribute: "new_approvaldept_id"
+                width: "1"
+              - attribute: "new_approved_time"
+                width: "1"
+          - cells:
+              - attribute: "new_businessunit_id"
+                width: "1"
+          - cells:
+              - attribute: "new_submit_time"
+                width: "1"
+              - attribute: "new_last_approve_time"
+                width: "1"
+          - cells:
+              - attribute: "new_curr_approvestep_name"
+                width: "1"
+              - attribute: "new_curr_approvestep_user"
+                width: "1"
+          - cells:
+              - attribute: "new_last_approvestep_name"
+                width: "1"
+              - attribute: "new_last_approvestep_user"
+                width: "1"
+          - cells:
+              - attribute: "new_headbusinessunit_id"
+                width: "1"
+              - attribute: "new_secondbusinessunit_id"
+                width: "1"
+          - cells:
+              - attribute: "new_county_id"
+                width: "1"

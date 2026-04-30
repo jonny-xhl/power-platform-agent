@@ -1,0 +1,128 @@
+# 客户地址公共视图元数据定义
+# 显示活跃客户地址的主要信息
+
+$schema: "../_schema/view_schema.yaml"
+
+view:
+  schema_name: "new_customer_address_active"
+  entity: "new_customer_address"
+  type: "PublicView"
+  display_name: "Active Addres"
+  description: "显示所有活跃状态的客户地址"
+  is_default: true
+
+  # Fetch XML - 定义查询的列、排序和过滤
+  fetch_xml: |
+    <fetch version="1.0" mapping="logical">
+      <entity name="new_customer_address">
+        <attribute name="new_account_id" />
+        <attribute name="new_address" />
+        <attribute name="new_appro_process" />
+        <attribute name="new_approvaldept_id" />
+        <attribute name="new_approvalstatus" />
+        <attribute name="new_approved_time" />
+        <attribute name="new_businessunit_id" />
+        <attribute name="new_contact" />
+        <attribute name="new_contactphone" />
+        <attribute name="new_name" />
+        <attribute name="new_type" />
+        <attribute name="statecode" />
+        <attribute name="statuscode" />
+        <attribute name="createdon" />
+        <attribute name="new_customer_addressid" />
+        <order attribute="new_account_id" descending="false" />
+        <order attribute="new_approved_time" descending="true" />
+        <filter type="and">
+          <condition attribute="statecode" operator="eq" value="0" />
+        </filter>
+      </entity>
+    </fetch>
+
+columns:
+  - attribute: "new_account_id"
+    width: 200
+    sort_order: 1
+    align: "left"
+    sortable: true
+    filterable: true
+    format: "text"
+
+  - attribute: "new_address"
+    width: 100
+    sort_order: 2
+    align: "center"
+    sortable: true
+    filterable: true
+    format: "text"
+
+  - attribute: "new_appro_process"
+    width: 120
+    sort_order: 3
+    align: "left"
+    sortable: true
+    filterable: true
+    format: "text"
+
+  - attribute: "new_approvaldept_id"
+    width: 180
+    sort_order: 4
+    align: "left"
+    sortable: true
+    filterable: true
+    format: "text"
+
+  - attribute: "new_approvalstatus"
+    width: 80
+    sort_order: 5
+    align: "center"
+    sortable: true
+    filterable: true
+    format: "text"
+
+  - attribute: "new_approved_time"
+    width: 120
+    sort_order: 6
+    align: "center"
+    sortable: true
+    filterable: true
+    format: "datetime"
+
+  - attribute: "new_businessunit_id"
+    width: 121
+    sort_order: 7
+    align: "left"
+    sortable: true
+    filterable: true
+    format: "text"
+
+  - attribute: "new_contact"
+    width: 122
+    sort_order: 8
+    align: "left"
+    sortable: true
+    filterable: true
+    format: "text"
+
+  - attribute: "new_contactphone"
+    width: 123
+    sort_order: 9
+    align: "left"
+    sortable: true
+    filterable: true
+    format: "phone"
+
+  - attribute: "new_name"
+    width: 124
+    sort_order: 10
+    align: "left"
+    sortable: true
+    filterable: true
+    format: "text"
+
+  - attribute: "new_type"
+    width: 125
+    sort_order: 11
+    align: "left"
+    sortable: true
+    filterable: true
+    format: "text"

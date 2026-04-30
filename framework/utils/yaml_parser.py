@@ -110,6 +110,8 @@ class YAMLMetadataParser:
             return "form"
         elif "views" in path.parts or "view" in data:
             return "view"
+        elif "solutions" in path.parts or "solution" in data:
+            return "solution"
         elif "webresources" in path.parts or "resources" in data:
             return "webresource"
         elif "ribbon" in path.parts or "ribbon" in data:
@@ -147,6 +149,8 @@ class YAMLMetadataParser:
             return self._process_form_metadata(data)
         elif metadata_type == "view":
             return self._process_view_metadata(data)
+        elif metadata_type == "solution":
+            return self._process_solution_metadata(data)
         elif metadata_type == "webresource":
             return self._process_webresource_metadata(data)
         elif metadata_type == "ribbon":
@@ -188,6 +192,7 @@ class YAMLMetadataParser:
             "is_audit_enabled": schema.get("is_audit_enabled", False),
             "options": schema.get("options", {}),
             "attributes": data.get("attributes", []),
+            "lookup_attributes": data.get("lookup_attributes", []),
             "relationships": data.get("relationships", [])
         }
 
@@ -304,6 +309,106 @@ class YAMLMetadataParser:
             "layout": data.get("layout", {}),
             "charts": data.get("charts", [])
         }
+
+    # ==================== 解决方案元数据 ====================
+
+    def parse_solution_yaml(self, file_path: str) -> dict[str, Any]:
+        """
+        解析解决方案元数据YAML文件
+
+        Args:
+            file_path: YAML文件路径
+
+        Returns:
+            解决方案元数据字典
+        """
+        data = self.load_yaml(file_path)
+        return self._process_solution_metadata(data)
+
+    def _process_solution_metadata(
+        self,
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """处理解决方案元数据"""
+        solution = data.get("solution", {})
+
+        return {
+            "name": solution.get("name"),
+            "display_name": solution.get("display_name"),
+            "description": solution.get("description"),
+            "version": solution.get("version"),
+            "publisher": solution.get("publisher"),
+            "type": solution.get("type", "Unmanaged"),
+            "components": data.get("components", {}),
+            "sync": data.get("sync", {}),
+            "validation": data.get("validation", {}),
+            "build": data.get("build", {})
+        }
+
+    def generate_solution_yaml(
+        self,
+        name: str,
+        display_name: str,
+        version: str = "1.0.0.0",
+        **kwargs
+    ) -> dict[str, Any]:
+        """
+        生成解决方案元数据YAML
+
+        Args:
+            name: 解决方案名称
+            display_name: 显示名称
+            version: 版本号
+            **kwargs: 其他属性
+
+        Returns:
+            解决方案元数据字典
+        """
+        data = {
+            "$schema": "../_schema/solution_schema.yaml",
+            "solution": {
+                "name": name,
+                "display_name": display_name,
+                "version": version
+            },
+            "components": {
+                "tables": [],
+                "forms": [],
+                "views": [],
+                "optionsets": [],
+                "webresources": [],
+                "plugins": [],
+                "other": []
+            },
+            "sync": {
+                "enabled": True,
+                "direction": "local_to_remote",
+                "on_conflict": "skip",
+                "order": ["table", "optionset", "form", "view", "webresource", "plugin"]
+            },
+            "validation": {
+                "strict_mode": False,
+                "check_dependencies": True,
+                "check_naming": True
+            },
+            "build": {
+                "auto_increment_version": False,
+                "export_as_managed": False,
+                "include_dependencies": True
+            }
+        }
+
+        # 添加可选字段
+        if "description" in kwargs:
+            data["solution"]["description"] = kwargs["description"]
+        if "publisher" in kwargs:
+            data["solution"]["publisher"] = kwargs["publisher"]
+        if "type" in kwargs:
+            data["solution"]["type"] = kwargs["type"]
+        if "components" in kwargs:
+            data["components"].update(kwargs["components"])
+
+        return data
 
     # ==================== Web Resource元数据 ====================
 

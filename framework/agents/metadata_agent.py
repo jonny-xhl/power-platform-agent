@@ -16,6 +16,30 @@ from framework.utils.dataverse_client import EntityNotFoundError
 # 设置日志
 logger = logging.getLogger(__name__)
 
+# 组件类型代码映射
+COMPONENT_TYPE_CODES = {
+    "table": 1,            # 实体 (table 别名)
+    "entity": 1,
+    "attribute": 2,
+    "relationship": 3,
+    "optionset": 4,
+    "entity_key": 5,
+    "stringmap": 6,
+    "relationship_role": 7,
+    "form": 10,
+    "view": 11,
+    "savedquery": 12,
+    "query": 13,
+    "report": 14,
+    "dashboard": 15,
+    "systemform": 16,
+    "webresource": 21,
+    "plugin": 90,
+    "sdkmessage": 91,
+    "sdkmessageprocessingstep": 92,
+    "workflow": 93,
+}
+
 
 class MetadataAgent:
     """元数据代理 - 处理Power Platform元数据管理"""
@@ -299,14 +323,62 @@ class MetadataAgent:
                     "error": "No core agent available for authentication"
                 }, indent=2)
 
-            # 创建表
-            result = client.create_entity(metadata)
+            # 检查实体是否已存在
+            entity_exists = False
+            try:
+                existing = client.get_entity_metadata(converted_name)
+                if existing:
+                    entity_exists = True
+            except Exception:
+                pass
+
+            result = None
+            if entity_exists:
+                result = {"status": "already_exists", "message": "Entity already exists"}
+            else:
+                # 创建表
+                result = client.create_entity(metadata)
+
+            # 创建关系（包含 Lookup 属性的 Deep Insert）
+            relationships = metadata.get("relationships", [])
+            lookup_attrs = metadata.get("lookup_attributes", [])
+            relationship_results = []
+
+            for rel in relationships:
+                try:
+                    # 找到对应的 lookup_attribute
+                    ref_attr = rel.get("referencing_attribute")
+                    lookup_attr = None
+                    for attr in lookup_attrs:
+                        if attr.get("name") == ref_attr:
+                            lookup_attr = attr
+                            break
+
+                    # 创建关系
+                    rel_result = client.create_relationship(
+                        converted_name,
+                        rel,
+                        lookup_attr
+                    )
+                    relationship_results.append({
+                        "relationship": rel.get("name"),
+                        "status": "created",
+                        "result": rel_result
+                    })
+                except Exception as e:
+                    relationship_results.append({
+                        "relationship": rel.get("name"),
+                        "status": "failed",
+                        "error": str(e)
+                    })
 
             return json.dumps({
                 "success": True,
                 "schema_name": converted_name,
                 "original_name": schema_name,
-                "result": result
+                "entity_existed": entity_exists,
+                "result": result,
+                "relationships": relationship_results
             }, indent=2, ensure_ascii=False)
 
         except EntityNotFoundError as e:
@@ -511,7 +583,7 @@ class MetadataAgent:
             执行结果
         """
         import yaml
-        from utils.form_xml_builder import FormXmlBuilder
+        from framework.utils.form_xml_builder import FormXmlBuilder
 
         try:
             if not self.core_agent:
@@ -1308,15 +1380,30 @@ class MetadataAgent:
             # 构建文件路径
             if metadata_type == "table":
                 file_path = self.metadata_dir / "tables" / f"{name}.yaml"
-                return await self.create_table(str(file_path), {"environment": environment})
+                result = await self.create_table(str(file_path), {"environment": environment})
+
+                # 检查是否需要自动添加到解决方案
+                await self._auto_add_to_solution(str(file_path), metadata_type, name)
+
+                return result
 
             elif metadata_type == "form":
                 file_path = self.metadata_dir / "forms" / f"{name}.yaml"
-                return await self.create_form(str(file_path))
+                result = await self.create_form(str(file_path))
+
+                # 检查是否需要自动添加到解决方案
+                await self._auto_add_to_solution(str(file_path), metadata_type, name)
+
+                return result
 
             elif metadata_type == "view":
                 file_path = self.metadata_dir / "views" / f"{name}.yaml"
-                return await self.create_view(str(file_path))
+                result = await self.create_view(str(file_path))
+
+                # 检查是否需要自动添加到解决方案
+                await self._auto_add_to_solution(str(file_path), metadata_type, name)
+
+                return result
 
             else:
                 return json.dumps({
@@ -1327,6 +1414,80 @@ class MetadataAgent:
             return json.dumps({
                 "error": f"Failed to apply: {str(e)}"
             }, indent=2)
+
+    async def _auto_add_to_solution(
+        self,
+        file_path: str,
+        metadata_type: str,
+        name: str
+    ) -> None:
+        """
+        检查 YAML 中的 solution 声明，如果 auto_add=true 则自动添加组件到解决方案
+
+        Args:
+            file_path: 元数据文件路径
+            metadata_type: 元数据类型
+            name: 组件名称
+        """
+        try:
+            import yaml
+
+            yaml_file = Path(file_path)
+            if not yaml_file.exists():
+                return
+
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+
+            # 检查 solution 配置
+            solution_config = data.get("solution")
+            if not solution_config:
+                return
+
+            auto_add = solution_config.get("auto_add", False)
+            if not auto_add:
+                return
+
+            solution_name = solution_config.get("name")
+            if not solution_name or not self.core_agent:
+                return
+
+            # 获取组件 ID
+            client = self.core_agent.get_client()
+            component_id = None
+            component_type_code = None
+
+            if metadata_type == "table":
+                entity_meta = client.get_entity_metadata(name)
+                component_id = entity_meta.get("MetadataId")
+                component_type_code = COMPONENT_TYPE_CODES.get("entity", 1)
+
+            elif metadata_type == "form":
+                forms = client.get_forms(name, form_type=2)
+                if forms:
+                    component_id = forms[0].get("formid")
+                component_type_code = COMPONENT_TYPE_CODES.get("form", 10)
+
+            elif metadata_type == "view":
+                entity_meta = client.get_entity_metadata(name)
+                logical_name = entity_meta.get("LogicalName")
+                if logical_name:
+                    views = client.get_views(logical_name, query_type=0)
+                    if views:
+                        component_id = views[0].get("savedqueryid")
+                component_type_code = COMPONENT_TYPE_CODES.get("view", 11)
+
+            # 添加到解决方案
+            if component_id and component_type_code and self.core_agent._solution_agent:
+                solution_agent = self.core_agent._solution_agent
+                await solution_agent.add_component(
+                    component_type=metadata_type,
+                    component_id=component_id,
+                    solution_name=solution_name
+                )
+
+        except Exception as e:
+            logger.warning(f"Failed to auto-add to solution: {e}")
 
     # ==================== 列出元数据 ====================
 

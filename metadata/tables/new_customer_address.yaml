@@ -1,0 +1,327 @@
+# 客户地址表元数据定义
+# 用于管理客户地址信息和地址审批流程
+
+$schema: "../_schema/table_schema.yaml"
+
+schema:
+  schema_name: "new_customer_address"
+  display_name: "客户地址"
+  description: "记录客户的地址信息，支持审批流程和多级区域管理"
+  ownership_type: "UserOwned"
+  has_activities: false
+  has_notes: false
+  is_audit_enabled: true
+
+  options:
+    import_dependencies: false
+    import_subcomponents: false
+    create_audit_fields: true
+    enable_quick_create: false
+
+# 字段定义
+attributes:
+  # ===== 主名称字段 =====
+  - name: "new_name"
+    type: "Memo"
+    display_name: "地址全称"
+    description: "地址完整名称"
+    max_length: 300
+    required: false
+    is_primary_name: true
+    searchable: true
+
+  # ===== 基础信息字段 =====
+  - name: "new_address"
+    type: "Memo"
+    display_name: "详细地址"
+    description: "详细地址信息"
+    max_length: 500
+    required: false
+    searchable: true
+
+  - name: "new_contact"
+    type: "String"
+    display_name: "联系人"
+    description: "地址联系人"
+    max_length: 100
+    required: false
+    searchable: true
+
+  - name: "new_contactphone"
+    type: "String"
+    display_name: "联系电话"
+    description: "联系人电话"
+    max_length: 100
+    required: false
+    searchable: true
+
+  # ===== 地址类型 =====
+  - name: "new_type"
+    type: "Picklist"
+    display_name: "地址类型"
+    description: "地址分类类型"
+    required: false
+    searchable: true
+    options:
+      - value: 1
+        label: "我的地址"
+      - value: 2
+        label: "门店地址"
+      - value: 3
+        label: "短交通订单收货地址"
+
+  # ===== 审批流程 =====
+  - name: "new_appro_process"
+    type: "Picklist"
+    display_name: "审批流程"
+    description: "当前审批流程状态"
+    required: false
+    searchable: true
+    options:
+      - value: 1
+        label: "未知"
+
+  - name: "new_approvalstatus"
+    type: "Picklist"
+    display_name: "审核状态"
+    description: "地址审核状态"
+    required: false
+    searchable: true
+    options:
+      - value: 1
+        label: "已创建"
+      - value: 2
+        label: "审核中"
+      - value: 3
+        label: "审核通过"
+      - value: 4
+        label: "审核不通过"
+
+  - name: "new_approved_time"
+    type: "DateTime"
+    display_name: "审核时间"
+    description: "审核通过的时间"
+    required: false
+    searchable: true
+
+  - name: "new_submit_time"
+    type: "DateTime"
+    display_name: "提交时间"
+    description: "提交审核的时间"
+    required: false
+    searchable: true
+
+  - name: "new_last_approve_time"
+    type: "DateTime"
+    display_name: "上一次审批时间"
+    description: "最近一次审批的时间"
+    required: false
+    searchable: true
+
+  # ===== 审批步骤信息 =====
+  - name: "new_curr_approvestep_name"
+    type: "String"
+    display_name: "当前审批步骤"
+    description: "当前审批步骤名称"
+    max_length: 100
+    required: false
+    searchable: true
+
+  - name: "new_curr_approvestep_user"
+    type: "String"
+    display_name: "当前审批人"
+    description: "当前审批人姓名"
+    max_length: 100
+    required: false
+    searchable: true
+
+  - name: "new_last_approvestep_name"
+    type: "String"
+    display_name: "上一个审批步骤"
+    description: "上一个审批步骤名称"
+    max_length: 100
+    required: false
+    searchable: true
+
+  - name: "new_last_approvestep_user"
+    type: "String"
+    display_name: "上一个审批人"
+    description: "上一个审批人姓名"
+    max_length: 100
+    required: false
+    searchable: true
+
+# 查找字段定义（Lookup类型）- 与关系对应
+lookup_attributes:
+  - name: "new_account_id"
+    type: "Lookup"
+    display_name: "客户"
+    description: "关联的客户"
+    required: false
+    target: "account"
+
+  - name: "new_approvaldept_id"
+    type: "Lookup"
+    display_name: "签核部门"
+    description: "签核审批部门"
+    required: false
+    target: "businessunit"
+
+  - name: "new_businessunit_id"
+    type: "Lookup"
+    display_name: "销售组织"
+    description: "所属销售组织"
+    required: false
+    target: "new_salesorganization"
+
+  - name: "new_city_id"
+    type: "Lookup"
+    display_name: "所属城市"
+    description: "所属城市"
+    required: false
+    target: "new_city"
+
+  - name: "new_country_id"
+    type: "Lookup"
+    display_name: "所属国家"
+    description: "所属国家"
+    required: false
+    target: "new_country"
+
+  - name: "new_county_id"
+    type: "Lookup"
+    display_name: "所属区县"
+    description: "所属区县"
+    required: false
+    target: "new_county"
+
+  - name: "new_province_id"
+    type: "Lookup"
+    display_name: "所属省份"
+    description: "所属省份"
+    required: false
+    target: "new_province"
+
+  - name: "new_headbusinessunit_id"
+    type: "Lookup"
+    display_name: "负责人业务部门"
+    description: "负责人所属业务部门"
+    required: false
+    target: "businessunit"
+
+  - name: "new_secondbusinessunit_id"
+    type: "Lookup"
+    display_name: "二级业务部门"
+    description: "二级业务部门"
+    required: false
+    target: "businessunit"
+
+# 关系定义
+relationships:
+  # 多对一关系：客户地址 -> 客户
+  - name: "new_account_new_customer_address"
+    related_entity: "account"
+    relationship_type: "ManyToOne"
+    display_name: "客户"
+    referencing_attribute: "new_account_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：客户地址 -> 签核部门
+  - name: "new_businessunit_new_customer_address_approvaldept"
+    related_entity: "businessunit"
+    relationship_type: "ManyToOne"
+    display_name: "签核部门"
+    referencing_attribute: "new_approvaldept_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：客户地址 -> 销售组织
+  - name: "new_salesorganization_new_customer_address"
+    related_entity: "new_salesorganization"
+    relationship_type: "ManyToOne"
+    display_name: "销售组织"
+    referencing_attribute: "new_businessunit_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：客户地址 -> 城市
+  - name: "new_city_new_customer_address"
+    related_entity: "new_city"
+    relationship_type: "ManyToOne"
+    display_name: "所属城市"
+    referencing_attribute: "new_city_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：客户地址 -> 国家
+  - name: "new_country_new_customer_address"
+    related_entity: "new_country"
+    relationship_type: "ManyToOne"
+    display_name: "所属国家"
+    referencing_attribute: "new_country_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：客户地址 -> 区县
+  - name: "new_county_new_customer_address"
+    related_entity: "new_county"
+    relationship_type: "ManyToOne"
+    display_name: "所属区县"
+    referencing_attribute: "new_county_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：客户地址 -> 省份
+  - name: "new_province_new_customer_address"
+    related_entity: "new_province"
+    relationship_type: "ManyToOne"
+    display_name: "所属省份"
+    referencing_attribute: "new_province_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：客户地址 -> 负责人业务部门
+  - name: "new_businessunit_new_customer_address_head"
+    related_entity: "businessunit"
+    relationship_type: "ManyToOne"
+    display_name: "负责人业务部门"
+    referencing_attribute: "new_headbusinessunit_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"
+
+  # 多对一关系：客户地址 -> 二级业务部门
+  - name: "new_businessunit_new_customer_address_second"
+    related_entity: "businessunit"
+    relationship_type: "ManyToOne"
+    display_name: "二级业务部门"
+    referencing_attribute: "new_secondbusinessunit_id"
+    cascade_assign: "NoCascade"
+    cascade_delete: "RemoveLink"
+    cascade_reparent: "NoCascade"
+    cascade_share: "NoCascade"
+    cascade_unshare: "NoCascade"

@@ -629,7 +629,8 @@ class DataverseClient:
                 - name: 视图名称（唯一标识）
                 - returnedtypecode: 实体逻辑名称
                 - fetchxml: Fetch XML 查询
-                - layoutxml: 布局 XML
+                - layoutxml: 布局 XML（可选，如果不提供则从 columns 生成）
+                - columns: 列定义（可选，用于自动生成 LayoutXML）
                 - isdefault: 是否为默认视图
                 - description: 视图描述
 
@@ -647,14 +648,24 @@ class DataverseClient:
         # 生成新的 savedqueryid
         savedquery_id = str(_uuid.uuid4())
 
+        # 处理 LayoutXML：如果提供了 layoutxml，使用它；否则从 columns 生成
+        layoutxml = metadata.get("layoutxml")
+        if not layoutxml:
+            columns = metadata.get("columns", [])
+            if columns:
+                layoutxml = self.build_layout_xml(entity_name, columns)
+
         # 构建请求体
+        # 注意：在 Dataverse 中，name 字段是视图的显示名称（如 "Active 客户地址"）
+        # 不是 schema_name，savedqueryid 才是唯一标识符
+        display_name = metadata.get("display_name") or metadata.get("name")
         data = {
             "savedqueryid": savedquery_id,
-            "name": metadata.get("name"),
+            "name": display_name,
             "returnedtypecode": entity_meta.get("LogicalName"),
             "querytype": self.VIEW_TYPE_PUBLIC,  # 公共视图必须是 0
             "fetchxml": metadata.get("fetchxml"),
-            "layoutxml": metadata.get("layoutxml"),
+            "layoutxml": layoutxml,
             "isdefault": metadata.get("isdefault", False),
             "isquickfindquery": metadata.get("isquickfindquery", False)
         }
@@ -667,6 +678,14 @@ class DataverseClient:
 
         url = self.get_api_url("savedqueries")
         response = self.session.post(url, json=data)
+
+        # 打印请求和响应用于调试
+        import json as _json
+        logger.error(f"create_view request: {_json.dumps(data, ensure_ascii=False)[:2000]}...")
+        logger.error(f"create_view response status: {response.status_code}")
+        if response.status_code >= 400:
+            logger.error(f"create_view error response: {response.text}")
+
         response.raise_for_status()
 
         # Dataverse 可能返回 204 No Content 或空响应
@@ -754,25 +773,35 @@ class DataverseClient:
 
     def build_layout_xml(
         self,
+        entity_name: str,
         columns: list[dict[str, Any]]
     ) -> str:
         """
-        构建布局 XML
+        构建布局 XML（新版本 Dataverse 格式）
 
         Args:
+            entity_name: 实体逻辑名称
             columns: 列配置列表，每项包含:
-                - name: 属性名称
-                - width: 列宽度
+                - attribute: 属性名称
+                - width: 列宽度（可选）
 
         Returns:
             Layout XML 字符串
         """
-        lines = ['<grid name="resultset" object="1" jump="name" select="1" preview="1" icon="1">']
-        lines.append('  <row name="resultset" id="resultsetId">')
+        # 获取实体元数据
+        entity_meta = self.get_entity_metadata(entity_name)
+        object_type_code = entity_meta.get("ObjectTypeCode", "1")
+        primary_id_attr = entity_meta.get("PrimaryIdAttribute", f"{entity_name}id")
+        primary_name_attr = entity_meta.get("PrimaryNameAttribute", "name")
+
+        lines = [f'<grid name="resultset" object="{object_type_code}" jump="{primary_name_attr}" select="1" preview="1" icon="1">']
+        lines.append(f'  <row name="resultset" id="{primary_id_attr}">')
 
         for col in columns:
+            attr_name = col.get("attribute") or col.get("name", "")
             width = col.get("width", 100)
-            lines.append(f'    <cell name="{col["name"]}" width="{width}" />')
+            if attr_name:
+                lines.append(f'    <cell name="{attr_name}" width="{width}" />')
 
         lines.append('  </row>')
         lines.append('</grid>')
@@ -870,12 +899,381 @@ class DataverseClient:
         Returns:
             解决方案组件列表
         """
+        from urllib.parse import quote
+        # 使用 URL 编码和双引号格式
+        encoded_name = quote(solution_unique_name, safe='')
         url = self.get_api_url(
-            f"solutions(unique_name='{solution_unique_name}')/SolutionComponents"
+            f"solutions(unique_name=%22{encoded_name}%22)/SolutionComponents"
         )
         response = self.session.get(url)
         response.raise_for_status()
         return response.json().get("value", [])
+
+    def get_solution_by_name(
+        self,
+        solution_name: str
+    ) -> dict[str, Any] | None:
+        """
+        根据名称获取解决方案
+
+        Args:
+            solution_name: 解决方案唯一名称
+
+        Returns:
+            解决方案信息，如果不存在返回 None
+        """
+        solutions = self.get_solutions()
+        for sol in solutions:
+            if sol.get("uniquename") == solution_name:
+                return sol
+        return None
+
+    def create_solution(
+        self,
+        unique_name: str,
+        display_name: str,
+        version: str = "1.0.0.0",
+        publisher_id: str | None = None,
+        description: str = None
+    ) -> dict[str, Any]:
+        """
+        创建解决方案
+
+        Args:
+            unique_name: 解决方案唯一名称
+            display_name: 解决方案显示名称
+            version: 版本号
+            publisher_id: 发布商 ID
+            description: 解决方案描述
+
+        Returns:
+            创建的解决方案信息
+        """
+        url = self.get_api_url("solutions")
+
+        solution_data = {
+            "uniquename": unique_name,
+            "friendlyname": display_name,
+            "version": version,
+            "ismanaged": False,
+            "isvisible": True,
+            "description": description or f"Solution: {display_name}"
+        }
+
+        # publisherid 需要使用 OData 导航属性格式
+        if publisher_id:
+            solution_data["publisherid@odata.bind"] = f"/publishers({publisher_id})"
+
+        response = self.session.post(url, json=solution_data)
+        response.raise_for_status()
+
+        # 获取创建的解决方案 ID
+        solution_id = response.headers.get("OData-EntityId", "").split("(")[-1].rstrip(")")
+
+        return {
+            "solutionid": solution_id,
+            "uniquename": unique_name,
+            "friendlyname": display_name,
+            "version": version
+        }
+
+    def update_solution_version(
+        self,
+        solution_name: str,
+        version: str
+    ) -> dict[str, Any]:
+        """
+        更新解决方案版本
+
+        Args:
+            solution_name: 解决方案唯一名称
+            version: 新版本号
+
+        Returns:
+            更新结果
+        """
+        solution = self.get_solution_by_name(solution_name)
+        if not solution:
+            raise ValueError(f"Solution not found: {solution_name}")
+
+        solution_id = solution.get("solutionid")
+        url = self.get_api_url(f"solutions({solution_id})")
+
+        update_data = {"version": version}
+        response = self.session.patch(url, json=update_data)
+        response.raise_for_status()
+
+        return {"success": True, "version": version}
+
+    def add_solution_component(
+        self,
+        solution_name: str,
+        component_type: int,
+        object_id: str
+    ) -> dict[str, Any]:
+        """
+        添加组件到解决方案
+
+        使用 AddSolutionComponent Action（solutioncomponent 实体不支持 Create）
+
+        Args:
+            solution_name: 解决方案唯一名称
+            component_type: 组件类型代码 (1=实体, 10=表单, 11=视图, etc.)
+            object_id: 组件对象 ID
+
+        Returns:
+            添加结果
+        """
+        # 使用无绑定的 AddSolutionComponent Action
+        # URL 格式: /api/data/v9.2/AddSolutionComponent
+        url = self.get_api_url("AddSolutionComponent")
+
+        component_data = {
+            "SolutionUniqueName": solution_name,
+            "ComponentType": component_type,
+            "ComponentId": object_id,
+            "AddRequiredComponents": False,
+            "DoNotIncludeSubcomponents": False
+        }
+
+        response = self.session.post(url, json=component_data)
+        response.raise_for_status()
+
+        return {
+            "success": True,
+            "solution": solution_name,
+            "component_type": component_type,
+            "object_id": object_id
+        }
+
+    def add_component_by_schema_name(
+        self,
+        solution_name: str,
+        component_type: str,
+        schema_name: str,
+        entity_name: str | None = None
+    ) -> dict[str, Any]:
+        """
+        通过 Schema Name 添加组件到解决方案
+
+        Args:
+            solution_name: 解决方案唯一名称
+            component_type: 组件类型 (table/entity, form, view, etc.)
+            schema_name: 组件的 Schema Name
+            entity_name: 实体名称（用于 form、view 等）
+
+        Returns:
+            添加结果
+        """
+        # 组件类型到代码的映射（根据 Dataverse solutioncomponent.componenttype 选项集）
+        type_codes = {
+            "table": 1,
+            "entity": 1,
+            "attribute": 2,
+            "relationship": 3,
+            "optionset": 9,
+            "form": 60,      # System Form
+            "view": 26,      # Saved Query
+            "webresource": 61  # Web Resource
+        }
+
+        if component_type not in type_codes:
+            raise ValueError(f"Unknown component type: {component_type}")
+
+        component_type_code = type_codes[component_type]
+
+        # 使用 get_component_id 获取组件 ID
+        object_id = self.get_component_id(component_type, schema_name, entity_name)
+
+        if not object_id:
+            return {
+                "success": False,
+                "error": f"Component not found: {component_type}/{schema_name} (entity: {entity_name})"
+            }
+
+        return self.add_solution_component(
+            solution_name,
+            component_type_code,
+            object_id
+        )
+
+    def publish_solution(self, solution_name: str | None = None) -> dict[str, Any]:
+        """
+        发布解决方案或所有自定义项
+
+        Args:
+            solution_name: 解决方案唯一名称，如果为 None 则发布所有
+
+        Returns:
+            发布结果
+        """
+        # PublishAllXml 发布所有自定义项
+        url = self.get_api_url("PublishAllXml")
+        response = self.session.post(url)
+        response.raise_for_status()
+
+        return {
+            "success": True,
+            "solution": solution_name or "all",
+            "message": "Customizations published successfully"
+        }
+
+    def get_component_id(
+        self,
+        component_type: str,
+        schema_name: str,
+        entity_name: str | None = None
+    ) -> str | None:
+        """
+        获取组件的 Object ID
+
+        Args:
+            component_type: 组件类型
+            schema_name: Schema Name
+            entity_name: 实体名称（用于表单、视图等）
+
+        Returns:
+            组件 ID，如果不存在返回 None
+        """
+        if component_type in ("table", "entity"):
+            meta = self.get_entity_metadata(schema_name)
+            return meta.get("MetadataId") if meta else None
+
+        elif component_type == "form":
+            if entity_name:
+                forms = self.get_forms(entity_name)
+                for form in forms:
+                    if form.get("name") == schema_name:
+                        return form.get("formid")
+            return None
+
+        elif component_type == "view":
+            if entity_name:
+                view = self.get_view_by_name(entity_name, schema_name)
+                return view.get("savedqueryid") if view else None
+            return None
+
+        elif component_type == "webresource":
+            resources = self.get_webresources(filter=f"name eq '{schema_name}'")
+            return resources[0].get("webresourceid") if resources else None
+
+        return None
+
+    # ==================== 发布商操作 ====================
+
+    def get_publishers(self) -> list[dict[str, Any]]:
+        """
+        获取所有发布商
+
+        Returns:
+            发布商列表
+        """
+        url = self.get_api_url("publishers")
+        response = self.session.get(url)
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_publisher_by_name(
+        self,
+        publisher_name: str
+    ) -> dict[str, Any] | None:
+        """
+        根据名称获取发布商
+
+        Args:
+            publisher_name: 发布商唯一名称
+
+        Returns:
+            发布商信息，如果不存在返回 None
+        """
+        publishers = self.get_publishers()
+        for pub in publishers:
+            if pub.get("uniquename") == publisher_name:
+                return pub
+        return None
+
+    def create_publisher(
+        self,
+        name: str,
+        display_name: str,
+        prefix: str,
+        description: str = None
+    ) -> dict[str, Any]:
+        """
+        创建发布商
+
+        Args:
+            name: 发布商唯一名称
+            display_name: 发布商显示名称
+            prefix: 发布商前缀
+            description: 发布商描述
+
+        Returns:
+            创建的发布商信息
+        """
+        url = self.get_api_url("publishers")
+
+        publisher_data = {
+            "uniquename": name,
+            "friendlyname": display_name,
+            "customizationprefix": prefix,
+            "description": description or f"Publisher: {display_name}"
+        }
+
+        response = self.session.post(url, json=publisher_data)
+        response.raise_for_status()
+
+        # 获取创建的发布商 ID
+        publisher_id = response.headers.get("OData-EntityId", "").split("(")[-1].rstrip(")")
+
+        return {
+            "publisherid": publisher_id,
+            "uniquename": name,
+            "friendlyname": display_name,
+            "customizationprefix": prefix
+        }
+
+    def ensure_publisher_exists(
+        self,
+        name: str,
+        display_name: str = None,
+        prefix: str = None,
+        description: str = None
+    ) -> dict[str, Any]:
+        """
+        确保发布商存在，如果不存在则创建
+
+        Args:
+            name: 发布商唯一名称
+            display_name: 发布商显示名称
+            prefix: 发布商前缀
+            description: 发布商描述
+
+        Returns:
+            发布商信息及是否为新创建
+        """
+        existing = self.get_publisher_by_name(name)
+
+        if existing:
+            return {
+                "publisher": existing,
+                "created": False,
+                "message": "Publisher already exists"
+            }
+
+        # 创建发布商
+        created = self.create_publisher(
+            name=name,
+            display_name=display_name or name,
+            prefix=prefix or "new",
+            description=description
+        )
+
+        return {
+            "publisher": created,
+            "created": True,
+            "message": "Publisher created successfully"
+        }
 
     # ==================== 批处理操作 ====================
 
@@ -957,6 +1355,35 @@ class DataverseClient:
 
     # ==================== 辅助方法 ====================
 
+    def _convert_to_label(
+        self,
+        text: str,
+        language_code: int = 2052
+    ) -> dict[str, Any]:
+        """
+        将文本转换为 Dataverse Label 格式
+
+        Args:
+            text: 显示文本
+            language_code: 语言代码（默认 2052 = 中文简体）
+
+        Returns:
+            Dataverse Label 格式的字典
+        """
+        if not text:
+            return None
+
+        return {
+            "@odata.type": "Microsoft.Dynamics.CRM.Label",
+            "LocalizedLabels": [
+                {
+                    "@odata.type": "Microsoft.Dynamics.CRM.LocalizedLabel",
+                    "Label": text,
+                    "LanguageCode": language_code
+                }
+            ]
+        }
+
     def _convert_entity_metadata(
         self,
         metadata: dict[str, Any]
@@ -965,23 +1392,74 @@ class DataverseClient:
         转换元数据格式为Dataverse API格式
 
         Args:
-            metadata: 原始元数据
+            metadata: 原始元数据，包含 schema 和 attributes
 
         Returns:
-            Dataverse API格式的元数据
+            Dataverse API格式的元数据，包含 Attributes 数组
         """
         schema = metadata.get("schema", {})
 
+        # 基本实体定义
         entity_definition = {
+            "@odata.type": "Microsoft.Dynamics.CRM.EntityMetadata",
             "SchemaName": schema.get("schema_name"),
-            "DisplayName": schema.get("display_name"),
-            "Description": schema.get("description"),
+            "DisplayName": self._convert_to_label(schema.get("display_name", "")),
+            "DisplayCollectionName": self._convert_to_label(
+                schema.get("display_collection_name") or f"{schema.get('display_name', '')}s"
+            ),
+            "Description": self._convert_to_label(schema.get("description", "")),
             "OwnershipType": schema.get("ownership_type", "UserOwned"),
             "IsActivity": schema.get("has_activities", False),
             "HasNotes": schema.get("has_notes", False),
             "IsAuditEnabled": {"Value": schema.get("is_audit_enabled", False)},
             "IsQuickCreateEnabled": {"Value": schema.get("options", {}).get("enable_quick_create", False)}
         }
+
+        # 处理属性数组
+        attributes = metadata.get("attributes", [])
+        if attributes:
+            converted_attributes = []
+
+            for attr in attributes:
+                attr_type = attr.get("type", "String")
+
+                # 跳过 Lookup 类型 - 必须通过关系创建
+                if attr_type == "Lookup":
+                    logger.info(f"Skipping Lookup attribute '{attr.get('name')}' - must be created via relationship")
+                    continue
+
+                # 转换属性元数据
+                converted_attr = self._convert_attribute_metadata(attr, attr_type)
+
+                # 处理主名称属性
+                if attr.get("is_primary_name"):
+                    if attr_type == "String":
+                        converted_attr["IsPrimaryName"] = True
+                    else:
+                        logger.warning(
+                            f"Attribute '{attr.get('name')}' marked as primary name but is not String type. "
+                            "Primary name attribute must be String type."
+                        )
+
+                converted_attributes.append(converted_attr)
+
+            # 验证主名称属性存在
+            has_primary_name = any(
+                a.get("is_primary_name") for a in attributes
+                if a.get("type") == "String"
+            )
+            if not has_primary_name:
+                # 尝试自动选择第一个 String 属性
+                for i, attr in enumerate(attributes):
+                    if attr.get("type") == "String":
+                        converted_attributes[i]["IsPrimaryName"] = True
+                        logger.info(
+                            f"Auto-marked '{attr.get('name')}' as primary name attribute"
+                        )
+                        break
+
+            if converted_attributes:
+                entity_definition["Attributes"] = converted_attributes
 
         # 移除空值
         return {k: v for k, v in entity_definition.items() if v is not None}
@@ -1019,19 +1497,19 @@ class DataverseClient:
 
         attribute_metadata = {
             "@odata.type": metadata_type,
+            "AttributeType": attribute_type,
+            "AttributeTypeName": {"Value": f"{attribute_type}Type"},
             "SchemaName": attribute.get("name"),
-            "DisplayName": attribute.get("display_name"),
-            "Description": attribute.get("description"),
+            "DisplayName": self._convert_to_label(attribute.get("display_name", "")),
+            "Description": self._convert_to_label(attribute.get("description", "")),
             "RequiredLevel": {
                 "Value": "ApplicationRequired" if attribute.get("required") else "None"
-            },
-            "IsValidForCreate": True,
-            "IsValidForRead": True,
-            "IsValidForUpdate": True
+            }
         }
 
         # 类型特定的属性
         if attribute_type == "String":
+            attribute_metadata["FormatName"] = {"Value": "Text"}
             attribute_metadata["MaxLength"] = attribute.get("max_length", 100)
 
         elif attribute_type == "Money":
@@ -1044,7 +1522,16 @@ class DataverseClient:
                 "Options": [
                     {
                         "Value": opt.get("value"),
-                        "Label": {"UserLocalizedLabel": {"Label": opt.get("label")}}
+                        "Label": {
+                            "@odata.type": "Microsoft.Dynamics.CRM.Label",
+                            "LocalizedLabels": [
+                                {
+                                    "@odata.type": "Microsoft.Dynamics.CRM.LocalizedLabel",
+                                    "Label": opt.get("label"),
+                                    "LanguageCode": 2052
+                                }
+                            ]
+                        }
                     }
                     for opt in options
                 ]
@@ -1052,10 +1539,203 @@ class DataverseClient:
 
         elif attribute_type == "Memo":
             attribute_metadata["MaxLength"] = attribute.get("max_length", 2000)
-            attribute_metadata["@odata.type"] = "Microsoft.Dynamics.CRM.MemoAttributeMetadata"
+
+        elif attribute_type == "DateTime":
+            attribute_metadata["Format"] = "DateOnly"
 
         # 移除空值
         return {k: v for k, v in attribute_metadata.items() if v is not None}
+
+    def _convert_cascade_config(
+        self,
+        rel_def: dict[str, Any]
+    ) -> dict[str, str]:
+        """
+        转换级联配置
+
+        Args:
+            rel_def: 关系定义
+
+        Returns:
+            Dataverse 级联配置字典
+        """
+        # 映射 YAML 配置到 Dataverse 值
+        cascade_map = {
+            "Active": "Active",       # Parental
+            "Cascade": "Cascade",     # 级联
+            "NoCascade": "NoCascade",
+            "RemoveLink": "RemoveLink",
+            "Restrict": "Restrict"
+        }
+
+        return {
+            "Assign": cascade_map.get(rel_def.get("cascade_assign", "NoCascade")),
+            "Delete": cascade_map.get(rel_def.get("cascade_delete", "RemoveLink")),
+            "Merge": cascade_map.get(rel_def.get("cascade_merge", "Cascade")),
+            "Reparent": cascade_map.get(rel_def.get("cascade_reparent", "NoCascade")),
+            "Share": cascade_map.get(rel_def.get("cascade_share", "NoCascade")),
+            "Unshare": cascade_map.get(rel_def.get("cascade_unshare", "NoCascade"))
+        }
+
+    def _convert_relationship_metadata(
+        self,
+        entity_name: str,
+        rel_def: dict[str, Any],
+        lookup_attr_def: dict[str, Any] = None
+    ) -> dict[str, Any]:
+        """
+        转换关系元数据为 Dataverse API 格式
+
+        Args:
+            entity_name: 当前实体名称（引用实体/"多"的一方）
+            rel_def: 关系定义
+            lookup_attr_def: Lookup 属性定义（用于 OneToMany 关系）
+
+        Returns:
+            Dataverse API 格式的关系元数据
+        """
+        rel_type = rel_def.get("relationship_type", "ManyToOne")
+        related_entity = rel_def.get("related_entity")
+
+        if rel_type == "ManyToMany":
+            # 多对多关系
+            return {
+                "@odata.type": "Microsoft.Dynamics.CRM.ManyToManyRelationshipMetadata",
+                "SchemaName": rel_def.get("schema_name") or rel_def.get("name"),
+                "Entity1LogicalName": entity_name,
+                "Entity2LogicalName": related_entity,
+                "IntersectEntityName": rel_def.get("schema_name") or rel_def.get("name"),
+                "Entity1AssociatedMenuConfiguration": {
+                    "Behavior": "UseLabel",
+                    "Group": "Details",
+                    "Label": self._convert_to_label(rel_def.get("display_name", entity_name)),
+                    "Order": 10000
+                },
+                "Entity2AssociatedMenuConfiguration": {
+                    "Behavior": "UseLabel",
+                    "Group": "Details",
+                    "Label": self._convert_to_label(rel_def.get("display_name", related_entity)),
+                    "Order": 10000
+                }
+            }
+        else:
+            # OneToMany 关系（包括 ManyToOne，从对方实体角度创建）
+            # ManyToOne 关系实际上是反向的 OneToMany
+
+            # 获取被引用实体的主键
+            # 对于标准实体，通常是 entityname + "id"
+            # 对于自定义实体，需要查询获取
+            referenced_attr = self._get_primary_key_attribute(related_entity)
+
+            # 构建关系定义
+            relationship = {
+                "@odata.type": "Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata",
+                "SchemaName": rel_def.get("schema_name") or rel_def.get("name"),
+                "ReferencedAttribute": referenced_attr,
+                "ReferencedEntity": related_entity,
+                "ReferencingEntity": entity_name,
+                "AssociatedMenuConfiguration": {
+                    "Behavior": "UseCollectionName",
+                    "Group": "Details",
+                    "Label": self._convert_to_label(rel_def.get("display_name", related_entity)),
+                    "Order": 10000
+                },
+                "CascadeConfiguration": self._convert_cascade_config(rel_def)
+            }
+
+            # 添加 Lookup 属性定义（Deep Insert）
+            if lookup_attr_def:
+                # 使用原始名称（snake_case）
+                attr_name = lookup_attr_def.get("name", "")
+
+                relationship["Lookup"] = {
+                    "@odata.type": "Microsoft.Dynamics.CRM.LookupAttributeMetadata",
+                    "SchemaName": attr_name,
+                    "AttributeType": "Lookup",
+                    "AttributeTypeName": {"Value": "LookupType"},
+                    "DisplayName": self._convert_to_label(lookup_attr_def.get("display_name", "")),
+                    "Description": self._convert_to_label(lookup_attr_def.get("description", "")),
+                    "RequiredLevel": {
+                        "Value": "ApplicationRequired" if lookup_attr_def.get("required") else "None",
+                        "CanBeChanged": True,
+                        "ManagedPropertyLogicalName": "canmodifyrequirementlevelsettings"
+                    },
+                    # 关键：指定目标实体（被引用实体）
+                    "Targets": [lookup_attr_def.get("target", related_entity)]
+                }
+
+            return relationship
+
+    def _get_primary_key_attribute(
+        self,
+        entity_name: str
+    ) -> str:
+        """
+        获取实体的主键属性名称
+
+        Args:
+            entity_name: 实体名称
+
+        Returns:
+            主键属性名称（通常是 entityname + "id"）
+        """
+        # 标准实体和自定义实体的主键通常是 logical_name + "id"
+        # 先尝试获取实体元数据
+        try:
+            entity_meta = self.get_entity_metadata(entity_name)
+            primary_id = entity_meta.get("PrimaryIdAttribute")
+            if primary_id:
+                return primary_id
+        except Exception:
+            pass
+
+        # 回退到默认规则
+        return f"{entity_name}id"
+
+    def create_relationship(
+        self,
+        entity_name: str,
+        rel_def: dict[str, Any],
+        lookup_attr_def: dict[str, Any] = None
+    ) -> dict[str, Any]:
+        """
+        创建关系（包含 Lookup 属性的 Deep Insert）
+
+        Args:
+            entity_name: 当前实体名称（引用实体/"多"的一方）
+            rel_def: 关系定义
+            lookup_attr_def: Lookup 属性定义
+
+        Returns:
+            创建的关系元数据
+        """
+        url = self.get_api_url("RelationshipDefinitions")
+
+        # 转换关系元数据
+        relationship_metadata = self._convert_relationship_metadata(
+            entity_name,
+            rel_def,
+            lookup_attr_def
+        )
+
+        # 调试日志
+        import json as _json
+        logger.error(f"create_relationship request: {_json.dumps(relationship_metadata, ensure_ascii=False)[:2000]}...")
+
+        response = self.session.post(url, json=relationship_metadata)
+
+        # 错误时打印响应
+        if response.status_code >= 400:
+            logger.error(f"create_relationship error response: {response.text}")
+
+        response.raise_for_status()
+
+        # 返回关系信息
+        return {
+            "name": rel_def.get("name"),
+            "type": rel_def.get("relationship_type"),
+            "status": "created"
+        }
 
     # ==================== 状态和健康检查 ====================
 
