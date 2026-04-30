@@ -15,7 +15,10 @@ Power Platform Metadata Manager
 """
 
 import logging
+import time
 from typing import Any
+
+from ..utils.retry_helper import wait_for_default_components, MetadataPropagationError
 
 logger = logging.getLogger(__name__)
 
@@ -611,15 +614,29 @@ class MetadataManager:
         return results
 
     def _create_entity(self, metadata: dict[str, Any]) -> dict[str, Any]:
-        """创建实体"""
+        """
+        创建实体
+
+        创建后会等待 Dataverse 自动生成的默认组件（表单、视图）可用。
+        这避免了后续操作因元数据传播延时而失败。
+        """
+        schema_name = metadata.get("schema", {}).get("schema_name")
         try:
-            logger.info(f"Creating entity: {metadata.get('schema', {}).get('schema_name')}")
+            logger.info(f"Creating entity: {schema_name}")
             result = self.client.create_entity(metadata)
+
+            # 等待 Dataverse 自动创建的默认组件可用
+            # Dataverse 创建表后会自动创建：
+            # - 默认主表单 (Main Form, type=2)
+            # - 默认快速创建表单 (Quick Create Form, type=6)
+            # - 默认视图 (Active View, Quick Find View)
+            self._wait_for_default_components(schema_name)
+
             return {
                 "success": True,
                 "type": "entity",
                 "action": "create",
-                "schema_name": metadata.get("schema", {}).get("schema_name"),
+                "schema_name": schema_name,
                 "result": result
             }
         except Exception as e:
@@ -627,8 +644,67 @@ class MetadataManager:
                 "success": False,
                 "type": "entity",
                 "action": "create",
+                "schema_name": schema_name,
                 "error": str(e)
             }
+
+    def _wait_for_default_components(self, entity_name: str, timeout: float = 45.0) -> None:
+        """
+        等待 Dataverse 自动创建的默认组件可用
+
+        Args:
+            entity_name: 实体名称
+            timeout: 超时时间（秒）
+        """
+        logger.info(f"Waiting for default components of entity '{entity_name}' to be available...")
+
+        # 定义检查函数
+        def check_main_form(_: str, form_type: int) -> dict[str, Any]:
+            forms = self.client.get_forms(entity_name, form_type=form_type)
+            if not forms:
+                raise ValueError(f"No form with type {form_type} found")
+            return forms[0]
+
+        def check_view(_: str, __: str) -> dict[str, Any]:
+            # 检查 Active Views (query_type=0)
+            views = self.client.get_views(entity_name, query_type=0)
+            if not views:
+                raise ValueError("No active views found")
+            return views[0]
+
+        # 等待默认主表单 (type=2)
+        try:
+            wait_for_default_components(
+                check_fn=lambda _, __: check_main_form(_, 2),
+                entity_name=entity_name,
+                component_type="main_form",
+                component_name="Main Form",
+                timeout=timeout,
+                check_interval=3.0
+            )
+            logger.info(f"Default main form for '{entity_name}' is now available")
+        except MetadataPropagationError as e:
+            logger.warning(f"Default main form not available after {timeout}s: {e}")
+            # 继续执行，因为主表单可能不是必须的
+
+        # 等待默认视图
+        try:
+            wait_for_default_components(
+                check_fn=check_view,
+                entity_name=entity_name,
+                component_type="view",
+                component_name="Active View",
+                timeout=timeout,
+                check_interval=3.0
+            )
+            logger.info(f"Default views for '{entity_name}' are now available")
+        except MetadataPropagationError as e:
+            logger.warning(f"Default views not available after {timeout}s: {e}")
+            # 继续执行
+
+        # 额外等待一下，确保所有元数据完全传播
+        time.sleep(2)
+        logger.info(f"Default components for '{entity_name}' are ready")
 
     def _create_attribute(self, entity_name: str, attr_def: dict[str, Any]) -> dict[str, Any]:
         """创建属性"""

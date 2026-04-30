@@ -12,6 +12,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from .retry_helper import retry_on_metadata_error, retry_on_404
+
 # 设置日志
 logger = logging.getLogger(__name__)
 
@@ -266,6 +268,7 @@ class DataverseClient:
 
     # ==================== 元数据操作 ====================
 
+    @retry_on_404(max_retries=5, initial_delay=2.0)
     def get_entity_metadata(
         self,
         entity_name: str = None
@@ -339,6 +342,11 @@ class DataverseClient:
 
         return response.json()
 
+    @retry_on_metadata_error(
+        max_retries=4,
+        initial_delay=2.0,
+        error_patterns=["not found", "cannot be found", "invalid entity"]
+    )
     def create_attribute(
         self,
         entity_name: str,
@@ -464,6 +472,11 @@ class DataverseClient:
 
         return response.json().get("value", [])
 
+    @retry_on_metadata_error(
+        max_retries=4,
+        initial_delay=2.0,
+        error_patterns=["not found", "invalid entity"]
+    )
     def get_forms(
         self,
         entity_name: str,
@@ -511,6 +524,11 @@ class DataverseClient:
         response.raise_for_status()
         return response.json()
 
+    @retry_on_metadata_error(
+        max_retries=4,
+        initial_delay=1.5,
+        error_patterns=["not found", "cannot be found"]
+    )
     def update_form(self, form_id: str, payload: dict[str, Any]) -> None:
         """
         更新表单（PATCH SystemForm）
@@ -590,6 +608,7 @@ class DataverseClient:
         response.raise_for_status()
         return response.json()
 
+    @retry_on_404(max_retries=4, initial_delay=1.5)
     def get_view_by_name(
         self,
         entity_name: str,
@@ -693,6 +712,11 @@ class DataverseClient:
             return {"savedqueryid": savedquery_id}
         return response.json()
 
+    @retry_on_metadata_error(
+        max_retries=4,
+        initial_delay=1.5,
+        error_patterns=["not found", "cannot be found"]
+    )
     def update_view(
         self,
         savedquery_id: str,
@@ -794,7 +818,10 @@ class DataverseClient:
         primary_id_attr = entity_meta.get("PrimaryIdAttribute", f"{entity_name}id")
         primary_name_attr = entity_meta.get("PrimaryNameAttribute", "name")
 
-        lines = [f'<grid name="resultset" object="{object_type_code}" jump="{primary_name_attr}" select="1" preview="1" icon="1">']
+        lines = [
+            f'<grid name="resultset" object="{object_type_code}" '
+            f'jump="{primary_name_attr}" select="1" preview="1" icon="1">'
+        ]
         lines.append(f'  <row name="resultset" id="{primary_id_attr}">')
 
         for col in columns:
@@ -1692,6 +1719,18 @@ class DataverseClient:
         # 回退到默认规则
         return f"{entity_name}id"
 
+    @retry_on_metadata_error(
+        max_retries=5,
+        initial_delay=2.5,
+        error_patterns=[
+            "not found",
+            "cannot be found",
+            "does not exist",
+            "invalid entity",
+            "depends on",
+            "referenced"
+        ]
+    )
     def create_relationship(
         self,
         entity_name: str,
