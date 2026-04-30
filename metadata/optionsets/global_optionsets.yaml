@@ -7,6 +7,11 @@
 #     type: Picklist
 #     option_set_ref: new_customer_status
 
+# 解决方案声明
+solution:
+  name: "payment_solution"
+  auto_add: true  # 自动添加到解决方案
+
 global_optionsets:
   # ========== 客户状态选项集 ==========
   - name: new_customer_status

@@ -475,3 +475,16 @@ DisplayName 和 Description 使用 `LocalizedLabels` 数组格式。
 - 标签为空时返回 `null`，不发送到 API
 
 > 参考实现：`framework/utils/dataverse_client.py` 中各处的 `_create_localized_label()` 函数
+
+# 十三、参考文档
+
+有关 Microsoft Dataverse 和相关技术的综合参考信息：
+
+| 资源 | 描述 |
+|----------|-------------|
+| **[Dataverse 开发者指南](https://learn.microsoft.com/power-apps/developer/data-platform/)** | Microsoft Dataverse 的完整开发者文档 |
+| **[Dataverse Web API 参考](https://learn.microsoft.com/power-apps/developer/data-platform/webapi/)** | 详细的 Web API 参考和示例 |  
+| **[Python 的 Azure Identity](https://learn.microsoft.com/python/api/overview/azure/identity-readme)** | 身份验证库文档和凭据类型 |
+| **[Power Platform 开发者中心](https://learn.microsoft.com/power-platform/developer/)** | 更广泛的 Power Platform 开发资源 |
+| **[.NET 的 Dataverse SDK](https://learn.microsoft.com/power-apps/developer/data-platform/org-service/overview)** | Microsoft Dataverse 的官方 .NET SDK |
+| **[Python 的 Dataverse SDK Source Code](https://github.com/microsoft/PowerPlatform-DataverseClient-Python/tree/main)** | PowerPlatform Dataverse Client for Python |

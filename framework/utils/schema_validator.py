@@ -87,6 +87,8 @@ class SchemaValidator:
             errors.extend(self._validate_ribbon(data, schema))
         elif schema_name == "sitemap_schema":
             errors.extend(self._validate_sitemap(data, schema))
+        elif schema_name == "solution_schema":
+            errors.extend(self._validate_solution(data, schema))
         else:
             errors.append(f"Unknown schema type: {schema_name}")
 
@@ -394,6 +396,78 @@ class SchemaValidator:
 
         return errors
 
+    # ==================== Solution验证 ====================
+
+    def _validate_solution(
+        self,
+        data: dict[str, Any],
+        schema: dict[str, Any]
+    ) -> list[str]:
+        """验证Solution元数据"""
+        errors = []
+
+        if "solution" not in data:
+            errors.append("Missing required field: solution")
+            return errors
+
+        solution_data = data["solution"]
+
+        # 检查必需字段
+        required_fields = ["name", "display_name", "version"]
+        for field in required_fields:
+            if field not in solution_data:
+                errors.append(f"Missing required field in solution: {field}")
+
+        # 验证名称格式
+        if "name" in solution_data:
+            name = solution_data["name"]
+            if not self._is_valid_schema_name(name):
+                errors.append(f"Invalid solution name format: {name}")
+
+        # 验证版本号格式
+        if "version" in solution_data:
+            version = solution_data["version"]
+            import re
+            if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", version):
+                errors.append(f"Invalid version format (should be x.y.z.w): {version}")
+
+        # 验证解决方案类型
+        if "type" in solution_data:
+            valid_types = ["None", "Managed", "Unmanaged"]
+            if solution_data["type"] not in valid_types:
+                errors.append(f"Invalid solution type: {solution_data['type']}")
+
+        # 验证组件
+        if "components" not in data:
+            errors.append("Missing required field: components")
+        else:
+            components = data["components"]
+            # 验证组件分类
+            valid_categories = ["tables", "forms", "views", "optionsets",
+                               "webresources", "plugins", "other"]
+            for category in components:
+                if category not in valid_categories:
+                    errors.append(f"Unknown component category: {category}")
+
+                # 验证组件是列表
+                if not isinstance(components[category], list):
+                    errors.append(f"Components.{category} must be a list")
+
+        # 验证同步配置
+        if "sync" in data:
+            sync = data["sync"]
+            if "direction" in sync:
+                valid_directions = ["local_to_remote", "remote_to_local", "bidirectional"]
+                if sync["direction"] not in valid_directions:
+                    errors.append(f"Invalid sync direction: {sync['direction']}")
+
+            if "on_conflict" in sync:
+                valid_strategies = ["skip", "overwrite", "merge", "ask"]
+                if sync["on_conflict"] not in valid_strategies:
+                    errors.append(f"Invalid conflict strategy: {sync['on_conflict']}")
+
+        return errors
+
     def _validate_area(
         self,
         area: dict[str, Any],
@@ -446,6 +520,8 @@ class SchemaValidator:
             schema_type = "ribbon_schema"
         elif "sitemap" in path.parts:
             schema_type = "sitemap_schema"
+        elif "solutions" in path.parts:
+            schema_type = "solution_schema"
         else:
             return False, ["Unknown metadata type"]
 

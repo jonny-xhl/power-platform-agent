@@ -156,22 +156,28 @@ asyncio.run(plan())
 将变更计划格式化展示给用户：
 
 **变更摘要**：
-| 类型 | 数量 |
-|------|------|
-| 实体创建/更新 | N |
-| 字段创建 | N |
-| 字段更新 | N |
-| 关系创建（含 Lookup） | N |
-| 关系更新 | N |
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| 实体创建 | N | 包含所有非 Lookup 字段（一次性创建） |
+| 字段创建 | N | 仅 Lookup 字段（通过关系创建） |
+| 字段更新 | N | 非系统字段属性更新 |
+| 关系创建 | N | OneToMany/ManyToMany（含 Lookup Deep Insert） |
+| 关系更新 | N | 级联配置更新 |
 
 **详细变更列表**：
 | 操作 | 目标类型 | 目标名称 | 说明 |
 |------|---------|---------|------|
+| create | entity | new_table | 一次性创建表 + 所有非 Lookup 字段 |
+| create | relationship | new_table_account | 创建关系 + 自动创建 Lookup 字段 |
+| create | relationship | new_table_systemuser | 创建关系 + 自动创建 Lookup 字段 |
 
 **执行顺序**（严格按依赖排序）：
-1. 实体（如果需要创建）
-2. 非 Lookup 字段
-3. 关系 + Lookup 字段（Deep Insert）
+1. **实体 + 非 Lookup 字段**（一次性 POST 到 EntityDefinitions）
+   - String, Integer, Money, Picklist, DateTime, Boolean, Memo 等类型
+   - 主名称属性（IsPrimaryName: true）必须包含在内
+2. **关系 + Lookup 字段**（Deep Insert 到 RelationshipDefinitions）
+   - OneToMany 关系自动创建 ReferencingEntity 上的 Lookup 字段
+   - ManyToMany 关系创建关联表
 
 如果没有变更，显示 "No changes detected - YAML is already in sync with Dataverse" 并**停止执行**。
 
@@ -184,6 +190,17 @@ asyncio.run(plan())
 ### Step 5: 按依赖顺序应用变更
 
 用户确认后，执行实际同步。
+
+**重要变更**：根据 Microsoft 官方文档，表创建现在使用优化的方式：
+
+1. **实体 + 非 Lookup 字段**：一次性 POST 到 `EntityDefinitions`
+   - 所有 String, Integer, Money, Picklist, DateTime, Boolean, Memo 等类型字段
+   - 在 `Attributes` 数组中包含，单次 API 调用完成
+   - **Lookup 字段被自动过滤**，不包含在此步骤中
+
+2. **关系 + Lookup 字段**：POST 到 `RelationshipDefinitions`（Deep Insert）
+   - OneToMany 关系：在 `Lookup` 属性中定义 Lookup 字段元数据
+   - ManyToMany 关系：定义 Entity1/Entity2 和关联表
 
 优先使用 MCP 工具 `metadata_apply_yaml`：
 ```
@@ -208,10 +225,17 @@ asyncio.run(apply())
 "
 ```
 
-解析结果，报告每个实体的同步进度：
-- 实体创建/更新：报告成功或失败
-- 字段创建/更新：逐个报告或按批汇总
-- 关系创建（Deep Insert）：逐个报告成功或失败
+**解析结果，报告同步进度**：
+
+| 阶段 | 操作 | API 端点 | 说明 |
+|------|------|----------|------|
+| 1 | 创建实体 + 字段 | POST EntityDefinitions | 一次性创建表和所有非 Lookup 字段 |
+| 2 | 创建关系 + Lookup | POST RelationshipDefinitions | Deep Insert 创建关系和 Lookup 字段 |
+
+报告格式：
+- **实体创建**：成功/失败，包含创建的字段数量
+- **关系创建**：逐个报告成功/失败，包含创建的 Lookup 字段名称
+- **失败项**：显示详细错误信息和 API 响应
 
 ### Step 5.5: 同步窗体
 

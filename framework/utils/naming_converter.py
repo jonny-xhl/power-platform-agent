@@ -16,18 +16,22 @@ logger = logging.getLogger(__name__)
 class NamingConverter:
     """命名转换器"""
 
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: str = None, publishers_path: str = None):
         """
         初始化命名转换器
 
         Args:
             config_path: 命名规则配置文件路径
+            publishers_path: 发布商配置文件路径
         """
         self.config_path = config_path or "config/naming_rules.yaml"
+        self.publishers_path = publishers_path or "config/publishers.yaml"
         self._config = None
+        self._publishers_config = None
         self._standard_entities = set()
 
         self._load_config()
+        self._load_publishers_config()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -38,8 +42,22 @@ class NamingConverter:
 
     @property
     def prefix(self) -> str:
-        """获取发布商前缀"""
-        return self.config.get("naming", {}).get("prefix", "new")
+        """获取发布商前缀
+
+        优先级：
+        1. 如果 naming.use_publisher_prefix = true，从 publishers.yaml 读取
+        2. 否则使用 naming_rules.yaml 中的 prefix 配置
+        """
+        naming_config = self.config.get("naming", {})
+        use_publisher = naming_config.get("use_publisher_prefix", True)
+
+        if use_publisher and self._publishers_config:
+            current_publisher = self._publishers_config.get("current", "default")
+            publishers = self._publishers_config.get("publishers", {})
+            if current_publisher in publishers:
+                return publishers[current_publisher].get("prefix", "new")
+
+        return naming_config.get("prefix", "new")
 
     @property
     def schema_name_style(self) -> str:
@@ -59,7 +77,7 @@ class NamingConverter:
     # ==================== 配置加载 ====================
 
     def _load_config(self) -> None:
-        """加载配置文件"""
+        """加载命名规则配置文件"""
         config_file = Path(self.config_path)
         if config_file.exists():
             with open(config_file, "r", encoding="utf-8") as f:
@@ -71,6 +89,15 @@ class NamingConverter:
         else:
             self._config = {"naming": {}}
             self._standard_entities = set()
+
+    def _load_publishers_config(self) -> None:
+        """加载发布商配置文件"""
+        publishers_file = Path(self.publishers_path)
+        if publishers_file.exists():
+            with open(publishers_file, "r", encoding="utf-8") as f:
+                self._publishers_config = yaml.safe_load(f)
+        else:
+            self._publishers_config = None
 
     # ==================== Schema Name 转换 ====================
 
@@ -410,6 +437,61 @@ class NamingConverter:
             return name
         return f"{self.prefix}_{name}"
 
+    # ==================== 发布商相关方法 ====================
+
+    def get_publisher(self, publisher_key: str = None) -> dict[str, Any] | None:
+        """
+        获取发布商信息
+
+        Args:
+            publisher_key: 发布商 key，如果为 None 则使用 current 配置
+
+        Returns:
+            发布商信息字典，包含 name, display_name, prefix, description
+        """
+        if not self._publishers_config:
+            return None
+
+        key = publisher_key or self._publishers_config.get("current", "default")
+        publishers = self._publishers_config.get("publishers", {})
+
+        return publishers.get(key)
+
+    def get_current_publisher(self) -> dict[str, Any] | None:
+        """
+        获取当前使用的发布商信息
+
+        Returns:
+            发布商信息字典
+        """
+        return self.get_publisher()
+
+    def get_publisher_prefix(self, publisher_key: str = None) -> str:
+        """
+        获取发布商前缀
+
+        Args:
+            publisher_key: 发布商 key，如果为 None 则使用 current 配置
+
+        Returns:
+            发布商前缀
+        """
+        publisher = self.get_publisher(publisher_key)
+        if publisher:
+            return publisher.get("prefix", "new")
+        return "new"
+
+    def list_publishers(self) -> dict[str, dict[str, Any]]:
+        """
+        列出所有可用的发布商
+
+        Returns:
+            发布商字典 {key: publisher_info}
+        """
+        if not self._publishers_config:
+            return {}
+        return self._publishers_config.get("publishers", {})
+
 
 class NamingValidator:
     """命名验证器（独立类，便于单独使用）"""
@@ -503,5 +585,18 @@ class NamingValidator:
         for file_path in metadata_files:
             # 这里可以添加文件解析和名称检查逻辑
             pass
+
+        return warnings
+
+    def list_publishers(self) -> dict[str, dict[str, Any]]:
+        """
+        列出所有可用的发布商
+
+        Returns:
+            发布商字典 {key: publisher_info}
+        """
+        if not self._publishers_config:
+            return {}
+        return self._publishers_config.get("publishers", {})
 
         return warnings

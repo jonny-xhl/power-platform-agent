@@ -35,13 +35,27 @@ class CoreAgent:
         # 初始化命名转换器
         self.naming_converter = NamingConverter()
 
+        # 延迟加载的代理引用
+        self._metadata_agent = None
+        self._plugin_agent = None
+        self._solution_agent = None
+
         self._load_config()
+
+    @property
+    def metadata_agent(self):
+        """获取 MetadataAgent 实例"""
+        return self._metadata_agent
+
+    def set_metadata_agent(self, agent):
+        """设置 MetadataAgent 实例"""
+        self._metadata_agent = agent
 
     # ==================== 配置管理 ====================
 
     def _load_config(self) -> None:
         """加载配置"""
-        from utils.env_config import load_yaml_with_env, load_env_file
+        from framework.utils.env_config import load_yaml_with_env, load_env_file
 
         # 加载 .env 文件使环境变量可用
         load_env_file()

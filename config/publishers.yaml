@@ -1,0 +1,44 @@
+# Power Platform 发布商（Publisher）配置
+#
+# 发布商是 Power Platform 解决方案的核心概念：
+# - 自定义组件的 SchemaName 和 LogicalName 会自动加上发布商的前缀
+# - 这就是为什么自定义实体通常以 "new_" 开头的原因
+# - 一个项目通常使用同一个发布商
+#
+# 发布商属性说明：
+# - name: 发布商的唯一名称（在 Dataverse 中唯一）
+# - display_name: 发布商的显示名称（在界面上显示）
+# - prefix: 前缀（可以重复，用于生成组件名称）
+# - description: 发布商描述
+
+publishers:
+  # 默认发布商
+  default:
+    name: "DefaultPublishercrmdev"
+    display_name: "CrmDev 的默认发布者"
+    prefix: "new"
+    description: "项目默认发布商，所有自定义组件使用此前缀"
+
+  # 可以定义其他发布商（用于多发布商场景）
+  # custom:
+  #   name: "CustomPublisher"
+  #   display_name: "自定义发布商"
+  #   prefix: "cust"
+  #   description: "用于特定组件的自定义发布商"
+
+# 当前使用的发布商
+current: "default"
+
+# 发布商选择规则
+selection:
+  # 解决方案未指定发布商时使用的默认发布商
+  default_publisher: "default"
+
+  # 是否允许组件使用不同的发布商
+  allow_multiple_publishers: false
+
+  # 组件类型与发布商的映射（可选）
+  component_mapping:
+    # 示例：特定组件使用特定发布商
+    # tables:
+    #   special_table: "custom"

@@ -4,6 +4,11 @@
 
 $schema: "../_schema/form_schema.yaml"
 
+# 解决方案声明
+solution:
+  name: "payment_solution"
+  auto_add: true  # 自动添加到解决方案
+
 form:
   schema_name: "new_payment_recognition_main_form"
   entity: "new_payment_recognition"

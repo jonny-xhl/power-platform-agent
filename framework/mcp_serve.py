@@ -64,6 +64,9 @@ def get_agents() -> tuple[CoreAgent | None, MetadataAgent | None, PluginAgent | 
         _plugin_agent = PluginAgent(_core_agent)
         _solution_agent = SolutionAgent(_core_agent)
 
+        # 设置代理之间的关联
+        _core_agent.set_metadata_agent(_metadata_agent)
+
     return _core_agent, _metadata_agent, _plugin_agent, _solution_agent
 
 
@@ -751,6 +754,111 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["component_type", "component_id", "solution_name"]
+            }
+        ),
+        Tool(
+            name="solution_sync_from_yaml",
+            description="从方案 YAML 同步组件到 Dataverse",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "solution_yaml": {
+                        "type": "string",
+                        "description": "解决方案 YAML 文件路径"
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "是否为预演模式（不执行实际变更）",
+                        "default": True
+                    },
+                    "on_conflict": {
+                        "type": "string",
+                        "description": "冲突处理策略",
+                        "enum": ["skip", "update", "replace", "create_only"],
+                        "default": "skip"
+                    }
+                },
+                "required": ["solution_yaml"]
+            }
+        ),
+        Tool(
+            name="solution_plan",
+            description="预览同步计划（dry-run，只读）",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "solution_yaml": {
+                        "type": "string",
+                        "description": "解决方案 YAML 文件路径"
+                    }
+                },
+                "required": ["solution_yaml"]
+            }
+        ),
+        Tool(
+            name="solution_validate",
+            description="验证方案 YAML 定义",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "solution_yaml": {
+                        "type": "string",
+                        "description": "解决方案 YAML 文件路径"
+                    }
+                },
+                "required": ["solution_yaml"]
+            }
+        ),
+        Tool(
+            name="solution_scan",
+            description="扫描方案定义的组件",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "solution_yaml": {
+                        "type": "string",
+                        "description": "解决方案 YAML 文件路径"
+                    }
+                },
+                "required": ["solution_yaml"]
+            }
+        ),
+
+        # ===== 发布商管理 =====
+        Tool(
+            name="publisher_list",
+            description="列出所有可用的发布商",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="publisher_create",
+            description="创建新的发布商",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "发布商唯一名称"
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "description": "发布商显示名称"
+                    },
+                    "prefix": {
+                        "type": "string",
+                        "description": "发布商前缀",
+                        "minLength": 2,
+                        "maxLength": 10
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "发布商描述"
+                    }
+                },
+                "required": ["name", "display_name", "prefix"]
             }
         ),
 

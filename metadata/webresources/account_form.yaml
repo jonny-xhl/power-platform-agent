@@ -3,6 +3,11 @@
 
 $schema: "../_schema/webresource_schema.yaml"
 
+# 解决方案声明
+solution:
+  unique_name: "ninebot-payment-solution"
+  auto_add: true  # 自动添加到解决方案
+
 resources:
   # CSS样式文件
   - name: "account_form"

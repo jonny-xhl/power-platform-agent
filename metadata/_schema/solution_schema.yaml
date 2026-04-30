@@ -1,0 +1,292 @@
+# Solution 元数据 Schema 定义
+# 用于验证 Power Platform 解决方案的 YAML 元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/solution"
+title: "Power Platform Solution Metadata Schema"
+description: "Dataverse 解决方案的元数据定义 Schema"
+
+definitions:
+  solution_type:
+    type: "string"
+    enum: ["None", "Managed", "Unmanaged"]
+    description: "解决方案类型"
+
+  component_type:
+    type: "string"
+    enum:
+      - "table"
+      - "form"
+      - "view"
+      - "optionset"
+      - "webresource"
+      - "plugin"
+      - "ribbon"
+      - "sitemap"
+    description: "组件类型"
+
+  sync_direction:
+    type: "string"
+    enum:
+      - "local_to_remote"
+      - "remote_to_local"
+      - "bidirectional"
+    description: "同步方向"
+
+  conflict_resolution:
+    type: "string"
+    enum:
+      - "skip"
+      - "overwrite"
+      - "merge"
+      - "ask"
+    description: "冲突解决策略"
+
+solution_schema:
+  type: "object"
+  required: ["solution", "components"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema 引用路径"
+
+    solution:
+      type: "object"
+      required: ["name", "display_name", "version"]
+      additionalProperties: false
+      properties:
+        name:
+          type: "string"
+          minLength: 3
+          maxLength: 100
+          pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+          description: "解决方案唯一名称（SolutionUniqueName）"
+
+        display_name:
+          type: "string"
+          minLength: 1
+          maxLength: 255
+          description: "解决方案显示名称"
+
+        description:
+          type: "string"
+          maxLength: 1000
+          description: "解决方案描述"
+
+        version:
+          type: "string"
+          pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"
+          description: "版本号格式（主版本.次版本.内部版本.修订）"
+
+        publisher:
+          type: "string"
+          maxLength: 100
+          description: "发布商引用（引用 config/publishers.yaml 中定义的发布商 key，如 'default'）"
+
+        publisher_info:
+          type: "object"
+          description: "直接指定发布商信息（可选，不推荐使用，应使用 publisher 引用）"
+          properties:
+            name:
+              type: "string"
+              description: "发布商唯一名称（Dataverse 中的 PublisherName）"
+            display_name:
+              type: "string"
+              description: "发布商显示名称"
+            prefix:
+              type: "string"
+              pattern: "^[a-zA-Z0-9_]+$"
+              minLength: 2
+              maxLength: 10
+              description: "发布商前缀（用于生成组件名称，如 'new'）"
+
+        type:
+          $ref: "#/definitions/solution_type"
+          default: "Unmanaged"
+
+    components:
+      type: "object"
+      description: "解决方案组件列表（分类式组织）"
+      additionalProperties: false
+      properties:
+        tables:
+          type: "array"
+          description: "表定义文件路径"
+          items:
+            type: "string"
+            pattern: "^[a-zA-Z0-9_\\-\\.]+\\.yaml$"
+
+        forms:
+          type: "array"
+          description: "表单定义文件路径"
+          items:
+            type: "string"
+            pattern: "^[a-zA-Z0-9_\\-\\.]+\\.yaml$"
+
+        views:
+          type: "array"
+          description: "视图定义文件路径"
+          items:
+            type: "string"
+            pattern: "^[a-zA-Z0-9_\\-\\.]+\\.yaml$"
+
+        optionsets:
+          type: "array"
+          description: "全局选项集定义文件路径"
+          items:
+            type: "string"
+            pattern: "^[a-zA-Z0-9_\\-\\.]+\\.yaml$"
+
+        webresources:
+          type: "array"
+          description: "Web 资源文件路径"
+          items:
+            type: "string"
+
+        plugins:
+          type: "array"
+          description: "插件程序集路径"
+          items:
+            type: "string"
+
+        other:
+          type: "array"
+          description: "其他组件（可指定 component_type 和 id）"
+          items:
+            type: "object"
+            required: ["component_type", "id"]
+            properties:
+              component_type:
+                $ref: "#/definitions/component_type"
+              id:
+                type: "string"
+                description: "组件 GUID 或唯一标识符"
+              name:
+                type: "string"
+                description: "组件名称（可选）"
+
+    sync:
+      type: "object"
+      description: "同步配置"
+      additionalProperties: false
+      properties:
+        enabled:
+          type: "boolean"
+          default: true
+          description: "是否启用同步"
+
+        direction:
+          $ref: "#/definitions/sync_direction"
+          default: "local_to_remote"
+
+        on_conflict:
+          $ref: "#/definitions/conflict_resolution"
+          default: "skip"
+          description: "冲突解决策略"
+
+        order:
+          type: "array"
+          description: "组件同步顺序（依赖关系）"
+          items:
+            type: "string"
+            enum:
+              - "table"
+              - "optionset"
+              - "form"
+              - "view"
+              - "webresource"
+              - "plugin"
+          default: ["table", "optionset", "form", "view", "webresource", "plugin"]
+
+        exclude:
+          type: "array"
+          description: "排除同步的组件"
+          items:
+            type: "string"
+
+        environment:
+          type: "string"
+          description: "目标环境名称"
+
+    validation:
+      type: "object"
+      description: "验证配置"
+      additionalProperties: false
+      properties:
+        strict_mode:
+          type: "boolean"
+          default: false
+          description: "严格模式（任何验证失败都阻止同步）"
+
+        check_dependencies:
+          type: "boolean"
+          default: true
+          description: "检查组件依赖关系"
+
+        check_naming:
+          type: "boolean"
+          default: true
+          description: "检查命名规范"
+
+        skip_warnings:
+          type: "boolean"
+          default: false
+          description: "跳过警告"
+
+    build:
+      type: "object"
+      description: "构建配置"
+      additionalProperties: false
+      properties:
+        auto_increment_version:
+          type: "boolean"
+          default: false
+          description: "自动递增版本号"
+
+        export_as_managed:
+          type: "boolean"
+          default: false
+          description: "导出为托管解决方案"
+
+        output_path:
+          type: "string"
+          description: "导出文件输出路径"
+
+        include_dependencies:
+          type: "boolean"
+          default: true
+          description: "包含依赖组件"
+
+# 示例
+example:
+  solution:
+    name: "payment_solution"
+    display_name: "认款管理解决方案"
+    description: "管理客户认款业务流程的完整解决方案"
+    version: "1.0.0.0"
+    publisher: "default"  # 引用 config/publishers.yaml 中定义的发布商
+    type: "Unmanaged"
+
+  components:
+    tables:
+      - "tables/payment_recognition.yaml"
+    forms:
+      - "forms/payment_recognition_main.yaml"
+    views:
+      - "views/payment_recognition_active.yaml"
+
+  sync:
+    enabled: true
+    direction: "local_to_remote"
+    on_conflict: "skip"
+    order:
+      - "table"
+      - "optionset"
+      - "form"
+      - "view"
+
+  validation:
+    strict_mode: false
+    check_dependencies: true
+    check_naming: true

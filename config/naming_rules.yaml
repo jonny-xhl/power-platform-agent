@@ -1,8 +1,17 @@
 # Power Platform 命名规则配置
 # 定义元数据对象的命名转换规则和验证规则
+#
+# 注意：prefix（发布商前缀）现在由 config/publishers.yaml 中的发布者配置管理
+# 如果需要使用不同的发布商前缀，请修改 publishers.yaml 中的 current 配置
 
 naming:
-  prefix: "new"  # 发布商前缀
+  # 发布商前缀
+  # 此值将从 config/publishers.yaml 中当前选中的发布者自动读取
+  # 也可以在此处覆盖（不推荐）
+  prefix: "new"  # 默认值，会被 publishers.yaml 中的配置覆盖
+
+  # 是否从发布商配置读取前缀
+  use_publisher_prefix: true
 
   # Schema Name 命名规则
   schema_name:
