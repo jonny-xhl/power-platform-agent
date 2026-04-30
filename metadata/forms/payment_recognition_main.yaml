@@ -6,7 +6,7 @@ $schema: "../_schema/form_schema.yaml"
 
 # 解决方案声明
 solution:
-  name: "payment_solution"
+  schema_name: "payment_solution"
   auto_add: true  # 自动添加到解决方案
 
 form:
@@ -25,12 +25,12 @@ form:
 
 # 选项卡定义
 tabs:
-  - name: "tab_basic"
+  - schema_name: "tab_basic"
     display_name: "基本信息"
     description: "认款基本信息和客户关联"
     expand_by_default: true
     sections:
-      - name: "sec_payment_core"
+      - schema_name: "sec_payment_core"
         display_name: "认款核心信息"
         rows:
           - cells:
@@ -50,14 +50,14 @@ tabs:
               - attribute: "new_remaining_amount"
                 width: "1"
 
-      - name: "sec_customer"
+      - schema_name: "sec_customer"
         display_name: "客户信息"
         rows:
           - cells:
               - attribute: "new_customerid"
                 width: "2"
 
-      - name: "sec_related_docs"
+      - schema_name: "sec_related_docs"
         display_name: "关联单据"
         rows:
           - cells:
@@ -69,11 +69,11 @@ tabs:
               - attribute: "new_contract_number"
                 width: "2"
 
-  - name: "tab_receipt_approval"
+  - schema_name: "tab_receipt_approval"
     display_name: "收款与审批"
     description: "收款详情和审批流程"
     sections:
-      - name: "sec_receipt"
+      - schema_name: "sec_receipt"
         display_name: "收款信息"
         rows:
           - cells:
@@ -85,7 +85,7 @@ tabs:
               - attribute: "new_bank_account"
                 width: "2"
 
-      - name: "sec_approval"
+      - schema_name: "sec_approval"
         display_name: "审批信息"
         rows:
           - cells:
@@ -100,11 +100,11 @@ tabs:
               - attribute: "new_approval_comments"
                 width: "2"
 
-  - name: "tab_other"
+  - schema_name: "tab_other"
     display_name: "其他信息"
     description: "备注与附件"
     sections:
-      - name: "sec_remarks"
+      - schema_name: "sec_remarks"
         display_name: "备注与附件"
         rows:
           - cells:

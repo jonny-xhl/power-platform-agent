@@ -24,7 +24,7 @@ config/
 
 ```yaml
 solution:
-  name: "solution_name"           # 唯一名称
+  schema_name: "solution_name"    # 唯一名称
   display_name: "解决方案显示名称"  # 显示名称
   description: "解决方案描述"      # 描述
   version: "1.0.0.0"              # 版本号

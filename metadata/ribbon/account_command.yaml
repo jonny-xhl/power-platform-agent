@@ -5,10 +5,11 @@ $schema: "../_schema/ribbon_schema.yaml"
 
 # 解决方案声明
 solution:
-  unique_name: "ninebot-payment-solution"
+  schema_name: "ninebot-payment-solution"
   auto_add: true  # 自动添加到解决方案
 
 ribbon:
+  schema_name: "new_account_command"
   entity: "account"
   display_name: "账户命令栏"
   description: "账户实体的自定义命令栏配置"
@@ -16,7 +17,7 @@ ribbon:
   # 自定义按钮
   buttons:
     # 批准账户按钮
-    - name: "approveAccount"
+    - schema_name: "approve_account"
       display_name: "批准账户"
       tooltip: "批准当前选中的账户"
       description: "将账户状态更改为已批准"
@@ -51,7 +52,7 @@ ribbon:
           - type: "selectedcontrolselecteditem"
 
     # 批量处理按钮
-    - name: "batchProcess"
+    - schema_name: "batch_process"
       display_name: "批量处理"
       tooltip: "批量处理选中的账户"
       description: "对多个账户执行批量操作"
@@ -71,7 +72,7 @@ ribbon:
         library: "new_js/account_batch.js"
 
     # 刷新余额按钮
-    - name: "refreshBalance"
+    - schema_name: "refresh_balance"
       display_name: "刷新余额"
       tooltip: "刷新账户余额信息"
       description: "从外部系统获取最新的账户余额"
@@ -93,7 +94,7 @@ ribbon:
   # 自定义菜单
   menus:
     # 账户操作菜单
-    - name: "accountActionsMenu"
+    - schema_name: "account_actions_menu"
       display_name: "账户操作"
       location: "Mscrm.HomepageGrid.account.MainTab.Actions"
       menu_type: "Menu"
@@ -101,7 +102,7 @@ ribbon:
       icon: "new_svg/actions_icon.svg"
 
       items:
-        - name: "exportToExcel"
+        - schema_name: "export_to_excel"
           display_name: "导出到Excel"
           icon: "new_svg/excel_icon.svg"
           sequence: 1
@@ -110,7 +111,7 @@ ribbon:
             function: "exportAccounts"
             library: "new_js/account_export.js"
 
-        - name: "sendEmail"
+        - schema_name: "send_email"
           display_name: "发送邮件"
           icon: "new_svg/email_icon.svg"
           sequence: 2
@@ -119,7 +120,7 @@ ribbon:
             function: "sendAccountEmail"
             library: "new_js/account_email.js"
 
-        - name: "bulkUpdate"
+        - schema_name: "bulk_update"
           display_name: "批量更新"
           icon: "new_svg/batch_icon.svg"
           sequence: 3
@@ -129,14 +130,14 @@ ribbon:
             library: "new_js/account_batch.js"
 
     # 状态变更菜单（分割按钮）
-    - name: "changeStatusMenu"
+    - schema_name: "change_status_menu"
       display_name: "更改状态"
       location: "Mscrm.HomepageGrid.account.MainTab.Actions"
       menu_type: "SplitButton"
       sequence: 50
 
       items:
-        - name: "activateAccount"
+        - schema_name: "activate_account"
           display_name: "激活"
           sequence: 1
           command:
@@ -144,7 +145,7 @@ ribbon:
             function: "setAccountStatus"
             library: "new_js/account_handler.js"
 
-        - name: "freezeAccount"
+        - schema_name: "freeze_account"
           display_name: "冻结"
           sequence: 2
           command:
@@ -152,7 +153,7 @@ ribbon:
             function: "setAccountStatus"
             library: "new_js/account_handler.js"
 
-        - name: "closeAccount"
+        - schema_name: "close_account"
           display_name: "关闭"
           sequence: 3
           command:
@@ -162,7 +163,7 @@ ribbon:
 
   # 自定义组
   groups:
-    - name: "accountActionsGroup"
+    - schema_name: "account_actions_group"
       display_name: "账户操作"
       location: "Mscrm.HomepageGrid.account.MainTab"
       sequence: 10
@@ -173,16 +174,16 @@ ribbon:
 
   # 自定义选项卡
   tabs:
-    - name: "accountManagementTab"
+    - schema_name: "account_management_tab"
       display_name: "账户管理"
       location: "Mscrm.HomepageGrid.account"
       sequence: 5
 
       groups:
-        - name: "accountActionsGroup"
+        - schema_name: "account_actions_group"
           display_name: "操作"
           sequence: 1
 
-        - name: "accountReportsGroup"
+        - schema_name: "account_reports_group"
           display_name: "报表"
           sequence: 2

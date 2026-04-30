@@ -8,7 +8,7 @@
 
 ```yaml
 global_optionsets:
-  - name: new_customer_status
+  - schema_name: new_customer_status
     display_name: 客户状态
     display_name_en: Customer Status
     description: 客户的业务状态
@@ -27,7 +27,7 @@ global_optionsets:
 
 | 字段 | 类型 | 必需 | 说明 |
 |------|------|------|------|
-| `name` | string | 是 | 选项集 Schema Name |
+| `schema_name` | string | 是 | 选项集 Schema Name |
 | `display_name` | string | 是 | 中文显示名称 |
 | `display_name_en` | string | 否 | 英文显示名称 |
 | `description` | string | 否 | 选项集描述 |

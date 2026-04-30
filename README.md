@@ -168,7 +168,7 @@ docs/data_dictionary/
 
 ```yaml
 global_optionsets:
-  - name: new_customer_status
+  - schema_name: new_customer_status
     display_name: 客户状态
     options:
       - value: 1
@@ -199,14 +199,14 @@ pip install -r requirements.txt
 ### 配置环境变量
 
 ```bash
-export TENANT_ID="your-tenant-id"
-export CLIENT_ID="your-client-id"
-export CLIENT_SECRET="your-client-secret"
+export DEV_TENANT_ID="your-tenant-id"
+export DEV_CLIENT_ID="your-client-id"
+export DEV_CLIENT_SECRET="your-client-secret"
 ```
 
 ### 在 Claude Code 中配置 MCP Server
 
-在 `.claude/settings.json` 中添加：
+在 `.mcp.json` 中添加：
 
 ```json
 {

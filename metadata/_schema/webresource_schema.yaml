@@ -69,7 +69,7 @@ webresource_schema:
 
         naming_pattern:
           type: "string"
-          default: "{prefix}{category}/{name}.{ext}"
+          default: "{prefix}{category}/{schema_name}.{ext}"
           description: "命名模式"
 
     resources:
@@ -77,9 +77,9 @@ webresource_schema:
       description: "Web Resource定义列表"
       items:
         type: "object"
-        required: ["name", "type", "source_path"]
+        required: ["schema_name", "type", "source_path"]
         properties:
-          name:
+          schema_name:
             type: "string"
             pattern: "^[a-zA-Z][a-zA-Z0-9_-]*$"
             description: "Web Resource名称（不含前缀和扩展名）"
@@ -219,7 +219,7 @@ webresource_schema:
 example:
   resources:
     # CSS文件
-    - name: "account_form"
+    - schema_name: "account_form"
       type: "css"
       display_name: "账户表单样式"
       description: "账户表单自定义样式"
@@ -228,7 +228,7 @@ example:
       # 命名规则处理后: new_css/account_form.css
 
     # JavaScript文件
-    - name: "account_handler"
+    - schema_name: "account_handler"
       type: "js"
       display_name: "账户表单脚本"
       description: "账户表单业务逻辑"
@@ -241,7 +241,7 @@ example:
       # 命名规则处理后: new_js/account_handler.js
 
     # HTML文件
-    - name: "account_dashboard"
+    - schema_name: "account_dashboard"
       type: "html"
       display_name: "账户仪表板"
       description: "自定义账户仪表板页面"
@@ -249,7 +249,7 @@ example:
       # 命名规则处理后: new_html/account_dashboard.html
 
     # Image文件
-    - name: "account_icon"
+    - schema_name: "account_icon"
       type: "png"
       display_name: "账户图标"
       source_path: "webresources/img/account_icon.png"
@@ -258,7 +258,7 @@ example:
       # 命名规则处理后: new_png/account_icon.png
 
     # SVG图标
-    - name: "approve_icon"
+    - schema_name: "approve_icon"
       type: "svg"
       display_name: "批准图标"
       source_path: "webresources/img/approve_icon.svg"

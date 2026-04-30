@@ -104,11 +104,11 @@ form_schema:
       type: "array"
       items:
         type: "object"
-        required: ["name", "display_name", "sections"]
+        required: ["schema_name", "display_name", "sections"]
         properties:
-          name:
+          schema_name:
             type: "string"
-            description: "选项卡名称"
+            description: "选项卡唯一标识符"
 
           display_name:
             type: "string"
@@ -132,11 +132,11 @@ form_schema:
             type: "array"
             items:
               type: "object"
-              required: ["name", "display_name", "rows"]
+              required: ["schema_name", "display_name", "rows"]
               properties:
-                name:
+                schema_name:
                   type: "string"
-                  description: "分区名称"
+                  description: "分区唯一标识符"
 
                 display_name:
                   type: "string"
@@ -204,9 +204,9 @@ form_schema:
       items:
         type: "object"
         properties:
-          name:
+          schema_name:
             type: "string"
-            description: "Web Resource名称"
+            description: "Web Resource唯一标识符"
 
           type:
             type: "string"
@@ -229,9 +229,9 @@ form_schema:
             items:
               type: "object"
               properties:
-                name:
+                schema_name:
                   type: "string"
-                  description: "函数名称"
+                  description: "函数唯一标识符"
 
                 event:
                   type: "string"
@@ -251,12 +251,12 @@ form_schema:
       items:
         type: "object"
         properties:
-          name:
+          schema_name:
             type: "string"
             enum:
               - "onload"
               - "onsave"
-            description: "事件名称"
+            description: "事件唯一标识符"
 
           handlers:
             type: "array"
@@ -293,10 +293,10 @@ example:
       show_image: false
 
   tabs:
-    - name: "general"
+    - schema_name: "general"
       display_name: "常规信息"
       sections:
-        - name: "basicInfo"
+        - schema_name: "basic_info"
           display_name: "基本信息"
           rows:
             - cells:
@@ -308,11 +308,11 @@ example:
                 - attribute: "balance"
                   width: "2"
 
-    - name: "details"
+    - schema_name: "details"
       display_name: "详细信息"
       visible: false
       sections:
-        - name: "contactInfo"
+        - schema_name: "contact_info"
           display_name: "联系信息"
           rows:
             - cells:
@@ -322,16 +322,16 @@ example:
                   width: "1"
 
   webresources:
-    - name: "account_form_css"
+    - schema_name: "account_form_css"
       type: "css"
       path: "css/account_form.css"
       load_method: "inline"
 
-    - name: "account_form_handler"
+    - schema_name: "account_form_handler"
       type: "js"
       path: "js/account_form.js"
       functions:
-        - name: "onLoad"
+        - schema_name: "on_load"
           event: "formOnLoad"
-        - name: "onSave"
+        - schema_name: "on_save"
           event: "formOnSave"

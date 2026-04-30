@@ -133,12 +133,12 @@ table_schema:
       type: "array"
       items:
         type: "object"
-        required: ["name", "type", "display_name"]
+        required: ["schema_name", "type", "display_name"]
         properties:
-          name:
+          schema_name:
             type: "string"
             pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
-            description: "字段名称"
+            description: "字段Schema名称"
 
           type:
             $ref: "#/definitions/attribute_type"
@@ -228,11 +228,11 @@ table_schema:
       type: "array"
       items:
         type: "object"
-        required: ["name", "related_entity", "relationship_type"]
+        required: ["schema_name", "related_entity", "relationship_type"]
         properties:
-          name:
+          schema_name:
             type: "string"
-            description: "关系名称"
+            description: "关系Schema名称"
 
           related_entity:
             type: "string"
@@ -290,7 +290,7 @@ example:
       enable_quick_create: false
 
   attributes:
-    - name: "accountNumber"
+    - schema_name: "account_number"
       type: "String"
       display_name: "账户编号"
       description: "唯一账户编号"
@@ -298,14 +298,14 @@ example:
       required: true
       is_primary_name: true
 
-    - name: "balance"
+    - schema_name: "balance"
       type: "Money"
       display_name: "账户余额"
       required: false
       min_value: 0
       precision: 2
 
-    - name: "status"
+    - schema_name: "status"
       type: "Picklist"
       display_name: "状态"
       options:
@@ -317,7 +317,7 @@ example:
           label: "关闭"
 
   relationships:
-    - name: "account_contact"
+    - schema_name: "account_contact"
       related_entity: "contact"
       relationship_type: "OneToMany"
       display_name: "账户联系人"

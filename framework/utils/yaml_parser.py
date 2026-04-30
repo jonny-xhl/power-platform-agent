@@ -333,7 +333,7 @@ class YAMLMetadataParser:
         solution = data.get("solution", {})
 
         return {
-            "name": solution.get("name"),
+            "schema_name": solution.get("schema_name"),
             "display_name": solution.get("display_name"),
             "description": solution.get("description"),
             "version": solution.get("version"),
@@ -347,7 +347,7 @@ class YAMLMetadataParser:
 
     def generate_solution_yaml(
         self,
-        name: str,
+        schema_name: str,
         display_name: str,
         version: str = "1.0.0.0",
         **kwargs
@@ -356,7 +356,7 @@ class YAMLMetadataParser:
         生成解决方案元数据YAML
 
         Args:
-            name: 解决方案名称
+            schema_name: 解决方案唯一名称（SolutionUniqueName）
             display_name: 显示名称
             version: 版本号
             **kwargs: 其他属性
@@ -367,7 +367,7 @@ class YAMLMetadataParser:
         data = {
             "$schema": "../_schema/solution_schema.yaml",
             "solution": {
-                "name": name,
+                "schema_name": schema_name,
                 "display_name": display_name,
                 "version": version
             },
@@ -433,6 +433,7 @@ class YAMLMetadataParser:
         return {
             "naming": data.get("naming", {}),
             "resources": data.get("resources", []),
+            "icons": data.get("icons", []),
             "type_mapping": data.get("type_mapping", {})
         }
 
@@ -459,6 +460,7 @@ class YAMLMetadataParser:
         ribbon = data.get("ribbon", {})
 
         return {
+            "schema_name": ribbon.get("schema_name"),
             "entity": ribbon.get("entity"),
             "display_name": ribbon.get("display_name"),
             "description": ribbon.get("description"),
@@ -517,7 +519,7 @@ class YAMLMetadataParser:
             标准化的属性字典
         """
         return {
-            "name": attribute_data.get("name"),
+            "schema_name": attribute_data.get("schema_name"),
             "type": attribute_data.get("type"),
             "display_name": attribute_data.get("display_name"),
             "description": attribute_data.get("description"),
@@ -691,7 +693,7 @@ class TemplateGenerator:
             },
             "attributes": [
                 {
-                    "name": "name",
+                    "schema_name": schema_name + "Name",
                     "type": "String",
                     "display_name": "名称",
                     "required": True,
@@ -725,11 +727,11 @@ class TemplateGenerator:
                 },
                 "tabs": [
                     {
-                        "name": "general",
+                        "schema_name": "general",
                         "display_name": "常规",
                         "sections": [
                             {
-                                "name": "section1",
+                                "schema_name": "section1",
                                 "display_name": "第一节",
                                 "rows": [
                                     {

@@ -21,7 +21,7 @@ schema:
 # 字段定义
 attributes:
   # ===== 主名称字段 =====
-  - name: "new_name"
+  - schema_name: "new_name"
     type: "Memo"
     display_name: "地址全称"
     description: "地址完整名称"
@@ -31,7 +31,7 @@ attributes:
     searchable: true
 
   # ===== 基础信息字段 =====
-  - name: "new_address"
+  - schema_name: "new_address"
     type: "Memo"
     display_name: "详细地址"
     description: "详细地址信息"
@@ -39,7 +39,7 @@ attributes:
     required: false
     searchable: true
 
-  - name: "new_contact"
+  - schema_name: "new_contact"
     type: "String"
     display_name: "联系人"
     description: "地址联系人"
@@ -47,7 +47,7 @@ attributes:
     required: false
     searchable: true
 
-  - name: "new_contactphone"
+  - schema_name: "new_contactphone"
     type: "String"
     display_name: "联系电话"
     description: "联系人电话"
@@ -56,7 +56,7 @@ attributes:
     searchable: true
 
   # ===== 地址类型 =====
-  - name: "new_type"
+  - schema_name: "new_type"
     type: "Picklist"
     display_name: "地址类型"
     description: "地址分类类型"
@@ -71,7 +71,7 @@ attributes:
         label: "短交通订单收货地址"
 
   # ===== 审批流程 =====
-  - name: "new_appro_process"
+  - schema_name: "new_appro_process"
     type: "Picklist"
     display_name: "审批流程"
     description: "当前审批流程状态"
@@ -81,7 +81,7 @@ attributes:
       - value: 1
         label: "未知"
 
-  - name: "new_approvalstatus"
+  - schema_name: "new_approvalstatus"
     type: "Picklist"
     display_name: "审核状态"
     description: "地址审核状态"
@@ -97,21 +97,21 @@ attributes:
       - value: 4
         label: "审核不通过"
 
-  - name: "new_approved_time"
+  - schema_name: "new_approved_time"
     type: "DateTime"
     display_name: "审核时间"
     description: "审核通过的时间"
     required: false
     searchable: true
 
-  - name: "new_submit_time"
+  - schema_name: "new_submit_time"
     type: "DateTime"
     display_name: "提交时间"
     description: "提交审核的时间"
     required: false
     searchable: true
 
-  - name: "new_last_approve_time"
+  - schema_name: "new_last_approve_time"
     type: "DateTime"
     display_name: "上一次审批时间"
     description: "最近一次审批的时间"
@@ -119,7 +119,7 @@ attributes:
     searchable: true
 
   # ===== 审批步骤信息 =====
-  - name: "new_curr_approvestep_name"
+  - schema_name: "new_curr_approvestep_name"
     type: "String"
     display_name: "当前审批步骤"
     description: "当前审批步骤名称"
@@ -127,7 +127,7 @@ attributes:
     required: false
     searchable: true
 
-  - name: "new_curr_approvestep_user"
+  - schema_name: "new_curr_approvestep_user"
     type: "String"
     display_name: "当前审批人"
     description: "当前审批人姓名"
@@ -135,7 +135,7 @@ attributes:
     required: false
     searchable: true
 
-  - name: "new_last_approvestep_name"
+  - schema_name: "new_last_approvestep_name"
     type: "String"
     display_name: "上一个审批步骤"
     description: "上一个审批步骤名称"
@@ -143,7 +143,7 @@ attributes:
     required: false
     searchable: true
 
-  - name: "new_last_approvestep_user"
+  - schema_name: "new_last_approvestep_user"
     type: "String"
     display_name: "上一个审批人"
     description: "上一个审批人姓名"
@@ -153,63 +153,63 @@ attributes:
 
 # 查找字段定义（Lookup类型）- 与关系对应
 lookup_attributes:
-  - name: "new_account_id"
+  - schema_name: "new_account_id"
     type: "Lookup"
     display_name: "客户"
     description: "关联的客户"
     required: false
     target: "account"
 
-  - name: "new_approvaldept_id"
+  - schema_name: "new_approvaldept_id"
     type: "Lookup"
     display_name: "签核部门"
     description: "签核审批部门"
     required: false
     target: "businessunit"
 
-  - name: "new_businessunit_id"
+  - schema_name: "new_businessunit_id"
     type: "Lookup"
     display_name: "销售组织"
     description: "所属销售组织"
     required: false
     target: "new_salesorganization"
 
-  - name: "new_city_id"
+  - schema_name: "new_city_id"
     type: "Lookup"
     display_name: "所属城市"
     description: "所属城市"
     required: false
     target: "new_city"
 
-  - name: "new_country_id"
+  - schema_name: "new_country_id"
     type: "Lookup"
     display_name: "所属国家"
     description: "所属国家"
     required: false
     target: "new_country"
 
-  - name: "new_county_id"
+  - schema_name: "new_county_id"
     type: "Lookup"
     display_name: "所属区县"
     description: "所属区县"
     required: false
     target: "new_county"
 
-  - name: "new_province_id"
+  - schema_name: "new_province_id"
     type: "Lookup"
     display_name: "所属省份"
     description: "所属省份"
     required: false
     target: "new_province"
 
-  - name: "new_headbusinessunit_id"
+  - schema_name: "new_headbusinessunit_id"
     type: "Lookup"
     display_name: "负责人业务部门"
     description: "负责人所属业务部门"
     required: false
     target: "businessunit"
 
-  - name: "new_secondbusinessunit_id"
+  - schema_name: "new_secondbusinessunit_id"
     type: "Lookup"
     display_name: "二级业务部门"
     description: "二级业务部门"
@@ -219,7 +219,7 @@ lookup_attributes:
 # 关系定义
 relationships:
   # 多对一关系：客户地址 -> 客户
-  - name: "new_account_new_customer_address"
+  - schema_name: "new_account_new_customer_address"
     related_entity: "account"
     relationship_type: "ManyToOne"
     display_name: "客户"
@@ -231,7 +231,7 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：客户地址 -> 签核部门
-  - name: "new_businessunit_new_customer_address_approvaldept"
+  - schema_name: "new_businessunit_new_customer_address_approvaldept"
     related_entity: "businessunit"
     relationship_type: "ManyToOne"
     display_name: "签核部门"
@@ -243,7 +243,7 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：客户地址 -> 销售组织
-  - name: "new_salesorganization_new_customer_address"
+  - schema_name: "new_salesorganization_new_customer_address"
     related_entity: "new_salesorganization"
     relationship_type: "ManyToOne"
     display_name: "销售组织"
@@ -255,7 +255,7 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：客户地址 -> 城市
-  - name: "new_city_new_customer_address"
+  - schema_name: "new_city_new_customer_address"
     related_entity: "new_city"
     relationship_type: "ManyToOne"
     display_name: "所属城市"
@@ -267,7 +267,7 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：客户地址 -> 国家
-  - name: "new_country_new_customer_address"
+  - schema_name: "new_country_new_customer_address"
     related_entity: "new_country"
     relationship_type: "ManyToOne"
     display_name: "所属国家"
@@ -279,7 +279,7 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：客户地址 -> 区县
-  - name: "new_county_new_customer_address"
+  - schema_name: "new_county_new_customer_address"
     related_entity: "new_county"
     relationship_type: "ManyToOne"
     display_name: "所属区县"
@@ -291,7 +291,7 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：客户地址 -> 省份
-  - name: "new_province_new_customer_address"
+  - schema_name: "new_province_new_customer_address"
     related_entity: "new_province"
     relationship_type: "ManyToOne"
     display_name: "所属省份"
@@ -303,7 +303,7 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：客户地址 -> 负责人业务部门
-  - name: "new_businessunit_new_customer_address_head"
+  - schema_name: "new_businessunit_new_customer_address_head"
     related_entity: "businessunit"
     relationship_type: "ManyToOne"
     display_name: "负责人业务部门"
@@ -315,7 +315,7 @@ relationships:
     cascade_unshare: "NoCascade"
 
   # 多对一关系：客户地址 -> 二级业务部门
-  - name: "new_businessunit_new_customer_address_second"
+  - schema_name: "new_businessunit_new_customer_address_second"
     related_entity: "businessunit"
     relationship_type: "ManyToOne"
     display_name: "二级业务部门"

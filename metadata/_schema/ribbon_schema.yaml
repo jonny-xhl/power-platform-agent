@@ -47,6 +47,11 @@ ribbon_schema:
       type: "object"
       required: ["entity"]
       properties:
+        schema_name:
+          type: "string"
+          pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+          description: "Ribbon配置唯一标识符"
+
         entity:
           type: "string"
           description: "所属实体"
@@ -64,12 +69,12 @@ ribbon_schema:
           type: "array"
           items:
             type: "object"
-            required: ["name", "display_name", "location", "command"]
+            required: ["schema_name", "display_name", "location", "command"]
             properties:
-              name:
+              schema_name:
                 type: "string"
                 pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
-                description: "按钮唯一名称"
+                description: "按钮唯一标识符"
 
               display_name:
                 type: "string"
@@ -208,11 +213,11 @@ ribbon_schema:
           type: "array"
           items:
             type: "object"
-            required: ["name", "display_name", "location", "items"]
+            required: ["schema_name", "display_name", "location", "items"]
             properties:
-              name:
+              schema_name:
                 type: "string"
-                description: "菜单唯一名称"
+                description: "菜单唯一标识符"
 
               display_name:
                 type: "string"
@@ -241,11 +246,11 @@ ribbon_schema:
                 type: "array"
                 items:
                   type: "object"
-                  required: ["name", "display_name", "command"]
+                  required: ["schema_name", "display_name", "command"]
                   properties:
-                    name:
+                    schema_name:
                       type: "string"
-                      description: "菜单项名称"
+                      description: "菜单项唯一标识符"
 
                     display_name:
                       type: "string"
@@ -280,9 +285,9 @@ ribbon_schema:
           items:
             type: "object"
             properties:
-              name:
+              schema_name:
                 type: "string"
-                description: "组名称"
+                description: "组唯一标识符"
 
               display_name:
                 type: "string"
@@ -305,9 +310,9 @@ ribbon_schema:
           items:
             type: "object"
             properties:
-              name:
+              schema_name:
                 type: "string"
-                description: "选项卡名称"
+                description: "选项卡唯一标识符"
 
               display_name:
                 type: "string"
@@ -349,7 +354,7 @@ example:
     display_name: "账户命令栏"
 
     buttons:
-      - name: "approveAccount"
+      - schema_name: "approve_account"
         display_name: "批准账户"
         tooltip: "批准当前账户"
         icon: "new_png/approve_icon.png"
@@ -377,7 +382,7 @@ example:
             - type: "selectedcontrol"
             - type: "selectedcontrolselecteditem"
 
-      - name: "batchProcess"
+      - schema_name: "batch_process"
         display_name: "批量处理"
         tooltip: "批量处理选中的账户"
         icon: "new_png/batch_icon.png"
@@ -396,13 +401,13 @@ example:
           library: "new_js/account_batch.js"
 
     menus:
-      - name: "accountActionsMenu"
+      - schema_name: "account_actions_menu"
         display_name: "账户操作"
         location: "Mscrm.HomepageGrid.account.MainTab.Actions"
         menu_type: "Menu"
 
         items:
-          - name: "exportToExcel"
+          - schema_name: "export_to_excel"
             display_name: "导出到Excel"
             icon: "new_png/excel_icon.png"
             command:
@@ -410,7 +415,7 @@ example:
               function: "exportAccounts"
               library: "new_js/account_export.js"
 
-          - name: "sendEmail"
+          - schema_name: "send_email"
             display_name: "发送邮件"
             icon: "new_png/email_icon.png"
             command:

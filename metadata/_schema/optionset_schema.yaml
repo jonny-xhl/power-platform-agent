@@ -1,0 +1,138 @@
+# Option Set 元数据 Schema 定义
+# 用于验证 Power Platform 全局选项集的 YAML 元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/optionset"
+title: "Power Platform Option Set Metadata Schema"
+description: "Dataverse 全局选项集的元数据定义 Schema"
+
+definitions:
+  option_value:
+    type: "object"
+    required: ["value", "label_zh", "label_en"]
+    properties:
+      value:
+        type: "integer"
+        minimum: 0
+        description: "选项值"
+
+      label_zh:
+        type: "string"
+        minLength: 1
+        description: "中文标签"
+
+      label_en:
+        type: "string"
+        minLength: 1
+        description: "英文标签"
+
+      color:
+        type: "string"
+        pattern: "^[0-9A-Fa-f]{6}$"
+        description: "选项颜色（十六进制）"
+
+optionset_schema:
+  type: "object"
+  required: ["global_optionsets"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema 引用路径"
+
+    solution:
+      type: "object"
+      description: "解决方案配置"
+      properties:
+        schema_name:
+          type: "string"
+          description: "解决方案名称"
+
+        auto_add:
+          type: "boolean"
+          default: true
+          description: "是否自动添加到解决方案"
+
+    global_optionsets:
+      type: "array"
+      description: "全局选项集定义列表"
+      items:
+        type: "object"
+        required: ["schema_name", "display_name", "options"]
+        properties:
+          schema_name:
+            type: "string"
+            minLength: 2
+            maxLength: 100
+            pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+            description: "选项集的 Schema 名称"
+
+          display_name:
+            type: "string"
+            minLength: 1
+            maxLength: 255
+            description: "显示名称（中文）"
+
+          display_name_en:
+            type: "string"
+            minLength: 1
+            maxLength: 255
+            description: "显示名称（英文）"
+
+          description:
+            type: "string"
+            maxLength: 1000
+            description: "选项集描述"
+
+          options:
+            type: "array"
+            description: "选项值列表"
+            items:
+              $ref: "#/definitions/option_value"
+
+# 示例
+example:
+  solution:
+    schema_name: "payment_solution"
+    auto_add: true
+
+  global_optionsets:
+    - schema_name: "new_customer_status"
+      display_name: "客户状态"
+      display_name_en: "Customer Status"
+      description: "客户的业务状态"
+      options:
+        - value: 1
+          label_zh: "潜在客户"
+          label_en: "Potential"
+          color: "808080"
+        - value: 2
+          label_zh: "活跃客户"
+          label_en: "Active"
+          color: "008000"
+        - value: 3
+          label_zh: "休眠客户"
+          label_en: "Dormant"
+          color: "FF0000"
+        - value: 4
+          label_zh: "已流失"
+          label_en: "Lost"
+          color: "FF0000"
+
+    - schema_name: "new_payment_terms"
+      display_name: "付款条件"
+      display_name_en: "Payment Terms"
+      description: "付款方式条款"
+      options:
+        - value: 1
+          label_zh: "现金"
+          label_en: "Cash"
+        - value: 2
+          label_zh: "月结30天"
+          label_en: "Net30"
+        - value: 3
+          label_zh: "月结60天"
+          label_en: "Net60"
+        - value: 4
+          label_zh: "货到付款"
+          label_en: "COD"

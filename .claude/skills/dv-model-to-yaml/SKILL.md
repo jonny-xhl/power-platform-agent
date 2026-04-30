@@ -88,20 +88,20 @@ schema:
     create_audit_fields: true
 
 attributes:
-  - name: "new_payment_number"           # 字段名: {prefix}_{lowercase_name}
+  - schema_name: "new_payment_number"    # 字段名: {prefix}_{lowercase_name}
     type: "String"
     display_name: "认款单号"
     required: true
     max_length: 100
     is_primary_name: true
 
-  - name: "new_payment_amount"
+  - schema_name: "new_payment_amount"
     type: "Money"
     display_name: "认款金额"
     required: true
 
 relationships:
-  - name: "new_payment_customer"         # 关系名: {prefix}_{relationship_name}
+  - schema_name: "new_payment_customer"  # 关系名: {prefix}_{relationship_name}
     related_entity: "account"
     relationship_type: "ManyToOne"
     referencing_attribute: "new_customerid"
@@ -431,24 +431,24 @@ python .claude/skills/dv-model-to-yaml/scripts/convert_excel_to_yaml.py \
 
 ### 关系命名规则（重要）
 
-自定义关系的 `name` 字段（SchemaName）**必须以发布商前缀 `new_` 开头**，否则 Dataverse 会返回 "Custom relationship names must start with a publisher prefix" 错误。
+自定义关系的 `schema_name` 字段**必须以发布商前缀 `new_` 开头**，否则 Dataverse 会返回 "Custom relationship names must start with a publisher prefix" 错误。
 
 ```yaml
 # ✓ 正确：以 new_ 开头
 relationships:
-  - name: "new_account_payment_recognition"
+  - schema_name: "new_account_payment_recognition"
     related_entity: "account"
     relationship_type: "ManyToOne"
     referencing_attribute: "new_customerid"
 
-  - name: "new_systemuser_payment_recognition_handledby"
+  - schema_name: "new_systemuser_payment_recognition_handledby"
     related_entity: "systemuser"
     relationship_type: "ManyToOne"
     referencing_attribute: "new_handledby"
 
 # ✗ 错误：不以 new_ 开头（部分标准实体如 account 可能侥幸通过，但 systemuser 必定失败）
 relationships:
-  - name: "systemuser_new_payment_recognition_handledby"  # 会报错！
+  - schema_name: "systemuser_new_payment_recognition_handledby"  # 会报错！
 ```
 
 ### 级联配置规则（重要）

@@ -19,11 +19,11 @@ form:
 
 # 选项卡定义
 tabs:
-  - name: "tab_general"
+  - schema_name: "tab_general"
     display_name: "常规"
     expand_by_default: true
     sections:
-      - name: "sec_basic_info"
+      - schema_name: "sec_basic_info"
         display_name: "基本信息"
         rows:
           - cells:
@@ -50,7 +50,7 @@ tabs:
               - attribute: "new_contactphone"
                 width: "1"
 
-      - name: "sec_approval"
+      - schema_name: "sec_approval"
         display_name: "审批信息"
         rows:
           - cells:

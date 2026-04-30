@@ -45,7 +45,7 @@ class FormXmlBuilder:
         return ET.tostring(form_el, encoding="unicode")
 
     def _build_tab(self, tab_def: dict[str, Any], index: int) -> ET.Element:
-        name = tab_def.get("name", f"tab_{index}")
+        name = tab_def.get("schema_name", f"tab_{index}")
         display_name = tab_def.get("display_name", f"Tab {index + 1}")
 
         tab_el = ET.Element("tab")
@@ -72,7 +72,7 @@ class FormXmlBuilder:
         return tab_el
 
     def _build_section(self, sec_def: dict[str, Any]) -> ET.Element:
-        name = sec_def.get("name", "")
+        name = sec_def.get("schema_name", "")
         display_name = sec_def.get("display_name", "Section")
 
         section_el = ET.Element("section")

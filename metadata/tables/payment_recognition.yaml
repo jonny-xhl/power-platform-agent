@@ -5,7 +5,7 @@ $schema: "../_schema/table_schema.yaml"
 
 # 解决方案声明
 solution:
-  name: "payment_solution"
+  schema_name: "payment_solution"
   auto_add: true  # 自动添加到解决方案
 
 schema:
@@ -27,7 +27,7 @@ schema:
 # 字段定义
 attributes:
   # ===== 主名称字段 =====
-  - name: "new_payment_number"
+  - schema_name: "new_payment_number"
     type: "String"
     display_name: "认款单号"
     description: "认款单唯一编号"
@@ -36,14 +36,14 @@ attributes:
     is_primary_name: true
 
   # ===== 基础信息字段 =====
-  - name: "new_payment_date"
+  - schema_name: "new_payment_date"
     type: "DateTime"
     display_name: "认款日期"
     description: "认款单创建日期"
     required: true
     date_only: true
 
-  - name: "new_payment_amount"
+  - schema_name: "new_payment_amount"
     type: "Money"
     display_name: "认款金额"
     description: "本次认款金额"
@@ -52,7 +52,7 @@ attributes:
     precision: 2
     precision_source: "transactioncurrency"
 
-  - name: "new_remaining_amount"
+  - schema_name: "new_remaining_amount"
     type: "Money"
     display_name: "剩余金额"
     description: "剩余未认款金额"
@@ -62,7 +62,7 @@ attributes:
     precision_source: "transactioncurrency"
 
   # ===== 认款类型 =====
-  - name: "new_payment_type"
+  - schema_name: "new_payment_type"
     type: "Picklist"
     display_name: "认款类型"
     description: "认款分类类型"
@@ -80,7 +80,7 @@ attributes:
         label: "其他认款"
 
   # ===== 审批状态 =====
-  - name: "new_approval_status"
+  - schema_name: "new_approval_status"
     type: "Picklist"
     display_name: "审批状态"
     description: "认款单审批状态"
@@ -104,21 +104,21 @@ attributes:
         color: "#0000FF"
 
   # ===== 关联单据信息 =====
-  - name: "new_sales_order_number"
+  - schema_name: "new_sales_order_number"
     type: "String"
     display_name: "销售订单号"
     description: "关联的销售订单编号"
     max_length: 100
     required: false
 
-  - name: "new_invoice_number"
+  - schema_name: "new_invoice_number"
     type: "String"
     display_name: "发票号码"
     description: "关联的发票号码"
     max_length: 100
     required: false
 
-  - name: "new_contract_number"
+  - schema_name: "new_contract_number"
     type: "String"
     display_name: "合同编号"
     description: "关联的合同编号"
@@ -126,7 +126,7 @@ attributes:
     required: false
 
   # ===== 收款信息 =====
-  - name: "new_payment_method"
+  - schema_name: "new_payment_method"
     type: "Picklist"
     display_name: "收款方式"
     description: "款项收款方式"
@@ -143,14 +143,14 @@ attributes:
       - value: 100000004
         label: "其他"
 
-  - name: "new_bank_account"
+  - schema_name: "new_bank_account"
     type: "String"
     display_name: "收款银行"
     description: "收款银行账户"
     max_length: 100
     required: false
 
-  - name: "new_payment_voucher"
+  - schema_name: "new_payment_voucher"
     type: "String"
     display_name: "付款凭证号"
     description: "付款凭证编号"
@@ -161,14 +161,14 @@ attributes:
   # 注意：经办人和审批人字段在lookup_attributes中定义为Lookup类型
   # 通过关系创建（Deep Insert）时自动生成
 
-  - name: "new_approved_date"
+  - schema_name: "new_approved_date"
     type: "DateTime"
     display_name: "审批日期"
     description: "审批通过日期"
     required: false
     date_only: true
 
-  - name: "new_approval_comments"
+  - schema_name: "new_approval_comments"
     type: "Memo"
     display_name: "审批意见"
     description: "审批人意见"
@@ -176,14 +176,14 @@ attributes:
     required: false
 
   # ===== 其他信息 =====
-  - name: "new_remarks"
+  - schema_name: "new_remarks"
     type: "Memo"
     display_name: "备注"
     description: "认款单备注信息"
     max_length: 2000
     required: false
 
-  - name: "new_attachment_url"
+  - schema_name: "new_attachment_url"
     type: "String"
     display_name: "附件地址"
     description: "相关附件URL"
@@ -194,7 +194,7 @@ attributes:
 relationships:
   # 多对一关系：认款单 -> 客户
   # 关系名称遵循Microsoft约定：ReferencedEntity_ReferencingEntity
-  - name: "account_new_payment_recognition"
+  - schema_name: "account_new_payment_recognition"
     related_entity: "account"
     relationship_type: "ManyToOne"
     display_name: "客户"
@@ -206,7 +206,7 @@ relationships:
     cascade_unshare: "Cascade"
 
   # 多对一关系：认款单 -> 经办人
-  - name: "new_systemuser_payment_recognition_handledby"
+  - schema_name: "new_systemuser_payment_recognition_handledby"
     related_entity: "systemuser"
     relationship_type: "ManyToOne"
     display_name: "经办人"
@@ -218,7 +218,7 @@ relationships:
     cascade_unshare: "Cascade"
 
   # 多对一关系：认款单 -> 审批人
-  - name: "new_systemuser_payment_recognition_approvedby"
+  - schema_name: "new_systemuser_payment_recognition_approvedby"
     related_entity: "systemuser"
     relationship_type: "ManyToOne"
     display_name: "审批人"
@@ -231,19 +231,19 @@ relationships:
 
 # 查找字段定义（Lookup类型）- 与关系对应
 lookup_attributes:
-  - name: "new_customerid"
+  - schema_name: "new_customerid"
     type: "Lookup"
     display_name: "客户"
     description: "关联的客户"
     required: false
     target: "account"
-  - name: "new_handledby"
+  - schema_name: "new_handledby"
     type: "Lookup"
     display_name: "经办人"
     description: "认款单经办人"
     required: true
     target: "systemuser"
-  - name: "new_approvedby"
+  - schema_name: "new_approvedby"
     type: "Lookup"
     display_name: "审批人"
     description: "认款单审批人"

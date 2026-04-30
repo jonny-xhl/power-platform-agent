@@ -113,7 +113,7 @@ view_schema:
               items:
                 type: "object"
                 properties:
-                  name:
+                  schema_name:
                     type: "string"
                     description: "属性名称"
 
@@ -253,9 +253,9 @@ view_schema:
             type: "string"
             description: "图表ID"
 
-          name:
+          schema_name:
             type: "string"
-            description: "图表名称"
+            description: "图表唯一标识符"
 
           is_default:
             type: "boolean"
@@ -287,10 +287,10 @@ example:
     fetchxml:
       entity: "account"
       attributes:
-        - name: "accountnumber"
-        - name: "name"
-        - name: "balance"
-        - name: "status"
+        - schema_name: "accountnumber"
+        - schema_name: "name"
+        - schema_name: "balance"
+        - schema_name: "status"
       order:
         - attribute: "accountnumber"
           descending: false

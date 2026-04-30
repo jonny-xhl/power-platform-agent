@@ -656,9 +656,9 @@ class DataverseClient:
                 layoutxml = self.build_layout_xml(entity_name, columns)
 
         # 构建请求体
-        # 注意：在 Dataverse 中，name 字段是视图的显示名称（如 "Active 客户地址"）
-        # 不是 schema_name，savedqueryid 才是唯一标识符
-        display_name = metadata.get("display_name") or metadata.get("name")
+        # 注意：在 Dataverse 中，name 字段是视图的显示名称
+        # display_name 是 YAML 中的显示名称，映射到 API 的 name 字段
+        display_name = metadata.get("display_name")
         data = {
             "savedqueryid": savedquery_id,
             "name": display_name,
@@ -1499,7 +1499,7 @@ class DataverseClient:
             "@odata.type": metadata_type,
             "AttributeType": attribute_type,
             "AttributeTypeName": {"Value": f"{attribute_type}Type"},
-            "SchemaName": attribute.get("name"),
+            "SchemaName": attribute.get("schema_name") or attribute.get("name"),
             "DisplayName": self._convert_to_label(attribute.get("display_name", "")),
             "Description": self._convert_to_label(attribute.get("description", "")),
             "RequiredLevel": {
@@ -1601,7 +1601,7 @@ class DataverseClient:
             # 多对多关系
             return {
                 "@odata.type": "Microsoft.Dynamics.CRM.ManyToManyRelationshipMetadata",
-                "SchemaName": rel_def.get("schema_name") or rel_def.get("name"),
+                "SchemaName": rel_def.get("schema_name"),
                 "Entity1LogicalName": entity_name,
                 "Entity2LogicalName": related_entity,
                 "IntersectEntityName": rel_def.get("schema_name") or rel_def.get("name"),
@@ -1630,7 +1630,7 @@ class DataverseClient:
             # 构建关系定义
             relationship = {
                 "@odata.type": "Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata",
-                "SchemaName": rel_def.get("schema_name") or rel_def.get("name"),
+                "SchemaName": rel_def.get("schema_name"),
                 "ReferencedAttribute": referenced_attr,
                 "ReferencedEntity": related_entity,
                 "ReferencingEntity": entity_name,
@@ -1732,7 +1732,7 @@ class DataverseClient:
 
         # 返回关系信息
         return {
-            "name": rel_def.get("name"),
+            "schema_name": rel_def.get("schema_name"),
             "type": rel_def.get("relationship_type"),
             "status": "created"
         }

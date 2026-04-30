@@ -5,7 +5,7 @@ $schema: "../_schema/form_schema.yaml"
 
 # 解决方案声明
 solution:
-  name: "payment_solution"
+  schema_name: "payment_solution"
   auto_add: true  # 自动添加到解决方案
 
 form:
@@ -24,12 +24,12 @@ form:
 
 # 选项卡定义
 tabs:
-  - name: "general"
+  - schema_name: "general"
     display_name: "常规信息"
     description: "基本账户信息"
     expand_by_default: true
     sections:
-      - name: "basicInfo"
+      - schema_name: "basic_info"
         display_name: "基本信息"
         description: "账户的基本信息"
         rows:
@@ -47,7 +47,7 @@ tabs:
               - attribute: "openedDate"
                 width: "1"
 
-      - name: "financialInfo"
+      - schema_name: "financial_info"
         display_name: "财务信息"
         rows:
           - cells:
@@ -56,21 +56,21 @@ tabs:
               - attribute: "creditLimit"
                 width: "1"
 
-  - name: "details"
+  - schema_name: "details"
     display_name: "详细信息"
     visible: false
     sections:
-      - name: "notesSection"
+      - schema_name: "notes_section"
         display_name: "备注"
         rows:
           - cells:
               - attribute: "notes"
                 width: "2"
 
-  - name: "relationships"
+  - schema_name: "relationships"
     display_name: "关联信息"
     sections:
-      - name: "contacts"
+      - schema_name: "contacts"
         display_name: "联系人"
         rows:
           - cells:
@@ -79,30 +79,30 @@ tabs:
 
 # 表单级别的Web Resource引用
 webresources:
-  - name: "account_form_css"
+  - schema_name: "account_form_css"
     type: "css"
     path: "css/account_form.css"
     load_method: "inline"
 
-  - name: "account_form_handler"
+  - schema_name: "account_form_handler"
     type: "js"
     path: "js/account_form.js"
     functions:
-      - name: "onLoad"
+      - schema_name: "on_load"
         event: "formOnLoad"
-      - name: "onSave"
+      - schema_name: "on_save"
         event: "formOnSave"
 
 # 表单事件配置
 events:
-  - name: "onload"
+  - schema_name: "onload"
     handlers:
       - function_name: "handleFormLoad"
         library: "new_js/account_handler.js"
         enabled: true
         pass_context: true
 
-  - name: "onsave"
+  - schema_name: "onsave"
     handlers:
       - function_name: "handleFormSave"
         library: "new_js/account_handler.js"

@@ -51,11 +51,11 @@ sitemap_schema:
           type: "array"
           items:
             type: "object"
-            required: ["name", "display_name", "groups"]
+            required: ["schema_name", "display_name", "groups"]
             properties:
-              name:
+              schema_name:
                 type: "string"
-                description: "区域唯一名称"
+                description: "区域唯一标识符"
 
               display_name:
                 type: "string"
@@ -89,11 +89,11 @@ sitemap_schema:
                 type: "array"
                 items:
                   type: "object"
-                  required: ["name", "display_name", "subareas"]
+                  required: ["schema_name", "display_name", "subareas"]
                   properties:
-                    name:
+                    schema_name:
                       type: "string"
-                      description: "组唯一名称"
+                      description: "组唯一标识符"
 
                     display_name:
                       type: "string"
@@ -126,11 +126,11 @@ sitemap_schema:
                       type: "array"
                       items:
                         type: "object"
-                        required: ["name", "display_name"]
+                        required: ["schema_name", "display_name"]
                         properties:
-                          name:
+                          schema_name:
                             type: "string"
-                            description: "子区域唯一名称"
+                            description: "子区域唯一标识符"
 
                           display_name:
                             type: "string"
@@ -290,16 +290,16 @@ example:
     description: "客户关系管理应用"
 
     areas:
-      - name: "customerArea"
+      - schema_name: "customer_area"
         display_name: "客户区域"
         icon: "new_png/customer_icon.png"
         sequence: 0
         groups:
-          - name: "customerGroup"
+          - schema_name: "customer_group"
             display_name: "客户管理"
             sequence: 0
             subareas:
-              - name: "account"
+              - schema_name: "account"
                 display_name: "账户"
                 type: "entity"
                 entity: "account"
@@ -307,7 +307,7 @@ example:
                 icon: "new_png/account_icon.png"
                 sequence: 0
 
-              - name: "contact"
+              - schema_name: "contact"
                 display_name: "联系人"
                 type: "entity"
                 entity: "contact"
@@ -315,15 +315,15 @@ example:
                 icon: "new_png/contact_icon.png"
                 sequence: 1
 
-      - name: "dashboardArea"
+      - schema_name: "dashboard_area"
         display_name: "仪表板"
         icon: "new_png/dashboard_icon.png"
         sequence: 1
         groups:
-          - name: "dashboardGroup"
+          - schema_name: "dashboard_group"
             display_name: "我的仪表板"
             subareas:
-              - name: "accountDashboard"
+              - schema_name: "account_dashboard"
                 display_name: "账户仪表板"
                 type: "dashboard"
                 dashboard_id: "account_dashboard"

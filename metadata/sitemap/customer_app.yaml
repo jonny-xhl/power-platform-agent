@@ -5,7 +5,7 @@ $schema: "../_schema/sitemap_schema.yaml"
 
 # 解决方案声明
 solution:
-  unique_name: "ninebot-payment-solution"
+  schema_name: "ninebot-payment-solution"
   auto_add: true  # 自动添加到解决方案
 
 sitemap:
@@ -17,7 +17,7 @@ sitemap:
   # 应用区域
   areas:
     # 客户区域
-    - name: "customerArea"
+    - schema_name: "customer_area"
       display_name: "客户区域"
       title: "客户"
       description: "管理客户账户和联系人信息"
@@ -27,7 +27,7 @@ sitemap:
 
       groups:
         # 客户管理组
-        - name: "customerGroup"
+        - schema_name: "customer_group"
           display_name: "客户管理"
           title: "客户"
           sequence: 0
@@ -35,7 +35,7 @@ sitemap:
 
           subareas:
             # 账户子区域
-            - name: "account"
+            - schema_name: "account"
               display_name: "账户"
               title: "客户账户"
               type: "entity"
@@ -46,7 +46,7 @@ sitemap:
               visible: true
 
             # 联系人子区域
-            - name: "contact"
+            - schema_name: "contact"
               display_name: "联系人"
               title: "联系人"
               type: "entity"
@@ -57,14 +57,14 @@ sitemap:
               visible: true
 
         # 客户活动组
-        - name: "customerActivityGroup"
+        - schema_name: "customer_activity_group"
           display_name: "客户活动"
           title: "活动"
           sequence: 1
           visible: true
 
           subareas:
-            - name: "activities"
+            - schema_name: "activities"
               display_name: "活动"
               title: "所有活动"
               type: "entity"
@@ -72,7 +72,7 @@ sitemap:
               icon: "new_svg/activity_icon.svg"
               sequence: 0
 
-            - name: "tasks"
+            - schema_name: "tasks"
               display_name: "任务"
               title: "任务"
               type: "entity"
@@ -81,7 +81,7 @@ sitemap:
               sequence: 1
 
     # 仪表板区域
-    - name: "dashboardArea"
+    - schema_name: "dashboard_area"
       display_name: "仪表板"
       title: "仪表板"
       description: "客户数据分析和报表"
@@ -91,14 +91,14 @@ sitemap:
 
       groups:
         # 我的仪表板组
-        - name: "dashboardGroup"
+        - schema_name: "dashboard_group"
           display_name: "我的仪表板"
           title: "仪表板"
           sequence: 0
 
           subareas:
             # 账户仪表板
-            - name: "accountDashboard"
+            - schema_name: "account_dashboard"
               display_name: "账户仪表板"
               title: "账户概览"
               type: "dashboard"
@@ -109,7 +109,7 @@ sitemap:
               visible: true
 
             # 销售仪表板
-            - name: "salesDashboard"
+            - schema_name: "sales_dashboard"
               display_name: "销售仪表板"
               title: "销售概览"
               type: "dashboard"
@@ -118,7 +118,7 @@ sitemap:
               visible: true
 
     # 报表区域
-    - name: "reportsArea"
+    - schema_name: "reports_area"
       display_name: "报表"
       title: "报表"
       description: "客户相关报表"
@@ -127,23 +127,23 @@ sitemap:
       visible: true
 
       groups:
-        - name: "reportsGroup"
+        - schema_name: "reports_group"
           display_name: "客户报表"
           subareas:
-            - name: "accountSummaryReport"
+            - schema_name: "account_summary_report"
               display_name: "账户汇总报表"
               type: "webresource"
               url: "/webresources/new_html/account_summary_report.html"
               sequence: 0
 
-            - name: "contactListReport"
+            - schema_name: "contact_list_report"
               display_name: "联系人列表"
               type: "webresource"
               url: "/webresources/new_html/contact_list_report.html"
               sequence: 1
 
     # 设置区域
-    - name: "settingsArea"
+    - schema_name: "settings_area"
       display_name: "设置"
       title: "设置"
       description: "应用配置和设置"
@@ -152,16 +152,16 @@ sitemap:
       visible: true
 
       groups:
-        - name: "settingsGroup"
+        - schema_name: "settings_group"
           display_name: "应用设置"
           subareas:
-            - name: "appSettings"
+            - schema_name: "app_settings"
               display_name: "应用设置"
               type: "url"
               external_url: "/settings/app"
               sequence: 0
 
-            - name: "userSettings"
+            - schema_name: "user_settings"
               display_name: "用户设置"
               type: "url"
               external_url: "/settings/user"

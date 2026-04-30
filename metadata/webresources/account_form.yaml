@@ -10,7 +10,7 @@ solution:
 
 resources:
   # CSS样式文件
-  - name: "account_form"
+  - schema_name: "account_form"
     type: "css"
     display_name: "账户表单样式"
     description: "账户表单的自定义样式"
@@ -19,7 +19,7 @@ resources:
     # 命名规则处理后: new_css/account_form.css
 
   # JavaScript处理文件
-  - name: "account_handler"
+  - schema_name: "account_handler"
     type: "js"
     display_name: "账户表单脚本"
     description: "账户表单的业务逻辑处理"
@@ -32,7 +32,7 @@ resources:
     # 命名规则处理后: new_js/account_handler.js
 
   # 账户仪表板HTML
-  - name: "account_dashboard"
+  - schema_name: "account_dashboard"
     type: "html"
     display_name: "账户仪表板"
     description: "自定义账户仪表板页面"
@@ -40,7 +40,7 @@ resources:
     # 命名规则处理后: new_html/account_dashboard.html
 
   # 批量处理脚本
-  - name: "account_batch"
+  - schema_name: "account_batch"
     type: "js"
     display_name: "账户批量处理脚本"
     description: "处理账户批量操作的脚本"
@@ -49,7 +49,7 @@ resources:
     # 命名规则处理后: new_js/account_batch.js
 
   # 账户导出脚本
-  - name: "account_export"
+  - schema_name: "account_export"
     type: "js"
     display_name: "账户导出脚本"
     description: "处理账户导出到Excel的脚本"
@@ -58,7 +58,7 @@ resources:
     # 命名规则处理后: new_js/account_export.js
 
   # 账户邮件脚本
-  - name: "account_email"
+  - schema_name: "account_email"
     type: "js"
     display_name: "账户邮件脚本"
     description: "处理发送账户相关邮件的脚本"
@@ -68,29 +68,29 @@ resources:
 
 # 图标资源
 icons:
-  - name: "account_icon"
+  - schema_name: "account_icon"
     type: "png"
     display_name: "账户图标"
     source_path: "webresources/img/account_icon.png"
     width: 32
     height: 32
 
-  - name: "approve_icon"
+  - schema_name: "approve_icon"
     type: "svg"
     display_name: "批准图标"
     source_path: "webresources/img/approve_icon.svg"
 
-  - name: "batch_icon"
+  - schema_name: "batch_icon"
     type: "svg"
     display_name: "批量处理图标"
     source_path: "webresources/img/batch_icon.svg"
 
-  - name: "excel_icon"
+  - schema_name: "excel_icon"
     type: "svg"
     display_name: "Excel图标"
     source_path: "webresources/img/excel_icon.svg"
 
-  - name: "email_icon"
+  - schema_name: "email_icon"
     type: "svg"
     display_name: "邮件图标"
     source_path: "webresources/img/email_icon.svg"

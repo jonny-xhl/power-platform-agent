@@ -112,7 +112,7 @@ asyncio.run(plan())
 **解决方案概览**：
 | 属性 | 值 |
 |------|------|
-| 名称 | solution.name |
+| 名称 | solution.schema_name |
 | 显示名称 | solution.display_name |
 | 版本 | solution.version |
 | 发布商 | publisher.prefix |

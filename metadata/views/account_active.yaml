@@ -5,7 +5,7 @@ $schema: "../_schema/view_schema.yaml"
 
 # 解决方案声明
 solution:
-  name: "payment_solution"
+  schema_name: "payment_solution"
   auto_add: true  # 自动添加到解决方案
 
 view:
@@ -37,17 +37,17 @@ view:
   fetchxml:
     entity: "account"
     attributes:
-      - name: "accountnumber"
+      - schema_name: "accountnumber"
         alias: "accountNumber"
-      - name: "new_accountname"
+      - schema_name: "new_accountname"
         alias: "accountName"
-      - name: "new_balance"
+      - schema_name: "new_balance"
         alias: "balance"
-      - name: "new_status"
+      - schema_name: "new_status"
         alias: "status"
-      - name: "new_accounttype"
+      - schema_name: "new_accounttype"
         alias: "accountType"
-      - name: "createdon"
+      - schema_name: "createdon"
         alias: "createdOn"
     order:
       - attribute: "accountnumber"

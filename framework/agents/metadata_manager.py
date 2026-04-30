@@ -296,7 +296,10 @@ class MetadataManager:
 
         # 2. 比较属性
         desired_attributes = desired_metadata.get("attributes", [])
-        desired_lookup_attrs = {attr.get("name"): attr for attr in desired_metadata.get("lookup_attributes", [])}
+        desired_lookup_attrs = {
+            (attr.get("schema_name") or attr.get("name")): attr
+            for attr in desired_metadata.get("lookup_attributes", [])
+        }
 
         # 当前属性字典
         current_attrs = current_state["attributes"]
@@ -305,11 +308,12 @@ class MetadataManager:
         all_desired_attrs = list(desired_attributes)
         for lookup_attr in desired_metadata.get("lookup_attributes", []):
             # 检查是否已在attributes中
-            if not any(a.get("name") == lookup_attr.get("name") for a in desired_attributes):
+            lookup_name = lookup_attr.get("schema_name") or lookup_attr.get("name")
+            if not any((a.get("schema_name") or a.get("name")) == lookup_name for a in desired_attributes):
                 all_desired_attrs.append(lookup_attr)
 
         for desired_attr in all_desired_attrs:
-            attr_name = desired_attr.get("name")
+            attr_name = desired_attr.get("schema_name") or desired_attr.get("name")
             current_attr = current_attrs.get(attr_name)
 
             if current_attr is None:
@@ -334,7 +338,7 @@ class MetadataManager:
                     ))
 
         # 检查需要删除的属性（可选，通常不自动删除）
-        # desired_attr_names = {a.get("name") for a in all_desired_attrs}
+        # desired_attr_names = {a.get("schema_name") or a.get("name") for a in all_desired_attrs}
         # for attr_name, current_attr in current_attrs.items():
         #     if attr_name not in desired_attr_names and not current_attr.get("is_system", True):
         #         diff.add_change(MetadataChange(
@@ -351,7 +355,7 @@ class MetadataManager:
         # 对于关系，我们从referenced实体的角度创建OneToMany关系
         # 所以需要检查referenced实体上的关系
         for desired_rel in desired_relationships:
-            rel_name = desired_rel.get("name")
+            rel_name = desired_rel.get("schema_name") or desired_rel.get("name")
             related_entity = desired_rel.get("related_entity")  # noqa: F841
 
             # 查找当前关系中是否存在
@@ -636,7 +640,7 @@ class MetadataManager:
                 "success": True,
                 "type": "attribute",
                 "action": "create",
-                "name": attr_def.get("name"),
+                "name": attr_def.get("schema_name") or attr_def.get("name"),
                 "result": result
             }
         except Exception as e:
@@ -644,7 +648,7 @@ class MetadataManager:
                 "success": False,
                 "type": "attribute",
                 "action": "create",
-                "name": attr_def.get("name"),
+                "name": attr_def.get("schema_name") or attr_def.get("name"),
                 "error": str(e)
             }
 
@@ -681,14 +685,14 @@ class MetadataManager:
                 "success": True,
                 "type": "attribute",
                 "action": "update",
-                "name": attr_def.get("name")
+                "name": attr_def.get("schema_name") or attr_def.get("name")
             }
         except Exception as e:
             return {
                 "success": False,
                 "type": "attribute",
                 "action": "update",
-                "name": attr_def.get("name"),
+                "name": attr_def.get("schema_name") or attr_def.get("name"),
                 "error": str(e)
             }
 
@@ -712,7 +716,7 @@ class MetadataManager:
                 "success": True,
                 "type": "relationship",
                 "action": "create",
-                "name": rel_def.get("name"),
+                "name": rel_def.get("schema_name") or rel_def.get("name"),
                 "result": result
             }
         except Exception as e:
@@ -720,7 +724,7 @@ class MetadataManager:
                 "success": False,
                 "type": "relationship",
                 "action": "create",
-                "name": rel_def.get("name"),
+                "name": rel_def.get("schema_name") or rel_def.get("name"),
                 "error": str(e)
             }
 
@@ -770,14 +774,14 @@ class MetadataManager:
                 "success": True,
                 "type": "relationship",
                 "action": "update",
-                "name": rel_def.get("name")
+                "name": rel_def.get("schema_name") or rel_def.get("name")
             }
         except Exception as e:
             return {
                 "success": False,
                 "type": "relationship",
                 "action": "update",
-                "name": rel_def.get("name"),
+                "name": rel_def.get("schema_name") or rel_def.get("name"),
                 "error": str(e)
             }
 

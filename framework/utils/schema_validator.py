@@ -320,7 +320,7 @@ class SchemaValidator:
 
         # 验证资源列表
         for i, resource in enumerate(data["resources"]):
-            required_fields = ["name", "type", "source_path"]
+            required_fields = ["schema_name", "type", "source_path"]
             for field in required_fields:
                 if field not in resource:
                     errors.append(f"resources[{i}]: Missing required field: {field}")
@@ -333,6 +333,14 @@ class SchemaValidator:
                 ]
                 if resource["type"] not in valid_types:
                     errors.append(f"resources[{i}]: Invalid type: {resource['type']}")
+
+        # 验证图标列表（如果存在）
+        if "icons" in data:
+            for i, icon in enumerate(data["icons"]):
+                required_fields = ["schema_name", "type", "source_path"]
+                for field in required_fields:
+                    if field not in icon:
+                        errors.append(f"icons[{i}]: Missing required field: {field}")
 
         return errors
 
@@ -413,16 +421,16 @@ class SchemaValidator:
         solution_data = data["solution"]
 
         # 检查必需字段
-        required_fields = ["name", "display_name", "version"]
+        required_fields = ["schema_name", "display_name", "version"]
         for field in required_fields:
             if field not in solution_data:
                 errors.append(f"Missing required field in solution: {field}")
 
         # 验证名称格式
-        if "name" in solution_data:
-            name = solution_data["name"]
-            if not self._is_valid_schema_name(name):
-                errors.append(f"Invalid solution name format: {name}")
+        if "schema_name" in solution_data:
+            schema_name = solution_data["schema_name"]
+            if not self._is_valid_schema_name(schema_name):
+                errors.append(f"Invalid solution schema_name format: {schema_name}")
 
         # 验证版本号格式
         if "version" in solution_data:

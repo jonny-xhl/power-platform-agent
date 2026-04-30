@@ -10,7 +10,7 @@ $schema: "../_schema/solution_schema.yaml"
 solution:
   # 解决方案唯一名称（SolutionUniqueName）
   # 命名规范：使用小写字母和下划线，描述性名称
-  name: "new_entity_core"
+  schema_name: "new_entity_core"
 
   # 解决方案显示名称（在 Dataverse 中显示）
   display_name: "new_entity_core"

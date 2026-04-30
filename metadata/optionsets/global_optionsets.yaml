@@ -9,12 +9,12 @@
 
 # 解决方案声明
 solution:
-  name: "payment_solution"
+  schema_name: "payment_solution"
   auto_add: true  # 自动添加到解决方案
 
 global_optionsets:
   # ========== 客户状态选项集 ==========
-  - name: new_customer_status
+  - schema_name: new_customer_status
     display_name: 客户状态
     display_name_en: Customer Status
     description: 客户的业务状态
@@ -37,7 +37,7 @@ global_optionsets:
         color: FF0000
 
   # ========== 付款条件选项集 ==========
-  - name: new_payment_terms
+  - schema_name: new_payment_terms
     display_name: 付款条件
     display_name_en: Payment Terms
     description: 付款方式条款
@@ -56,7 +56,7 @@ global_optionsets:
         label_en: COD
 
   # ========== 订单状态选项集 ==========
-  - name: new_order_status
+  - schema_name: new_order_status
     display_name: 订单状态
     display_name_en: Order Status
     description: 订单处理状态
@@ -83,7 +83,7 @@ global_optionsets:
         color: FF0000
 
   # ========== 优先级选项集 ==========
-  - name: new_priority
+  - schema_name: new_priority
     display_name: 优先级
     display_name_en: Priority
     description: 任务或工单的优先级
@@ -106,7 +106,7 @@ global_optionsets:
         color: 800080
 
   # ========== 是否选项集 ==========
-  - name: new_yes_no
+  - schema_name: new_yes_no
     display_name: 是否
     display_name_en: Yes/No
     description: 通用的布尔选项集

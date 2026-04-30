@@ -53,10 +53,10 @@ solution_schema:
 
     solution:
       type: "object"
-      required: ["name", "display_name", "version"]
+      required: ["schema_name", "display_name", "version"]
       additionalProperties: false
       properties:
-        name:
+        schema_name:
           type: "string"
           minLength: 3
           maxLength: 100
@@ -88,7 +88,7 @@ solution_schema:
           type: "object"
           description: "直接指定发布商信息（可选，不推荐使用，应使用 publisher 引用）"
           properties:
-            name:
+            schema_name:
               type: "string"
               description: "发布商唯一名称（Dataverse 中的 PublisherName）"
             display_name:
@@ -162,9 +162,9 @@ solution_schema:
               id:
                 type: "string"
                 description: "组件 GUID 或唯一标识符"
-              name:
+              schema_name:
                 type: "string"
-                description: "组件名称（可选）"
+                description: "组件唯一标识符（可选）"
 
     sync:
       type: "object"
@@ -261,7 +261,7 @@ solution_schema:
 # 示例
 example:
   solution:
-    name: "payment_solution"
+    schema_name: "payment_solution"
     display_name: "认款管理解决方案"
     description: "管理客户认款业务流程的完整解决方案"
     version: "1.0.0.0"

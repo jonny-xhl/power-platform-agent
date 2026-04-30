@@ -5,7 +5,7 @@ $schema: "../_schema/table_schema.yaml"
 
 # 解决方案声明
 solution:
-  name: "payment_solution"
+  schema_name: "payment_solution"
   auto_add: true  # 自动添加到解决方案
 
 schema:
@@ -24,14 +24,14 @@ schema:
     enable_quick_create: false
 
 attributes:
-  - name: "new_first_name"
+  - schema_name: "new_first_name"
     type: "String"
     display_name: "名"
     description: "联系人的名字"
     max_length: 50
     required: true
 
-  - name: "new_last_name"
+  - schema_name: "new_last_name"
     type: "String"
     display_name: "姓"
     description: "联系人的姓氏"
@@ -39,21 +39,21 @@ attributes:
     required: true
     is_primary_name: true
 
-  - name: "new_email"
+  - schema_name: "new_email"
     type: "String"
     display_name: "电子邮件"
     description: "主要电子邮件地址"
     max_length: 100
     required: true
 
-  - name: "new_phone"
+  - schema_name: "new_phone"
     type: "String"
     display_name: "电话"
     description: "主要电话号码"
     max_length: 50
     required: false
 
-  - name: "new_mobile"
+  - schema_name: "new_mobile"
     type: "String"
     display_name: "手机"
     description: "手机号码"
@@ -61,7 +61,7 @@ attributes:
     required: false
 
 relationships:
-  - name: "new_contact_account"
+  - schema_name: "new_contact_account"
     related_entity: "account"
     relationship_type: "ManyToOne"
     display_name: "所属账户"

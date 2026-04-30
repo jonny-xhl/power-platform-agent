@@ -292,7 +292,7 @@ class MarkdownGenerator:
         # 为每个选项集生成单独的文档
         generated_files = []
         for opt_def in optionsets:
-            name = opt_def.get('name', 'unknown')
+            name = opt_def.get('schema_name') or opt_def.get('name', 'unknown')
             display_name = opt_def.get('display_name', '')
             display_name_en = opt_def.get('display_name_en', '')
             description = opt_def.get('description', '')

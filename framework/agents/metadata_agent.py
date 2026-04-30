@@ -350,7 +350,8 @@ class MetadataAgent:
                     ref_attr = rel.get("referencing_attribute")
                     lookup_attr = None
                     for attr in lookup_attrs:
-                        if attr.get("name") == ref_attr:
+                        attr_name = attr.get("schema_name")
+                        if attr_name == ref_attr:
                             lookup_attr = attr
                             break
 
@@ -361,13 +362,13 @@ class MetadataAgent:
                         lookup_attr
                     )
                     relationship_results.append({
-                        "relationship": rel.get("name"),
+                        "relationship": rel.get("schema_name"),
                         "status": "created",
                         "result": rel_result
                     })
                 except Exception as e:
                     relationship_results.append({
-                        "relationship": rel.get("name"),
+                        "relationship": rel.get("schema_name"),
                         "status": "failed",
                         "error": str(e)
                     })
@@ -409,15 +410,15 @@ class MetadataAgent:
             # 解析属性
             if isinstance(attribute_yaml, str) and Path(attribute_yaml).exists():
                 data = self.parser.load_yaml(attribute_yaml)
-                attribute = data if "name" in data else data.get("attribute", {})
+                attribute = data if "schema_name" in data else data.get("attribute", {})
             else:
                 attribute = json.loads(attribute_yaml) if isinstance(attribute_yaml, str) else attribute_yaml
 
             # 转换属性名
-            name = attribute.get("name")
+            name = attribute.get("schema_name")
             is_standard = self.naming_converter.is_standard_entity(entity)
             converted_name = self.naming_converter.convert_schema_name(name, is_standard)
-            attribute["name"] = converted_name
+            attribute["schema_name"] = converted_name
 
             # 转换为Dataverse格式
             attr_type = attribute.get("type")
@@ -468,7 +469,7 @@ class MetadataAgent:
 
         attribute_metadata = {
             "@odata.type": metadata_type,
-            "SchemaName": attribute.get("name"),
+            "SchemaName": attribute.get("schema_name"),
             "DisplayName": attribute.get("display_name"),
             "RequiredLevel": {
                 "Value": "ApplicationRequired" if attribute.get("required") else "None"
@@ -900,7 +901,7 @@ class MetadataAgent:
                 view_data = json.loads(view_yaml) if isinstance(view_yaml, str) else view_yaml
                 view_meta = view_data.get("view", {})
 
-            view_name = view_meta.get("schema_name") or view_meta.get("name")
+            view_name = view_meta.get("schema_name")
             entity = view_meta.get("entity")
 
             if not entity or not view_name:
@@ -1093,9 +1094,9 @@ class MetadataAgent:
         }
         query_type = view_type_map.get(view_meta.get("type", "PublicView"), 0)
 
-        # 视图名称：优先使用 display_name 作为显示名称，否则使用 schema_name
-        # 注意：在 Dataverse 中，视图的 name 字段既是唯一标识符，也是显示名称
-        view_name = view_meta.get("display_name") or view_meta.get("schema_name") or view_meta.get("name")
+        # 视图名称：使用 display_name 作为显示名称
+        # 注意：在 Dataverse 中，视图的 name 字段是显示名称
+        view_name = view_meta.get("display_name") or view_meta.get("schema_name")
 
         # 构建元数据
         metadata = {
@@ -1336,14 +1337,14 @@ class MetadataAgent:
         local_attrs = local.get("attributes", [])
         remote_attrs = remote.get("Attributes", [])
 
-        local_attr_names = {a.get("name") for a in local_attrs}
+        local_attr_names = {a.get("schema_name") for a in local_attrs}
         remote_attr_names = {a.get("SchemaName") for a in remote_attrs}
 
         # 本地有但远程没有的
         for name in local_attr_names - remote_attr_names:
             differences.append({
                 "type": "attribute",
-                "name": name,
+                "schema_name": name,
                 "status": "local_only"
             })
 
@@ -1351,7 +1352,7 @@ class MetadataAgent:
         for name in remote_attr_names - local_attr_names:
             differences.append({
                 "type": "attribute",
-                "name": name,
+                "schema_name": name,
                 "status": "remote_only"
             })
 
@@ -1448,7 +1449,7 @@ class MetadataAgent:
             if not auto_add:
                 return
 
-            solution_name = solution_config.get("name")
+            solution_name = solution_config.get("schema_name")
             if not solution_name or not self.core_agent:
                 return
 

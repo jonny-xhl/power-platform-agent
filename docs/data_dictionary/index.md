@@ -1,6 +1,6 @@
 # 数据字典索引
 
-*自动生成于: 2026-04-30 10:40:59*
+*自动生成于: 2026-04-30 15:19:51*
 
 ---
 
@@ -17,11 +17,11 @@
 
 | 选项集 | Schema Name | 类型 | 选项数量 |
 |--------|-------------|------|----------|
-| [客户状态](optionsets/new_customer_status.md) | `new_customer_status` | 全局 | 4 |
-| [付款条件](optionsets/new_payment_terms.md) | `new_payment_terms` | 全局 | 4 |
-| [订单状态](optionsets/new_order_status.md) | `new_order_status` | 全局 | 5 |
-| [优先级](optionsets/new_priority.md) | `new_priority` | 全局 | 4 |
-| [是否](optionsets/new_yes_no.md) | `new_yes_no` | 全局 | 2 |
+| [客户状态](optionsets/unknown.md) | `unknown` | 全局 | 4 |
+| [付款条件](optionsets/unknown.md) | `unknown` | 全局 | 4 |
+| [订单状态](optionsets/unknown.md) | `unknown` | 全局 | 5 |
+| [优先级](optionsets/unknown.md) | `unknown` | 全局 | 4 |
+| [是否](optionsets/unknown.md) | `unknown` | 全局 | 2 |
 
 ---
 

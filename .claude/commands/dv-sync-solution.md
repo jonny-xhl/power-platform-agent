@@ -122,7 +122,7 @@ asyncio.run(plan())
 **解决方案概览**：
 | 属性 | 值 |
 |------|------|
-| 名称 | solution.name |
+| 名称 | solution.schema_name |
 | 显示名称 | solution.display_name |
 | 版本 | solution.version |
 | 发布商 | publisher.prefix |
@@ -336,16 +336,16 @@ Attribute of type LookupAttributeMetadata cannot be created through the SDK
 **YAML 定义**：
 ```yaml
 lookup_attributes:
-  - name: "new_account_id"
+  - schema_name: "new_account_id"
     type: "Lookup"
     display_name: "客户"
     target: "account"  # ← 必需：指定目标实体
 
 relationships:
-  - name: "new_account_new_entity"
+  - schema_name: "new_account_new_entity"
     related_entity: "account"
     relationship_type: "ManyToOne"
-    referencing_attribute: "new_account_id"  # ← 对应 lookup_attributes.name
+    referencing_attribute: "new_account_id"  # ← 对应 lookup_attributes.schema_name
 ```
 
 ### 4. 自定义关系 SchemaName 必须以发布商前缀开头
@@ -383,7 +383,7 @@ cascade_unshare: "NoCascade"
 **示例**（new_customer_address → account）：
 ```yaml
 relationships:
-  - name: "new_account_new_customer_address"
+  - schema_name: "new_account_new_customer_address"
     related_entity: "account"              # ReferencedEntity（"一"）
     relationship_type: "ManyToOne"
     referencing_attribute: "new_account_id" # ReferencingAttribute（外键）

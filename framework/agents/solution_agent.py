@@ -891,7 +891,7 @@ class SolutionAgent:
                     publisher_id = publisher.get("publisherid")
 
             # ==================== 步骤 2: 创建/更新解决方案对象 ====================
-            solution_name = solution_info.get("name")
+            solution_name = solution_info.get("schema_name")
             solution_display_name = solution_info.get("display_name")
             solution_version = solution_info.get("version", "1.0.0.0")
 
@@ -1086,8 +1086,8 @@ class SolutionAgent:
             if not solution:
                 errors.append("Missing 'solution' section")
             else:
-                if not solution.get("name"):
-                    errors.append("solution.name is required")
+                if not solution.get("schema_name"):
+                    errors.append("solution.schema_name is required")
                 if not solution.get("display_name"):
                     errors.append("solution.display_name is required")
                 if not solution.get("version"):
@@ -1131,7 +1131,7 @@ class SolutionAgent:
                 "valid": len(errors) == 0,
                 "errors": errors,
                 "warnings": warnings,
-                "solution_name": solution.get("name"),
+                "solution_name": solution.get("schema_name"),
                 "version": solution.get("version"),
                 "component_types": list(components.keys()) if components else []
             }, indent=2, ensure_ascii=False)
@@ -1174,7 +1174,7 @@ class SolutionAgent:
             type_counts = {k: len(v) for k, v in by_type.items()}
 
             return json.dumps({
-                "solution": solution_def.get("solution", {}).get("name"),
+                "solution": solution_def.get("solution", {}).get("schema_name"),
                 "total_components": len(components),
                 "type_counts": type_counts,
                 "components": components,
@@ -1302,7 +1302,7 @@ class SolutionAgent:
 
             elif component_type == "view":
                 entity = data.get("view", {}).get("entity")
-                view_name = data.get("view", {}).get("schema_name") or data.get("view", {}).get("name")
+                view_name = data.get("view", {}).get("schema_name")
                 if entity and view_name:
                     entity_meta = client.get_entity_metadata(entity)
                     logical_name = entity_meta.get("LogicalName")
@@ -1312,15 +1312,15 @@ class SolutionAgent:
 
             elif component_type == "optionset":
                 # 全局选项集检查
-                name = data.get("optionset", {}).get("name")
-                if name:
+                schema_name = data.get("optionset", {}).get("schema_name")
+                if schema_name:
                     # 通过 API 检查选项集是否存在
                     return True  # 简化处理
 
             elif component_type == "webresource":
-                name = data.get("webresource", {}).get("name")
-                if name:
-                    resources = client.get_webresources(filter=f"name eq '{name}'")
+                schema_name = data.get("webresource", {}).get("schema_name")
+                if schema_name:
+                    resources = client.get_webresources(filter=f"name eq '{schema_name}'")
                     return len(resources) > 0
 
             return False
@@ -1823,7 +1823,7 @@ class SolutionAgent:
 
                 elif comp_type == "form":
                     entity_name = data.get("form", {}).get("entity")
-                    form_name = data.get("form", {}).get("name")
+                    form_name = data.get("form", {}).get("schema_name")
                     # 获取表单 ID
                     if entity_name and form_name:
                         forms = client.get_forms(entity_name)
@@ -1834,7 +1834,7 @@ class SolutionAgent:
 
                 elif comp_type == "view":
                     entity_name = data.get("view", {}).get("entity")
-                    schema_name = data.get("view", {}).get("schema_name") or data.get("view", {}).get("name")
+                    schema_name = data.get("view", {}).get("schema_name")
                     # 获取视图 ID
                     if entity_name and schema_name:
                         view = client.get_view_by_name(entity_name, schema_name)
@@ -1842,7 +1842,7 @@ class SolutionAgent:
                             object_id = view.get("savedqueryid")
 
                 elif comp_type == "webresource":
-                    schema_name = data.get("webresource", {}).get("name")
+                    schema_name = data.get("webresource", {}).get("schema_name")
                     resources = client.get_webresources(filter=f"name eq '{schema_name}'")
                     if resources:
                         object_id = resources[0].get("webresourceid")

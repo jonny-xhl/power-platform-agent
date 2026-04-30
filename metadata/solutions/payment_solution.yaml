@@ -10,7 +10,7 @@ $schema: "../_schema/solution_schema.yaml"
 solution:
   # 解决方案唯一名称（SolutionUniqueName）
   # 命名规范：使用小写字母和下划线，描述性名称
-  name: "payment_solution"
+  schema_name: "payment_solution"
 
   # 解决方案显示名称（在 Dataverse 中显示）
   display_name: "认款管理解决方案"

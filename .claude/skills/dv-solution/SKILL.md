@@ -54,7 +54,7 @@ $schema: "../_schema/solution_schema.yaml"
 # 解决方案基本信息
 # ================================================================
 solution:
-  name: "your_solution_name"           # 唯一名称
+  schema_name: "your_solution_name"    # 唯一名称
   display_name: "您的解决方案显示名称"  # 显示名称
   description: "详细描述解决方案的功能和用途"
   version: "1.0.0.0"                   # 版本号：主版本.次版本.内部版本.修订
@@ -80,7 +80,7 @@ components:
   other:                               # 其他组件
     - component_type: "ribbon"
       id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-      name: "custom_ribbon_command"
+      schema_name: "custom_ribbon_command"
 
 # ================================================================
 # 同步配置
@@ -122,13 +122,13 @@ build:
 ```yaml
 publishers:
   default:
-    name: "DefaultPublishercrmdev"
+    schema_name: "DefaultPublishercrmdev"
     display_name: "CrmDev 的默认发布者"
     prefix: "new"
 
   # 可以定义多个发布商
   contoso:
-    name: "ContosoPublisher"
+    schema_name: "ContosoPublisher"
     display_name: "Contoso 发布者"
     prefix: "contoso"
 
@@ -306,8 +306,8 @@ python -m framework.agents.solution_agent sync metadata/solutions/your_solution.
 ```yaml
 # 在组件 YAML 文件中
 solution:
-  name: "payment_solution"    # 所属解决方案名称
-  auto_add: true              # 是否自动添加到解决方案
+  schema_name: "payment_solution"  # 所属解决方案名称
+  auto_add: true                  # 是否自动添加到解决方案
 ```
 
 这支持两种同步模式：
