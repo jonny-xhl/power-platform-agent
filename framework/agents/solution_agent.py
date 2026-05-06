@@ -1396,16 +1396,51 @@ class SolutionAgent:
                 metadata_agent = MetadataAgent(core_agent=self.core_agent)
                 self.core_agent.set_metadata_agent(metadata_agent)
 
+            # 将 action 映射到 mode 参数
+            # action: create/update/replace -> mode: create/update/auto
+            mode_map = {
+                "create": "create",
+                "update": "update",
+                "replace": "update",  # replace 在 Dataverse 中使用 update 处理
+                "skip": "auto"
+            }
+            mode = mode_map.get(action, "auto")
+
             if component_type == "table":
-                result = await metadata_agent.create_table(component_path)
+                # 表也支持 mode 参数进行增量更新
+                result = await metadata_agent.create_table(component_path, mode=mode)
                 return json.loads(result)
 
             elif component_type == "form":
-                result = await metadata_agent.create_form(component_path)
+                # update 模式需要 target_form_id，先从 YAML 或 Dataverse 获取
+                target_form_id = None
+                if action == "update":
+                    # 尝试从 YAML 获取 form_id
+                    import yaml
+                    with open(component_path, "r", encoding="utf-8") as f:
+                        form_data = yaml.safe_load(f)
+                    target_form_id = form_data.get("form", {}).get("form_id")
+
+                    # 如果 YAML 中没有 form_id，尝试从 Dataverse 查找
+                    if not target_form_id:
+                        entity_name = form_data.get("form", {}).get("entity")
+                        form_name = form_data.get("form", {}).get("schema_name")
+                        if entity_name and form_name:
+                            forms = client.get_forms(entity_name)
+                            for form in forms:
+                                if form.get("name") == form_name:
+                                    target_form_id = form.get("formid")
+                                    break
+
+                result = await metadata_agent.create_form(
+                    component_path,
+                    mode=mode,
+                    target_form_id=target_form_id
+                )
                 return json.loads(result)
 
             elif component_type == "view":
-                result = await metadata_agent.create_view(component_path)
+                result = await metadata_agent.create_view(component_path, mode=mode)
                 return json.loads(result)
 
             elif component_type == "optionset":

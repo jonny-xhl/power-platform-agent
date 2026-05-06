@@ -275,17 +275,22 @@ class MetadataAgent:
     async def create_table(
         self,
         table_yaml: str,
-        options: dict[str, Any] = None
+        options: dict[str, Any] = None,
+        mode: str = "auto"
     ) -> str:
         """
-        创建数据表
+        创建或更新数据表
 
         Args:
             table_yaml: 表YAML文件路径或数据
             options: 创建选项
+            mode: 操作模式
+                - "auto": 自动判断（默认），实体不存在时创建，已存在时跳过
+                - "create": 强制创建新表（如果表已存在则报错）
+                - "update": 增量更新表（添加新属性、新关系，更新可修改的属性）
 
         Returns:
-            创建结果
+            创建/更新结果
         """
         options = options or {}
 
@@ -324,20 +329,46 @@ class MetadataAgent:
                 }, indent=2)
 
             # 检查实体是否已存在
+            existing_entity = None
             entity_exists = False
             try:
-                existing = client.get_entity_metadata(converted_name)
-                if existing:
+                existing_entity = client.get_entity_metadata(converted_name)
+                if existing_entity:
                     entity_exists = True
             except Exception:
                 pass
 
-            result = None
-            if entity_exists:
-                result = {"status": "already_exists", "message": "Entity already exists"}
-            else:
-                # 创建表
+            # ========== create 模式：强制创建 ==========
+            if mode == "create":
+                if entity_exists:
+                    return json.dumps({
+                        "error": f"Entity '{converted_name}' already exists. Use mode='update' to modify.",
+                        "existing_id": existing_entity.get("MetadataId") if existing_entity else None
+                    }, indent=2)
                 result = client.create_entity(metadata)
+                entity_exists = False  # 新创建
+
+            # ========== update 模式：增量更新 ==========
+            elif mode == "update":
+                if not entity_exists:
+                    # 实体不存在，创建新实体
+                    result = client.create_entity(metadata)
+                    entity_exists = False
+                else:
+                    # 实体已存在，执行增量更新
+                    result = await self._update_entity_incremental(
+                        client,
+                        converted_name,
+                        metadata,
+                        existing_entity
+                    )
+
+            # ========== auto 模式：自动判断 ==========
+            else:  # mode == "auto"
+                if entity_exists:
+                    result = {"status": "already_exists", "message": "Entity already exists"}
+                else:
+                    result = client.create_entity(metadata)
 
             # 创建关系（包含 Lookup 属性的 Deep Insert）
             relationships = metadata.get("relationships", [])
@@ -346,6 +377,24 @@ class MetadataAgent:
 
             for rel in relationships:
                 try:
+                    # 检查关系是否已存在
+                    rel_exists = False
+                    if entity_exists:
+                        existing_rels = client.get_relationships(converted_name)
+                        rel_schema = rel.get("schema_name")
+                        for existing_rel in existing_rels:
+                            if existing_rel.get("SchemaName") == rel_schema:
+                                rel_exists = True
+                                break
+
+                    if rel_exists:
+                        relationship_results.append({
+                            "relationship": rel.get("schema_name"),
+                            "status": "already_exists",
+                            "action": "skipped"
+                        })
+                        continue
+
                     # 找到对应的 lookup_attribute
                     ref_attr = rel.get("referencing_attribute")
                     lookup_attr = None
@@ -364,6 +413,7 @@ class MetadataAgent:
                     relationship_results.append({
                         "relationship": rel.get("schema_name"),
                         "status": "created",
+                        "action": "created",
                         "result": rel_result
                     })
                 except Exception as e:
@@ -377,6 +427,7 @@ class MetadataAgent:
                 "success": True,
                 "schema_name": converted_name,
                 "original_name": schema_name,
+                "mode": mode,
                 "entity_existed": entity_exists,
                 "result": result,
                 "relationships": relationship_results
@@ -390,6 +441,123 @@ class MetadataAgent:
             return json.dumps({
                 "error": f"Failed to create table: {str(e)}"
             }, indent=2)
+
+    async def _update_entity_incremental(
+        self,
+        client: Any,
+        entity_name: str,
+        metadata: dict[str, Any],
+        existing_entity: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        增量更新实体元数据
+
+        Args:
+            client: Dataverse 客户端
+            entity_name: 实体逻辑名称
+            metadata: 新的元数据定义
+            existing_entity: 现有实体元数据
+
+        Returns:
+            更新结果
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        result = {
+            "action": "updated",
+            "updates": []
+        }
+
+        # 1. 更新实体基础属性（可更新的字段）
+        schema = metadata.get("schema", {})
+        update_payload = {}
+
+        # 可更新的实体属性
+        updatable_fields = {
+            "DisplayCollectionName": schema.get("display_collection_name"),
+            "Description": schema.get("description"),
+            "HasNotes": schema.get("has_notes"),
+            "IsAuditEnabled": {"Value": schema.get("is_audit_enabled", False)},
+        }
+
+        for field, value in updatable_fields.items():
+            if value is not None:
+                if field == "DisplayCollectionName" and value:
+                    update_payload[field] = client._convert_to_label(value)
+                elif field == "Description" and value:
+                    update_payload[field] = client._convert_to_label(value)
+                elif field == "HasNotes":
+                    update_payload[field] = value
+                elif field == "IsAuditEnabled":
+                    update_payload[field] = value
+
+        if update_payload:
+            try:
+                metadata_id = existing_entity.get("MetadataId")
+                url = client.get_api_url(f"EntityDefinitions({metadata_id})")
+                response = client.session.patch(url, json=update_payload)
+                response.raise_for_status()
+                result["updates"].append({
+                    "type": "entity_properties",
+                    "fields": list(update_payload.keys()),
+                    "status": "updated"
+                })
+            except Exception as e:
+                result["updates"].append({
+                    "type": "entity_properties",
+                    "status": "failed",
+                    "error": str(e)
+                })
+
+        # 2. 增量更新属性（只添加新属性，不修改现有属性）
+        new_attributes = metadata.get("attributes", [])
+        if new_attributes:
+            existing_attrs = client.get_attributes(entity_name)
+            existing_attr_names = {attr.get("LogicalName") for attr in existing_attrs}
+
+            attr_results = []
+            for attr in new_attributes:
+                attr_type = attr.get("type")
+                attr_name = attr.get("schema_name")
+
+                # 跳过 Lookup 类型 - 必须通过关系创建
+                if attr_type == "Lookup":
+                    logger.info(f"Skipping Lookup attribute '{attr_name}' - must be created via relationship")
+                    continue
+
+                # 检查属性是否已存在
+                if attr_name in existing_attr_names:
+                    attr_results.append({
+                        "attribute": attr_name,
+                        "status": "already_exists",
+                        "action": "skipped"
+                    })
+                    continue
+
+                # 创建新属性
+                try:
+                    converted_attr = client._convert_attribute_metadata(attr, attr_type)
+                    client.create_attribute(entity_name, converted_attr)
+                    attr_results.append({
+                        "attribute": attr_name,
+                        "type": attr_type,
+                        "status": "created",
+                        "action": "created"
+                    })
+                except Exception as e:
+                    attr_results.append({
+                        "attribute": attr_name,
+                        "status": "failed",
+                        "error": str(e)
+                    })
+
+            result["updates"].append({
+                "type": "attributes",
+                "results": attr_results
+            })
+
+        return result
 
     async def create_attribute(
         self,
