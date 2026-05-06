@@ -303,7 +303,7 @@ export DEV_CLIENT_SECRET="your-client-secret"
 构建 plugins/AccountPlugin/AccountPlugin.csproj
 
 # 部署插件
-部署 plugins/AccountPlugin/bin/Release/net8.0/AccountPlugin.dll
+部署 plugins/AccountPlugin/bin/Release/net462/AccountPlugin.dll
 
 # 注册Step
 为 AccountPlugin 注册一个 Step：
@@ -555,7 +555,7 @@ naming:
 - **MCP协议**: Model Context Protocol
 - **元数据格式**: YAML + JSON Schema
 - **认证**: MSAL (OAuth 2.0)
-- **插件开发**: .NET 8.0
+- **插件开发**: .NET Framework 4.6.2
 
 ---
 
