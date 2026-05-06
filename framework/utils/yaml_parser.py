@@ -157,6 +157,8 @@ class YAMLMetadataParser:
             return self._process_ribbon_metadata(data)
         elif metadata_type == "sitemap":
             return self._process_sitemap_metadata(data)
+        elif metadata_type == "plugin":
+            return self._process_plugin_metadata(data)
         else:
             return data
 
@@ -501,6 +503,43 @@ class YAMLMetadataParser:
             "areas": sitemap.get("areas", []),
             "settings": sitemap.get("settings", {}),
             "properties": sitemap.get("properties", {})
+        }
+
+    # ==================== Plugin元数据 ====================
+
+    def parse_plugin_yaml(self, file_path: str) -> dict[str, Any]:
+        """
+        解析Plugin元数据YAML文件
+
+        Args:
+            file_path: YAML文件路径
+
+        Returns:
+            Plugin元数据字典
+        """
+        data = self.load_yaml(file_path)
+        return self._process_plugin_metadata(data)
+
+    def _process_plugin_metadata(
+        self,
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """处理Plugin元数据"""
+        assembly = data.get("assembly", {})
+
+        return {
+            "solution": data.get("solution", {}),
+            "assembly": {
+                "schema_name": assembly.get("schema_name"),
+                "display_name": assembly.get("display_name"),
+                "description": assembly.get("description"),
+                "version": assembly.get("version"),
+                "project_path": assembly.get("project_path"),
+                "build_configuration": assembly.get("build_configuration", "Release"),
+                "source_type": assembly.get("source_type", 0)
+            },
+            "steps": data.get("steps", []),
+            "custom_actions": data.get("custom_actions", [])
         }
 
     # ==================== 属性处理 ====================

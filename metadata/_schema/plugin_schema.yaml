@@ -1,0 +1,319 @@
+# Plugin 元数据 Schema 定义
+# 用于验证Power Platform插件的YAML元数据定义
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://power-platform-agent/schemas/plugin"
+title: "Power Platform Plugin Metadata Schema"
+description: "Dataverse插件程序集、Step和自定义Action的元数据定义Schema"
+
+definitions:
+  stage_type:
+    type: "string"
+    enum: ["pre-validation", "pre-operation", "post-operation"]
+    description: "Plugin执行阶段"
+
+  mode_type:
+    type: "string"
+    enum: ["synchronous", "asynchronous"]
+    description: "执行模式：同步/异步"
+
+  deployment_type:
+    type: "string"
+    enum: ["server-only", "client-only", "both"]
+    description: "部署目标"
+
+  source_type:
+    type: "integer"
+    enum: [0, 1, 2]
+    description: "0=Database(数据库), 1=Disk(磁盘), 2=Global(全局)"
+
+  parameter_type:
+    type: "string"
+    enum:
+      - "EntityReference"
+      - "String"
+      - "Integer"
+      - "Decimal"
+      - "Boolean"
+      - "DateTime"
+      - "Money"
+      - "Picklist"
+      - "Memo"
+      - "Uniqueidentifier"
+    description: "参数数据类型"
+
+  process_type:
+    type: "string"
+    enum: ["action", "workflow"]
+    description: "进程类型"
+
+plugin_schema:
+  type: "object"
+  required: ["assembly"]
+  additionalProperties: false
+  properties:
+    $schema:
+      type: "string"
+      description: "Schema引用路径"
+
+    solution:
+      type: "object"
+      description: "解决方案声明"
+      properties:
+        schema_name:
+          type: "string"
+          description: "解决方案schema_name"
+
+        auto_add:
+          type: "boolean"
+          default: true
+          description: "自动添加到解决方案"
+
+    assembly:
+      type: "object"
+      required: ["schema_name", "display_name", "project_path"]
+      additionalProperties: false
+      properties:
+        schema_name:
+          type: "string"
+          minLength: 2
+          maxLength: 100
+          pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+          description: "程序集Schema名称（遵循命名规则，自动加前缀）"
+
+        display_name:
+          type: "string"
+          minLength: 1
+          maxLength: 255
+          description: "程序集显示名称"
+
+        description:
+          type: "string"
+          maxLength: 1000
+          description: "程序集描述"
+
+        version:
+          type: "string"
+          pattern: "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
+          default: "1.0.0.0"
+          description: "版本号格式：X.Y.Z.W"
+
+        project_path:
+          type: "string"
+          description: ".csproj项目文件路径（相对于plugin YAML的路径）"
+
+        build_configuration:
+          type: "string"
+          enum: ["Debug", "Release"]
+          default: "Release"
+          description: "构建配置"
+
+        source_type:
+          $ref: "#/definitions/source_type"
+          default: 0
+          description: "程序集存储位置"
+
+    steps:
+      type: "array"
+      description: "Plugin Step配置列表"
+      items:
+        type: "object"
+        required: ["schema_name", "message", "entity", "stage"]
+        properties:
+          schema_name:
+            type: "string"
+            pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+            description: "Step唯一标识（遵循命名规则）"
+
+          display_name:
+            type: "string"
+            description: "Step显示名称"
+
+          description:
+            type: "string"
+            description: "Step描述"
+
+          message:
+            type: "string"
+            description: "SDK消息名称（Create/Update/Delete或自定义Action名称）"
+
+          entity:
+            type: "string"
+            description: "实体logical_name（none表示全局）"
+
+          stage:
+            $ref: "#/definitions/stage_type"
+            description: "执行阶段"
+
+          mode:
+            $ref: "#/definitions/mode_type"
+            default: "synchronous"
+            description: "执行模式"
+
+          deployment:
+            $ref: "#/definitions/deployment_type"
+            default: "server-only"
+            description: "部署位置"
+
+          rank:
+            type: "integer"
+            minimum: 1
+            default: 1
+            description: "执行顺序（数值越小越先执行）"
+
+          filtering_attributes:
+            type: "array"
+            description: "触发Plugin的字段列表"
+            items:
+              type: "string"
+
+          impersonate_user:
+            type: "string"
+            description: "模拟用户（systemuser id）"
+
+          async_job:
+            type: "object"
+            description: "异步作业配置"
+            properties:
+              category:
+                type: "string"
+              message_name:
+                type: "string"
+
+    custom_actions:
+      type: "array"
+      description: "自定义Action（Custom Message）配置列表"
+      items:
+        type: "object"
+        required: ["schema_name", "display_name"]
+        properties:
+          schema_name:
+            type: "string"
+            pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+            description: "Action唯一名称（遵循命名规则，自动加前缀）"
+
+          display_name:
+            type: "string"
+            minLength: 1
+            description: "Action显示名称"
+
+          description:
+            type: "string"
+            description: "Action描述"
+
+          entity:
+            type: "string"
+            default: ""
+            description: "关联实体logical_name（空字符串表示全局Action）"
+
+          process_type:
+            $ref: "#/definitions/process_type"
+            default: "action"
+            description: "进程类型"
+
+          parameters:
+            type: "array"
+            description: "输入参数列表"
+            items:
+              type: "object"
+              required: ["schema_name", "display_name", "type"]
+              properties:
+                schema_name:
+                  type: "string"
+                  pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+                  description: "参数schema_name"
+
+                display_name:
+                  type: "string"
+                  description: "参数显示名称"
+
+                description:
+                  type: "string"
+                  description: "参数描述"
+
+                type:
+                  $ref: "#/definitions/parameter_type"
+                  description: "参数数据类型"
+
+                required:
+                  type: "boolean"
+                  default: false
+                  description: "是否必填"
+
+                entity:
+                  type: "string"
+                  description: "关联实体（EntityReference类型时必填）"
+
+                default_value:
+                  type: "string"
+                  description: "默认值"
+
+          return_type:
+            type: "object"
+            description: "返回值配置"
+            properties:
+              schema_name:
+                type: "string"
+                description: "返回值schema_name"
+
+              display_name:
+                type: "string"
+                description: "返回值显示名称"
+
+              type:
+                $ref: "#/definitions/parameter_type"
+                description: "返回值数据类型"
+
+              entity:
+                type: "string"
+                description: "关联实体（EntityReference类型时必填）"
+
+# 示例
+example:
+  solution:
+    schema_name: "payment_solution"
+    auto_add: true
+
+  assembly:
+    schema_name: "new_payment_plugins"
+    display_name: "认款业务插件"
+    description: "处理认款单创建、审批的业务逻辑插件"
+    version: "1.0.0.0"
+    project_path: "../../plugins/PaymentPlugin/PaymentPlugin.csproj"
+    build_configuration: "Release"
+    source_type: 0
+
+  steps:
+    - schema_name: "new_payment_create_pre_validation"
+      display_name: "认款单创建前验证"
+      description: "验证认款单必填字段和业务规则"
+      message: "Create"
+      entity: "new_payment_recognition"
+      stage: "pre-validation"
+      mode: "synchronous"
+      deployment: "server-only"
+      rank: 1
+      filtering_attributes:
+        - "new_payment_number"
+        - "new_payment_amount"
+
+  custom_actions:
+    - schema_name: "new_calculate_payment_score"
+      display_name: "计算认款评分"
+      description: "根据认款金额和类型计算评分"
+      entity: ""
+      process_type: "action"
+      parameters:
+        - schema_name: "new_payment_target"
+          display_name: "认款单"
+          type: "EntityReference"
+          required: true
+          entity: "new_payment_recognition"
+        - schema_name: "new_score_threshold"
+          display_name: "评分阈值"
+          type: "Integer"
+          required: false
+      return_type:
+        schema_name: "new_score_result"
+        display_name: "评分结果"
+        type: "Integer"

@@ -93,6 +93,22 @@ class PluginAgent:
                     arguments.get("project_path")  # type: ignore[arg-type]
                 )
 
+            elif tool_name == "plugin_register_action":
+                return await self.register_custom_action(
+                    arguments.get("schema_name"),  # type: ignore[arg-type]
+                    arguments.get("display_name"),  # type: ignore[arg-type]
+                    arguments.get("entity"),
+                    arguments.get("description"),
+                    arguments.get("parameters"),  # type: ignore[arg-type]
+                    arguments.get("return_type"),  # type: ignore[arg-type]
+                    arguments.get("config", {})
+                )
+
+            elif tool_name == "plugin_list_custom_actions":
+                return await self.list_custom_actions(
+                    arguments.get("filter")
+                )
+
             else:
                 return json.dumps({
                     "error": f"Unknown tool: {tool_name}"
@@ -743,3 +759,258 @@ class PluginAgent:
                 "watch_mode": config.get("watch_mode", False)
             }
         }
+
+    # ==================== 自定义 Action 注册 ====================
+
+    async def register_custom_action(
+        self,
+        schema_name: str,
+        display_name: str,
+        entity: str = None,
+        description: str = None,
+        parameters: list[dict[str, Any]] = None,
+        return_type: dict[str, Any] = None,
+        config: dict[str, Any] = None
+    ) -> str:
+        """
+        注册自定义 Action (SDK Message)
+
+        Args:
+            schema_name: Action 唯一名称（遵循命名规则，如 new_calculate_score）
+            display_name: 显示名称
+            entity: 实体 logical_name（空字符串表示全局 Action）
+            description: 描述
+            parameters: 输入参数列表
+            return_type: 返回值配置
+            config: 额外配置
+
+        Returns:
+            注册结果
+        """
+        config = config or {}
+
+        try:
+            if not self.core_agent:
+                return json.dumps({
+                    "error": "No core agent available"
+                }, indent=2)
+
+            client = self.core_agent.get_client()
+
+            # 1. 创建 SDK Message
+            sdk_message_data = {
+                "name": schema_name,
+                "isprivate": False,
+                "category": {"Value": 0},  # 0=Custom, 1=Standard
+                "availability": config.get("availability", 1),  # 1=Client, 2=Server
+                "isworkflowaction": config.get("is_workflow_action", True),
+                "expand": config.get("expand", "none")
+            }
+
+            url = client.get_api_url("sdkmessages")
+            response = client.session.post(url, json=sdk_message_data)
+            response.raise_for_status()
+
+            sdk_message_result = response.json()
+            sdk_message_id = sdk_message_result.get("sdkmessageid")
+
+            # 2. 创建 SDK Message Filter（用于实体特定的 Action）
+            if entity:
+                filter_data = {
+                    "sdkmessageid@odata.bind": f"/sdkmessages({sdk_message_id})",
+                    "primaryentity": entity,
+                    "iscustomprocessingstepallowed": True
+                }
+
+                filter_url = client.get_api_url("sdkmessagefilters")
+                filter_response = client.session.post(filter_url, json=filter_data)
+                filter_response.raise_for_status()
+
+            # 3. 创建 Request Parameters（输入参数）
+            for i, param in enumerate(parameters or []):
+                param_data = {
+                    "sdkmessageid@odata.bind": f"/sdkmessages({sdk_message_id})",
+                    "name": param.get("schema_name"),
+                    "description": param.get("description") or param.get("display_name", ""),
+                    "type": {"Value": self._map_parameter_type(param.get("type"))},
+                    "position": i + 1,
+                    "isoptional": not param.get("required", False)
+                }
+
+                # EntityReference 类型需要指定实体
+                if param.get("type") == "EntityReference":
+                    param_data["entitylogicalname"] = param.get("entity")
+
+                request_url = client.get_api_url("sdkmessagerequests")
+                request_response = client.session.post(request_url, json=param_data)
+                request_response.raise_for_status()
+
+            # 4. 创建 Response Parameter（返回值）
+            if return_type:
+                response_data = {
+                    "sdkmessageid@odata.bind": f"/sdkmessages({sdk_message_id})",
+                    "name": return_type.get("schema_name", "Response"),
+                    "description": return_type.get("display_name", "Response"),
+                    "type": {"Value": self._map_parameter_type(return_type.get("type"))},
+                    "position": 1
+                }
+
+                # EntityReference 类型需要指定实体
+                if return_type.get("type") == "EntityReference":
+                    response_data["entitylogicalname"] = return_type.get("entity")
+
+                response_url = client.get_api_url("sdkmessageresponses")
+                response_response = client.session.post(response_url, json=response_data)
+                response_response.raise_for_status()
+
+            return json.dumps({
+                "success": True,
+                "action_name": schema_name,
+                "display_name": display_name,
+                "sdkmessage_id": sdk_message_id,
+                "entity": entity or "global",
+                "parameters_count": len(parameters or []),
+                "has_return_type": return_type is not None
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            return json.dumps({
+                "error": f"Custom action registration failed: {str(e)}"
+            }, indent=2)
+
+    def _map_parameter_type(self, param_type: str) -> int:
+        """
+        映射参数类型到 Dataverse 整数值
+
+        Args:
+            param_type: 参数类型字符串
+
+        Returns:
+            Dataverse 类型代码
+        """
+        type_mapping = {
+            "EntityReference": 10,   # Entity
+            "Lookup": 10,            # Same as EntityReference
+            "String": 9,             # String
+            "Memo": 9,               # Memo (same as String)
+            "Integer": 3,            # Integer
+            "BigInt": 3,             # BigInt (same as Integer)
+            "Decimal": 5,            # Decimal
+            "Double": 5,             # Double (same as Decimal)
+            "Boolean": 0,            # Boolean
+            "DateTime": 4,           # DateTime
+            "DateAndTime": 4,        # Same as DateTime
+            "Money": 7,              # Money
+            "Picklist": 2,           # Picklist
+            "MultiSelectPicklist": 2, # Multi-select (same as Picklist)
+            "Uniqueidentifier": 8,   # UniqueIdentifier
+            "State": 0,              # State (same as Boolean)
+            "Status": 0,             # Status (same as Boolean)
+            "EntityName": 10         # EntityName (same as EntityReference)
+        }
+        return type_mapping.get(param_type, 9)  # Default to String
+
+    async def link_plugin_to_custom_action(
+        self,
+        plugin_name: str,
+        action_name: str,
+        stage: str = "post-operation",
+        config: dict[str, Any] = None
+    ) -> str:
+        """
+        将插件链接到自定义 Action（创建 Plugin Step）
+
+        Args:
+            plugin_name: 插件程序集名称
+            action_name: 自定义 Action 名称
+            stage: 执行阶段
+            config: Step 配置
+
+        Returns:
+            Step 创建结果
+        """
+        config = config or {}
+
+        try:
+            # 自定义 Action 的 entity 通常是 "none" 或空字符串
+            return await self.register_step(
+                plugin_name=plugin_name,
+                entity=config.get("entity", "none"),
+                message=action_name,
+                stage=stage,
+                config={
+                    "name": config.get("name", f"{plugin_name}_{action_name}"),
+                    "mode": 0 if config.get("mode") == "synchronous" else 1,
+                    "deployment": 0,  # Server-only
+                    "filtering_attributes": config.get("filtering_attributes", ""),
+                    "description": config.get("description", "")
+                }
+            )
+
+        except Exception as e:
+            return json.dumps({
+                "error": f"Failed to link plugin to action: {str(e)}"
+            }, indent=2)
+
+    async def list_custom_actions(self, filter_expr: str = None) -> str:
+        """
+        列出自定义 Actions（SDK Messages）
+
+        Args:
+            filter_expr: 可选的过滤条件
+
+        Returns:
+            自定义 Actions 列表
+        """
+        try:
+            if not self.core_agent:
+                return json.dumps({
+                    "error": "No core agent available"
+                }, indent=2)
+
+            client = self.core_agent.get_client()
+
+            # 查询自定义 Messages（category = 0）
+            url = client.get_api_url("sdkmessages")
+
+            # 基础过滤条件：自定义 actions
+            filters = ["category/Value eq 0"]
+
+            # 添加自定义过滤条件
+            if filter_expr:
+                filters.append(filter_expr)
+
+            filter_param = "$filter=" + " and ".join(filters)
+            expand = "$expand=sdkmessagefilters($select=primaryentity),sdkmessagerequest"
+
+            response = client.session.get(f"{url}?{filter_param}&{expand}")
+            response.raise_for_status()
+
+            actions = response.json().get("value", [])
+
+            result = []
+            for action in actions:
+                # 获取关联的实体
+                filters = action.get("sdkmessagefilters", [])
+                entity = filters[0].get("primaryentity") if filters else "global"
+
+                # 获取参数数量
+                parameters = action.get("sdkmessagerequest", [])
+
+                result.append({
+                    "sdkmessage_id": action.get("sdkmessageid"),
+                    "schema_name": action.get("name"),
+                    "is_workflow_action": action.get("isworkflowaction"),
+                    "availability": action.get("availability"),
+                    "entity": entity,
+                    "parameters_count": len(parameters)
+                })
+
+            return json.dumps({
+                "custom_actions": result
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            return json.dumps({
+                "error": f"Failed to list custom actions: {str(e)}"
+            }, indent=2)

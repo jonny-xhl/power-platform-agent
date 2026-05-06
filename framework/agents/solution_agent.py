@@ -1323,6 +1323,19 @@ class SolutionAgent:
                     resources = client.get_webresources(filter=f"name eq '{schema_name}'")
                     return len(resources) > 0
 
+            elif component_type == "plugin":
+                # 检查 Plugin Assembly 是否存在
+                assembly_name = data.get("assembly", {}).get("schema_name")
+                if assembly_name:
+                    # 通过 PluginAgent 检查程序集是否存在
+                    plugin_agent = self.core_agent.plugin_agent
+                    if plugin_agent:
+                        assemblies = json.loads(await plugin_agent.list_assemblies())
+                        for asm in assemblies.get("assemblies", []):
+                            if asm.get("name") == assembly_name:
+                                return True
+                return False
+
             return False
 
         except Exception:
@@ -1443,6 +1456,11 @@ class SolutionAgent:
                 result = await metadata_agent.create_view(component_path, mode=mode)
                 return json.loads(result)
 
+            elif component_type == "plugin":
+                # Plugin 同步：构建、部署、注册 Steps、自定义 Actions
+                result = await self._sync_plugin(client, component_path, action)
+                return result
+
             elif component_type == "optionset":
                 # 选项集同步需要特殊处理
                 return {"success": True, "message": "OptionSet sync not yet implemented"}
@@ -1456,6 +1474,192 @@ class SolutionAgent:
 
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    async def _sync_plugin(
+        self,
+        client: Any,
+        plugin_path: str,
+        action: str
+    ) -> dict[str, Any]:
+        """
+        同步 Plugin 到 Dataverse
+
+        流程:
+        1. 解析 Plugin YAML
+        2. 调用 PluginAgent.build() 构建 .NET 项目
+        3. 调用 PluginAgent.deploy() 部署程序集
+        4. 对每个 step 调用 PluginAgent.register_step()
+        5. 对每个 custom_action 调用 PluginAgent.register_custom_action()
+        6. 返回 assembly_id 和 step_ids 用于添加到解决方案
+
+        Args:
+            client: Dataverse 客户端
+            plugin_path: Plugin YAML 文件路径
+            action: 操作类型 (create/update/replace)
+
+        Returns:
+            同步结果
+        """
+        try:
+            # 解析 Plugin YAML
+            plugin_path_obj = Path(plugin_path)
+            if not plugin_path_obj.exists():
+                return {"success": False, "error": f"Plugin file not found: {plugin_path}"}
+
+            with open(plugin_path_obj, "r", encoding="utf-8") as f:
+                plugin_config = yaml.safe_load(f)
+
+            assembly_config = plugin_config.get("assembly", {})
+            steps_config = plugin_config.get("steps", [])
+            custom_actions_config = plugin_config.get("custom_actions", [])
+
+            # 获取或创建 PluginAgent
+            plugin_agent = self.core_agent.plugin_agent
+            if not plugin_agent:
+                from framework.agents.plugin_agent import PluginAgent
+                plugin_agent = PluginAgent(core_agent=self.core_agent)
+                self.core_agent.plugin_agent = plugin_agent
+
+            results = {
+                "success": True,
+                "action": action,
+                "assembly": None,
+                "steps": [],
+                "custom_actions": [],
+                "component_type": "plugin"
+            }
+
+            # 1. 构建项目
+            project_path = assembly_config.get("project_path")
+            if project_path:
+                # 相对路径解析
+                plugin_dir = plugin_path_obj.parent
+                full_project_path = plugin_dir / project_path
+
+                build_config = assembly_config.get("build_configuration", "Release")
+                build_result = await plugin_agent.build(str(full_project_path), build_config)
+                build_data = json.loads(build_result)
+
+                if not build_data.get("success"):
+                    return {
+                        "success": False,
+                        "error": f"Build failed: {build_data.get('error')}",
+                        "build_output": build_data
+                    }
+
+                dll_path = build_data.get("output_dll")
+            else:
+                # 使用预构建的 DLL
+                dll_path = None
+
+            # 2. 部署程序集
+            assembly_name = assembly_config.get("schema_name")
+            if not assembly_name:
+                return {"success": False, "error": "assembly.schema_name is required"}
+
+            # 检查程序集是否已存在
+            existing_assemblies = json.loads(await plugin_agent.list_assemblies())
+            assembly_id = None
+            assembly_existed = False
+
+            for asm in existing_assemblies.get("assemblies", []):
+                if asm.get("name") == assembly_name:
+                    assembly_id = asm.get("id")
+                    assembly_existed = True
+                    results["assembly"] = {
+                        "id": assembly_id,
+                        "schema_name": assembly_name,
+                        "existed": True
+                    }
+                    break
+
+            # 部署或更新程序集
+            if not assembly_id or action == "update":
+                deploy_result = await plugin_agent.deploy(str(dll_path) if dll_path else assembly_name)
+                deploy_data = json.loads(deploy_result)
+
+                if not deploy_data.get("success"):
+                    return {
+                        "success": False,
+                        "error": f"Deploy failed: {deploy_data.get('error')}"
+                    }
+
+                # 获取部署后的程序集 ID
+                existing_assemblies = json.loads(await plugin_agent.list_assemblies())
+                for asm in existing_assemblies.get("assemblies", []):
+                    if asm.get("name") == assembly_name:
+                        assembly_id = asm.get("id")
+                        results["assembly"] = {
+                            "id": assembly_id,
+                            "schema_name": assembly_name,
+                            "existed": assembly_existed
+                        }
+                        break
+
+            # 3. 注册 Plugin Steps
+            for step_config in steps_config:
+                # 映射配置
+                stage_mapping = {
+                    "pre-validation": "pre-validation",
+                    "pre-operation": "pre-operation",
+                    "post-operation": "post-operation"
+                }
+
+                mode_mapping = {
+                    "synchronous": "synchronous",
+                    "asynchronous": "asynchronous"
+                }
+
+                deployment_mapping = {
+                    "server-only": 0,
+                    "client-only": 1,
+                    "both": 2
+                }
+
+                step_data = {
+                    "name": step_config.get("schema_name"),
+                    "mode": 0 if mode_mapping.get(step_config.get("mode", "synchronous")) == "synchronous" else 1,
+                    "deployment": deployment_mapping.get(step_config.get("deployment", "server-only"), 0),
+                    "filtering_attributes": ",".join(step_config.get("filtering_attributes", [])),
+                    "description": step_config.get("description", ""),
+                    "rank": step_config.get("rank", 1)
+                }
+
+                step_result = await plugin_agent.register_step(
+                    plugin_name=assembly_name,
+                    entity=step_config.get("entity"),
+                    message=step_config.get("message"),
+                    stage=step_mapping.get(step_config.get("stage", "post-operation")),
+                    config=step_data
+                )
+
+                step_result_data = json.loads(step_result)
+                results["steps"].append(step_result_data)
+
+            # 4. 创建自定义 Actions
+            for action_config in custom_actions_config:
+                action_result = await plugin_agent.register_custom_action(
+                    schema_name=action_config.get("schema_name"),
+                    display_name=action_config.get("display_name"),
+                    entity=action_config.get("entity") or None,
+                    description=action_config.get("description"),
+                    parameters=action_config.get("parameters", []),
+                    return_type=action_config.get("return_type"),
+                    config={}
+                )
+
+                action_result_data = json.loads(action_result)
+                results["custom_actions"].append(action_result_data)
+
+            return results
+
+        except Exception as e:
+            import traceback
+            return {
+                "success": False,
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }
 
     # ==================== 工具方法 ====================
 
@@ -1819,7 +2023,10 @@ class SolutionAgent:
                 "entity": 1,
                 "form": 60,      # System Form
                 "view": 26,      # Saved Query
-                "webresource": 61  # Web Resource
+                "webresource": 61,  # Web Resource
+                "plugin": 90,        # Plugin Assembly
+                "sdkmessage": 91,    # Custom Action (SDK Message)
+                "sdkmessageprocessingstep": 92  # Plugin Step
             }
 
             if comp_type not in type_codes:
@@ -1827,6 +2034,12 @@ class SolutionAgent:
                     "success": False,
                     "error": f"Unknown component type: {comp_type}"
                 }
+
+            # ===== Plugin 组件特殊处理：包含多个子组件 =====
+            if comp_type == "plugin":
+                return await self._add_plugin_components_to_solution(
+                    client, solution_name, sync_result, comp_path
+                )
 
             component_type_code = type_codes[comp_type]
 
@@ -1839,6 +2052,10 @@ class SolutionAgent:
                     object_id = sync_result["entityid"]
                 elif comp_type == "form" and "formid" in sync_result:
                     object_id = sync_result["formid"]
+                elif comp_type == "sdkmessage" and "sdkmessage_id" in sync_result:
+                    object_id = sync_result["sdkmessage_id"]
+                elif comp_type == "sdkmessageprocessingstep" and "step_id" in sync_result:
+                    object_id = sync_result["step_id"]
 
             # 如果 sync_result 中没有 ID，通过 YAML 获取并查询
             if not object_id:
@@ -1901,6 +2118,98 @@ class SolutionAgent:
             return {
                 "success": False,
                 "error": f"Failed to add component to solution: {str(e)}"
+            }
+
+    async def _add_plugin_components_to_solution(
+        self,
+        client: Any,
+        solution_name: str,
+        sync_result: dict[str, Any],
+        plugin_path: str
+    ) -> dict[str, Any]:
+        """
+        将 Plugin 组件添加到解决方案
+
+        Plugin 包含多个子组件：
+        - Plugin Assembly (type=90)
+        - Plugin Steps (type=92)
+        - Custom Actions/SDK Messages (type=91)
+
+        Args:
+            client: Dataverse 客户端
+            solution_name: 解决方案名称
+            sync_result: _sync_plugin 返回的同步结果
+            plugin_path: Plugin YAML 文件路径
+
+        Returns:
+            添加结果
+        """
+        results = {
+            "success": True,
+            "added": [],
+            "failed": [],
+            "assembly": None,
+            "steps": [],
+            "custom_actions": []
+        }
+
+        try:
+            # 1. 添加 Plugin Assembly
+            assembly_info = sync_result.get("assembly", {})
+            if assembly_info and assembly_info.get("id"):
+                assembly_id = assembly_info["id"]
+                result = client.add_solution_component(
+                    solution_name=solution_name,
+                    component_type=90,  # Plugin Assembly
+                    object_id=assembly_id
+                )
+                if result.get("success") or result.get("error", "").startswith("Duplicate"):
+                    results["added"].append(f"assembly:{assembly_info.get('schema_name')}")
+                    results["assembly"] = {"id": assembly_id, "name": assembly_info.get("schema_name")}
+                else:
+                    results["failed"].append(f"assembly:{assembly_info.get('schema_name')} - {result.get('error')}")
+                    results["success"] = False
+
+            # 2. 添加 Plugin Steps
+            for step_result in sync_result.get("steps", []):
+                if step_result.get("success") and step_result.get("step_id"):
+                    step_id = step_result["step_id"]
+                    result = client.add_solution_component(
+                        solution_name=solution_name,
+                        component_type=92,  # Plugin Step
+                        object_id=step_id
+                    )
+                    if result.get("success") or result.get("error", "").startswith("Duplicate"):
+                        results["added"].append(f"step:{step_result.get('step')}")
+                        results["steps"].append({"id": step_id, "name": step_result.get("step")})
+                    else:
+                        results["failed"].append(f"step:{step_result.get('step')} - {result.get('error')}")
+                        results["success"] = False
+
+            # 3. 添加 Custom Actions (SDK Messages)
+            for action_result in sync_result.get("custom_actions", []):
+                if action_result.get("success") and action_result.get("sdkmessage_id"):
+                    action_id = action_result["sdkmessage_id"]
+                    result = client.add_solution_component(
+                        solution_name=solution_name,
+                        component_type=91,  # SDK Message
+                        object_id=action_id
+                    )
+                    if result.get("success") or result.get("error", "").startswith("Duplicate"):
+                        results["added"].append(f"action:{action_result.get('action_name')}")
+                        results["custom_actions"].append({"id": action_id, "name": action_result.get("action_name")})
+                    else:
+                        results["failed"].append(f"action:{action_result.get('action_name')} - {result.get('error')}")
+                        results["success"] = False
+
+            return results
+
+        except Exception as e:
+            import traceback
+            return {
+                "success": False,
+                "error": f"Failed to add plugin components: {str(e)}",
+                "traceback": traceback.format_exc()
             }
 
     async def _publish_solution_wrapper(

@@ -1,0 +1,194 @@
+# 认款业务插件元数据定义
+# 包含认款单创建验证和审批流程的Plugin Step配置
+
+$schema: "../_schema/plugin_schema.yaml"
+
+# 解决方案声明
+solution:
+  schema_name: "payment_solution"
+  auto_add: true
+
+# ================================================================
+# 程序集配置
+# ================================================================
+assembly:
+  # 程序集唯一名称（遵循命名规则，自动加前缀）
+  schema_name: "new_payment_plugins"
+
+  # 程序集显示名称
+  display_name: "认款业务插件"
+
+  # 程序集描述
+  description: "处理认款单创建、审批的业务逻辑插件，包含数据验证、状态更新和通知功能"
+
+  # 版本号
+  version: "1.0.0.0"
+
+  # .NET 项目文件路径（相对于本文件的路径）
+  project_path: "../../plugins/PaymentPlugin/PaymentPlugin.csproj"
+
+  # 构建配置
+  build_configuration: "Release"
+
+  # 程序集存储位置：0=Database, 1=Disk, 2=Global
+  source_type: 0
+
+# ================================================================
+# Plugin Step 配置
+# ================================================================
+steps:
+  # ----- 认款单创建前验证 -----
+  - schema_name: "new_payment_create_pre_validation"
+    display_name: "认款单创建前验证"
+    description: "验证认款单必填字段和业务规则，包括金额范围、认款类型有效性等"
+    message: "Create"
+    entity: "new_payment_recognition"
+    stage: "pre-validation"
+    mode: "synchronous"
+    deployment: "server-only"
+    rank: 1
+    filtering_attributes:
+      - "new_payment_number"
+      - "new_payment_amount"
+      - "new_payment_type"
+      - "new_payment_date"
+
+  # ----- 认款单创建后处理 -----
+  - schema_name: "new_payment_create_post_operation"
+    display_name: "认款单创建后处理"
+    description: "认款单创建成功后自动设置初始审批状态为草稿"
+    message: "Create"
+    entity: "new_payment_recognition"
+    stage: "post-operation"
+    mode: "synchronous"
+    deployment: "server-only"
+    rank: 1
+
+  # ----- 认款单更新前验证 -----
+  - schema_name: "new_payment_update_pre_validation"
+    display_name: "认款单更新前验证"
+    description: "验证认款单更新权限，防止已审核的单据被修改"
+    message: "Update"
+    entity: "new_payment_recognition"
+    stage: "pre-validation"
+    mode: "synchronous"
+    deployment: "server-only"
+    rank: 1
+    filtering_attributes:
+      - "new_approval_status"
+      - "new_payment_amount"
+
+  # ----- 认款单更新后通知 -----
+  - schema_name: "new_payment_update_post_operation"
+    display_name: "认款单更新后通知"
+    description: "认款单审批状态变更后发送通知给相关人员"
+    message: "Update"
+    entity: "new_payment_recognition"
+    stage: "post-operation"
+    mode: "asynchronous"
+    deployment: "server-only"
+    rank: 1
+    filtering_attributes:
+      - "new_approval_status"
+
+  # ----- 认款单删除前验证 -----
+  - schema_name: "new_payment_delete_pre_validation"
+    display_name: "认款单删除前验证"
+    description: "验证认款单删除权限，已审核或已使用的认款单不允许删除"
+    message: "Delete"
+    entity: "new_payment_recognition"
+    stage: "pre-validation"
+    mode: "synchronous"
+    deployment: "server-only"
+    rank: 1
+
+# ================================================================
+# 自定义 Action (Custom Action Message)
+# ================================================================
+custom_actions:
+  # ----- 计算认款评分 Action -----
+  - schema_name: "new_calculate_payment_score"
+    display_name: "计算认款评分"
+    description: "根据认款金额、认款类型和历史记录综合计算认款评分"
+    entity: ""  # 空字符串表示全局 Action
+    process_type: "action"
+    parameters:
+      # 参数：认款单实体引用
+      - schema_name: "new_payment_target"
+        display_name: "认款单"
+        description: "要计算评分的认款单记录"
+        type: "EntityReference"
+        required: true
+        entity: "new_payment_recognition"
+
+      # 参数：评分阈值
+      - schema_name: "new_score_threshold"
+        display_name: "评分阈值"
+        description: "评分阈值，低于此值时需要人工审核"
+        type: "Integer"
+        required: false
+        default_value: "60"
+
+      # 参数：是否包含历史记录
+      - schema_name: "new_include_history"
+        display_name: "包含历史"
+        description: "是否包含历史认款记录在计算中"
+        type: "Boolean"
+        required: false
+        default_value: "false"
+
+      # 参数：备注
+      - schema_name: "new_remarks"
+        display_name: "备注"
+        description: "计算备注信息"
+        type: "String"
+        required: false
+
+    # 返回值：评分结果实体
+    return_type:
+      schema_name: "new_score_result"
+      display_name: "评分结果"
+      type: "EntityReference"
+      entity: "new_payment_score"
+
+  # ----- 批量审批认款单 Action -----
+  - schema_name: "new_bulk_approve_payments"
+    display_name: "批量审批认款单"
+    description: "批量审批多笔认款单，支持统一审批意见和日期"
+    entity: ""
+    process_type: "action"
+    parameters:
+      # 参数：认款单ID列表
+      - schema_name: "new_payment_ids"
+        display_name: "认款单列表"
+        description: "要审批的认款单ID列表，逗号分隔"
+        type: "String"
+        required: true
+
+      # 参数：审批状态
+      - schema_name: "new_approval_status"
+        display_name: "审批状态"
+        description: "审批结果状态"
+        type: "Picklist"
+        required: true
+
+      # 参数：审批日期
+      - schema_name: "new_approved_date"
+        display_name: "审批日期"
+        description: "审批通过的日期"
+        type: "DateTime"
+        required: false
+
+      # 参数：审批意见
+      - schema_name: "new_approval_comments"
+        display_name: "审批意见"
+        description: "审批人的意见和备注"
+        type: "Memo"
+        required: false
+
+    # 返回值：审批结果汇总
+    return_type:
+      schema_name: "new_bulk_approval_result"
+      display_name: "批量审批结果"
+      type: "EntityReference"
+      entity: "new_bulk_approval_result"

@@ -162,7 +162,7 @@ async def list_tools() -> list[Tool]:
                     "type": {
                         "type": "string",
                         "description": "元数据类型",
-                        "enum": ["table", "form", "view", "webresource", "ribbon", "sitemap"]
+                        "enum": ["table", "form", "view", "webresource", "ribbon", "sitemap", "plugin"]
                     }
                 },
                 "required": ["file_path"]
@@ -183,7 +183,7 @@ async def list_tools() -> list[Tool]:
                         "description": "Schema类型",
                         "enum": ["table_schema", "form_schema", "view_schema",
                                  "webresource_schema", "ribbon_schema",
-                                 "sitemap_schema"]
+                                 "sitemap_schema", "plugin_schema"]
                     }
                 },
                 "required": ["metadata_yaml", "schema"]
@@ -627,6 +627,74 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["project_path"]
+            }
+        ),
+        Tool(
+            name="plugin_register_action",
+            description="注册自定义 Action Message (SDK Message)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "schema_name": {
+                        "type": "string",
+                        "description": "Action唯一名称（遵循命名规则，如new_calculate_score）"
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "description": "Action显示名称"
+                    },
+                    "entity": {
+                        "type": "string",
+                        "description": "实体logical_name（空字符串表示全局Action）"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Action描述"
+                    },
+                    "parameters": {
+                        "type": "array",
+                        "description": "输入参数列表",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "schema_name": {"type": "string"},
+                                "display_name": {"type": "string"},
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["EntityReference", "String", "Integer",
+                                           "Decimal", "Boolean", "DateTime",
+                                           "Money", "Picklist", "Memo", "Uniqueidentifier"]
+                                },
+                                "required": {"type": "boolean"},
+                                "entity": {"type": "string"}
+                            }
+                        }
+                    },
+                    "return_type": {
+                        "type": "object",
+                        "description": "返回值配置",
+                        "properties": {
+                            "schema_name": {"type": "string"},
+                            "display_name": {"type": "string"},
+                            "type": {"type": "string"},
+                            "entity": {"type": "string"}
+                        }
+                    }
+                },
+                "required": ["schema_name", "display_name"]
+            }
+        ),
+        Tool(
+            name="plugin_list_custom_actions",
+            description="列出自定义 Action Messages",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filter": {
+                        "type": "string",
+                        "description": "过滤条件（可选）"
+                    }
+                }
             }
         ),
 
