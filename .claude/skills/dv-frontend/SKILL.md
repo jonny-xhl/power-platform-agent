@@ -14,6 +14,438 @@ description: |
 
 本文档提供 Power Platform Model-Driven App 前端开发的完整指南，涵盖表单、视图、Web 资源和业务规则的设计与实现。
 
+---
+
+# XRM.Common.js - Dataverse 前端通用库
+
+> 一个类似 jQuery 的 Dataverse 前端开发库，封装所有常用的 Xrm API 操作。
+
+## 快速开始
+
+### 1. 在表单中添加库引用
+
+```yaml
+# metadata/forms/your_entity.yaml
+events:
+  - schema_name: "onload"
+    handlers:
+      - function_name: "handleFormLoad"
+        library: "new_shared/js/XRM.Common.js"    # 引用核心库
+        enabled: true
+```
+
+### 2. 初始化库
+
+```javascript
+function handleFormLoad(executionContext) {
+    // 初始化 XRM.Common
+    XRM.Common.init(executionContext);
+
+    // 现在可以使用所有 API
+    var accountName = XRM.Common.Form.getValue('name');
+}
+```
+
+### 3. 基础用法示例
+
+```javascript
+// 表单操作
+XRM.Common.Form.setValue('new_field', 'value');
+XRM.Common.Form.setRequired('new_email', 'required');
+XRM.Common.Form.save('saveandclose');
+
+// 数据操作
+XRM.Common.Data.create('account', { name: 'Test' })
+    .then(function(res) { console.log('Created:', res.id); });
+
+// 导航操作
+XRM.Common.Nav.alert('操作成功');
+XRM.Common.Nav.openForm('account', recordId);
+
+// 链式调用
+XRM.Common.$('new_field')
+    .val('value')
+    .disable()
+    .hide();
+```
+
+## API 快速参考
+
+### Form 模块 - 表单操作
+
+| API | 说明 |
+|-----|------|
+| `Form.getValue(name)` | 获取字段值 |
+| `Form.setValue(name, value)` | 设置字段值 |
+| `Form.setValues({name: val})` | 批量设置值 |
+| `Form.setRequired(name, level)` | 设置必填级别 (`none`/`required`/`recommended`) |
+| `Form.setDisabled(name, flag)` | 启用/禁用字段 |
+| `Form.setVisible(name, flag)` | 显示/隐藏字段 |
+| `Form.setLabel(name, label)` | 设置字段标签 |
+| `Form.addNotification(name, msg, level)` | 添加字段通知 |
+| `Form.clearNotification(name)` | 清除字段通知 |
+| `Form.setFocus(name)` | 设置焦点 |
+| `Form.save(action?)` | 保存表单 (`save`/`saveandclose`/`saveandnew`) |
+| `Form.getId()` | 获取记录ID |
+| `Form.getEntityName()` | 获取实体名称 |
+| `Form.getIsDirty()` | 表单是否有未保存更改 |
+| `Form.isValid()` | 验证表单 |
+
+### Data 模块 - 数据操作 (Web API)
+
+| API | 说明 |
+|-----|------|
+| `Data.create(entity, data)` | 创建记录 |
+| `Data.retrieve(entity, id, columns?)` | 获取单条记录 |
+| `Data.update(entity, id, data)` | 更新记录 |
+| `Data.delete(entity, id)` | 删除记录 |
+| `Data.query(entity, options)` | 查询记录 |
+| `Data.fetchXml(fetchXml)` | FetchXML 查询 |
+| `Data.batch(operations)` | 批量操作 |
+| `Data.action(name, params, entity?, id?)` | 调用自定义 Action |
+| `Data.function(name, params)` | 调用自定义 Function |
+| `Data.whoAmI()` | 获取当前用户信息 |
+
+### Nav 模块 - 导航操作
+
+| API | 说明 |
+|-----|------|
+| `Nav.openForm(entity, id?, options?)` | 打开记录表单 |
+| `Nav.createForm(entity, data?, options?)` | 新建记录 |
+| `Nav.quickCreate(entity, data?)` | 快速创建 |
+| `Nav.openEntityList(entity, viewId?)` | 打开实体列表 |
+| `Nav.openUrl(url, width?, height?)` | 打开 URL |
+| `Nav.alert(message, title?)` | 警告对话框 |
+| `Nav.confirm(message, title?)` | 确认对话框 (返回 Promise) |
+| `Nav.error(message, details?)` | 错误对话框 |
+
+### UI 模块 - UI 操作
+
+| API | 说明 |
+|-----|------|
+| `UI.showInfo(message, id?)` | 显示信息通知 |
+| `UI.showWarning(message, id?)` | 显示警告通知 |
+| `UI.showError(message, id?)` | 显示错误通知 |
+| `UI.clearNotification(id?)` | 清除通知 |
+| `UI.showProgress(message?)` | 显示进度指示器 |
+| `UI.closeProgress()` | 关闭进度指示器 |
+| `UI.lookupObjects(options)` | 打开查找对话框 |
+
+### Ctx 模块 - 上下文信息
+
+| API | 说明 |
+|-----|------|
+| `Ctx.getUserId()` | 获取用户ID |
+| `Ctx.getUserName()` | 获取用户名 |
+| `Ctx.getUserRoles()` | 获取用户角色列表 |
+| `Ctx.getUserLcid()` | 获取用户语言代码 |
+| `Ctx.hasRole(roleName)` | 检查用户是否有指定角色 |
+| `Ctx.getOrgUniqueName()` | 获取组织唯一名称 |
+| `Ctx.getClientUrl()` | 获取客户端URL |
+| `Ctx.isOffline()` | 是否离线模式 |
+| `Ctx.translate(key, lcid?)` | 多语言翻译 |
+
+### Util 模块 - 工具函数
+
+| API | 说明 |
+|-----|------|
+| `Util.formatDate(date, format?)` | 日期格式化 |
+| `Util.formatNumber(num, decimals?)` | 数字格式化 |
+| `Util.formatCurrency(amount)` | 货币格式化 |
+| `Util.isEmpty(value)` | 空值检查 |
+| `Util.generateGuid()` | 生成 GUID |
+| `Util.isValidEmail(email)` | 邮箱验证 |
+| `Util.encodeUri(str)` | URI 编码 |
+| `Util.sleep(ms)` | 延迟执行 |
+| `Util.retry(fn, times?, delay?)` | 重试执行 |
+
+## 链式调用
+
+使用 `XRM.Common.$()` 实现 jQuery 风格的链式调用：
+
+```javascript
+// 单字段操作
+XRM.Common.$('new_field')
+    .val('value')           // 设置值
+    .disable()              // 禁用
+    .require('required')    // 设为必填
+    .show();                // 显示
+
+// 多字段批量操作
+XRM.Common.$(['field1', 'field2', 'field3'])
+    .val('default')
+    .disable()
+    .hide();
+
+// 获取值（链断裂）
+var value = XRM.Common.$('new_field').val();
+```
+
+**链式方法列表**：
+- `val(value?)` - 获取/设置值
+- `disable(flag?)` / `enable()` - 禁用/启用
+- `show()` / `hide()` / `toggle(visible?)` - 显示/隐藏
+- `require(level?)` / `optional()` - 设置必填级别
+- `focus()` - 设置焦点
+- `notify(msg, level?)` / `clearNotify()` - 通知操作
+
+## 常用代码示例
+
+### 示例1：表单初始化与验证
+
+```javascript
+function handleFormLoad(executionContext) {
+    XRM.Common.init(executionContext);
+
+    // 检查记录状态
+    var status = XRM.Common.Form.getValue('statuscode');
+    if (status === 1) {  // 已审批
+        XRM.Common.Form.setDisabled('new_amount', true);
+        XRM.Common.UI.showInfo('记录已审批，金额不可修改');
+    }
+}
+
+function handleFormSave(executionContext) {
+    var amount = XRM.Common.Form.getValue('new_amount');
+    if (!amount || amount <= 0) {
+        XRM.Common.Nav.alert('金额必须大于0');
+        executionContext.getEventArgs().preventDefault();
+    }
+}
+```
+
+### 示例2：级联更新字段
+
+```javascript
+function onAccountTypeChange(executionContext) {
+    var accountType = executionContext.getEventSource().getValue();
+
+    // 根据账户类型设置默认值
+    if (accountType === 100000001) {  // VIP客户
+        XRM.Common.Form.setValue('new_discount', 0.15);
+        XRM.Common.Form.setVisible('new_vip_level', true);
+    } else {
+        XRM.Common.Form.setValue('new_discount', 0);
+        XRM.Common.Form.setVisible('new_vip_level', false);
+    }
+}
+```
+
+### 示例3：调用自定义 Action
+
+```javascript
+function approveRequest() {
+    var recordId = XRM.Common.Form.getId();
+    var comment = XRM.Common.Form.getValue('new_comment');
+
+    XRM.Common.UI.showProgress('正在提交审批...');
+
+    XRM.Common.Data.action('new_ApproveRequest', {
+        RecordId: recordId,
+        Comment: comment
+    }, 'new_entity', recordId)
+        .then(function(result) {
+            XRM.Common.UI.closeProgress();
+            XRM.Common.UI.showInfo('审批成功');
+            XRM.Common.Form.refresh();
+        })
+        .catch(function(error) {
+            XRM.Common.UI.closeProgress();
+            XRM.Common.UI.showError('审批失败: ' + error.message);
+        });
+}
+```
+
+### 示例4：查询关联数据
+
+```javascript
+function loadRelatedAccounts() {
+    var contactId = XRM.Common.Form.getId();
+
+    XRM.Common.Data.fetchXml(
+        "<fetch version='1.0' mapping='logical'>" +
+        "  <entity name='account'>" +
+        "    <attribute name='name' />" +
+        "    <attribute name='accountnumber' />" +
+        "    <link-entity name='contact' from='accountid' to='accountid'>" +
+        "      <filter type='and'>" +
+        "        <condition attribute='contactid' operator='eq' value='" + contactId + "'/>" +
+        "      </filter>" +
+        "    </link-entity>" +
+        "  </entity>" +
+        "</fetch>"
+    ).then(function(result) {
+        console.log('Related accounts:', result.data);
+    });
+}
+```
+
+### 示例5：多语言支持
+
+```javascript
+// 在资源文件中定义翻译
+XRM.Common.Resources = {
+    'zh-CN': {
+        'save.confirm': '确定要保存记录吗？',
+        'save.success': '保存成功',
+        'validation.required': '此字段为必填项'
+    },
+    'en-US': {
+        'save.confirm': 'Are you sure you want to save?',
+        'save.success': 'Saved successfully',
+        'validation.required': 'This field is required'
+    }
+};
+
+// 使用翻译
+function showSaveConfirm() {
+    var message = XRM.Common.Ctx.translate('save.confirm');
+    XRM.Common.Nav.confirm(message).then(function(confirmed) {
+        if (confirmed) {
+            XRM.Common.Form.save();
+        }
+    });
+}
+```
+
+### 示例6：批量操作
+
+```javascript
+// 批量设置字段
+XRM.Common.Form.setValues({
+    'new_field1': 'value1',
+    'new_field2': 'value2',
+    'new_field3': 'value3'
+});
+
+// 批量禁用
+XRM.Common.Form.setDisabledLevel(['field1', 'field2', 'field3'], true);
+
+// 批量设置必填
+XRM.Common.Form.setRequiredLevel(['new_email', 'new_phone'], 'required');
+```
+
+### 示例7：打开相关记录
+
+```javascript
+function openRelatedAccount() {
+    var accountId = XRM.Common.Form.getValue('new_accountid');
+    if (accountId) {
+        XRM.Common.Nav.openForm('account', accountId, {
+            openInNewWindow: true
+        });
+    } else {
+        XRM.Common.UI.showWarning('请先选择关联账户');
+    }
+}
+```
+
+### 示例8：防抖输入
+
+```javascript
+var debouncedSearch = XRM.Common.Util.debounce(function(searchTerm) {
+    XRM.Common.Data.query('account', "name like '%" + searchTerm + "%'", ['name', 'accountnumber'])
+        .then(function(result) {
+            // 处理搜索结果
+            console.log('Search results:', result.data);
+        });
+}, 500);
+
+function onSearchFieldChange(executionContext) {
+    var searchTerm = executionContext.getEventSource().getValue();
+    if (searchTerm && searchTerm.length >= 2) {
+        debouncedSearch(searchTerm);
+    }
+}
+```
+
+## 简写别名
+
+为了方便快速开发，库提供了简写别名：
+
+```javascript
+// 等价写法
+XRM.Common.Form.setValue()  ===  XRM.Common.$form.setValue()
+XRM.Common.Data.create()    ===  XRM.Common.$data.create()
+XRM.Common.Nav.alert()      ===  XRM.Common.$nav.alert()
+XRM.Common.UI.showInfo()    ===  XRM.Common.$ui.showInfo()
+XRM.Common.Ctx.getUserId()  ===  XRM.Common.$ctx.getUserId()
+XRM.Common.Util.formatDate() === XRM.Common.$util.formatDate()
+```
+
+## TypeScript 支持
+
+库包含完整的 TypeScript 类型定义 (`XRM.Common.d.ts`)：
+
+```typescript
+// 类型安全调用
+var value: string = XRM.Common.Form.getValue('new_field');
+
+// Promise 类型推断
+XRM.Common.Data.create('account', { name: 'Test' })
+    .then((res: XRM.Common.DataResult) => {
+        console.log('Created:', res.id);
+    });
+
+// 链式调用类型
+XRM.Common.$('field')
+    .val('value')
+    .disable()
+    .show();
+```
+
+## 配置选项
+
+```javascript
+// 设置调试模式
+XRM.Common.Config.debug = true;
+
+// 设置 API 超时时间（毫秒）
+XRM.Common.Config.apiTimeout = 30000;
+
+// 设置重试次数
+XRM.Common.Config.retryTimes = 3;
+```
+
+## 错误处理
+
+```javascript
+// 所有 Data 操作返回 Promise，支持 catch
+XRM.Common.Data.create('account', { name: 'Test' })
+    .then(function(res) {
+        console.log('Success:', res.id);
+    })
+    .catch(function(err) {
+        console.error('Error:', err.message);
+        XRM.Common.UI.showError('操作失败: ' + err.message);
+    });
+
+// 重试机制
+XRM.Common.Util.retry(
+    function() { return riskyOperation(); },
+    3,      // 重试3次
+    1000    // 间隔1秒
+).then(function(result) {
+    console.log('Success after retries:', result);
+});
+```
+
+## 文件位置
+
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| 核心库 | `webresources/shared/js/XRM.Common.debug.js` | 完整注释版 |
+| 生产库 | `webresources/shared/js/XRM.Common.js` | 压缩版 |
+| 类型定义 | `webresources/shared/js/XRM.Common.d.ts` | TypeScript 支持 |
+| 样式文件 | `webresources/shared/css/XRM.Common.css` | 配套样式 |
+| YAML配置 | `metadata/webresources/xrm_common.yaml` | 部署配置 |
+
+---
+
+# 前端开发传统方法
+
+> 以下内容保留用于理解 Dataverse 前端开发的基础概念。实际开发建议使用 XRM.Common.js 库。
+
 ## 一、前端技术栈概览
 
 ### 表单类型（Form Types）

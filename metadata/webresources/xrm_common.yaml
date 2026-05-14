@@ -1,0 +1,98 @@
+# XRM.Common.js Web Resources 配置
+# Power Platform Dataverse 前端通用库
+
+$schema: "../_schema/webresource_schema.yaml"
+
+# 解决方案声明
+solution:
+  schema_name: "power_platform_agent_solution"
+  auto_add: true
+
+# Web 资源定义
+resources:
+  # ==================== 核心 JavaScript 库 (生产版) ====================
+  - schema_name: "xrm_common_core"
+    type: "js"
+    display_name: "XRM.Common.js - Dataverse 前端通用库"
+    description: |
+      Power Platform Dataverse 前端通用库，封装常用的 Xrm API 操作。
+
+      功能模块：
+      - Form: 表单操作（属性、控件、保存等）
+      - Data: 数据操作（CRUD、查询、Action调用）
+      - Nav: 导航操作（打开表单、对话框等）
+      - UI: UI操作（通知、进度等）
+      - Ctx: 上下文信息（用户、组织、多语言）
+      - Util: 工具函数（格式化、验证等）
+
+      版本: 1.0.0
+    source_path: "webresources/shared/js/XRM.Common.js"
+    dependencies: []
+    minify: false
+    source_map: false
+
+  # ==================== 调试版本 ====================
+  - schema_name: "xrm_common_debug"
+    type: "js"
+    display_name: "XRM.Common.js - 调试版"
+    description: "带完整注释的调试版本，用于开发环境"
+    source_path: "webresources/shared/js/XRM.Common.debug.js"
+    dependencies: []
+    minify: false
+    source_map: false
+
+  # ==================== TypeScript 类型定义 ====================
+  - schema_name: "xrm_common_typescript"
+    type: "js"
+    display_name: "XRM.Common.d.ts - TypeScript 类型定义"
+    description: "TypeScript 类型定义文件，提供智能提示和类型检查"
+    source_path: "webresources/shared/js/XRM.Common.d.ts"
+    dependencies: []
+    minify: false
+
+  # ==================== 样式文件 ====================
+  - schema_name: "xrm_common_css"
+    type: "css"
+    display_name: "XRM.Common.css - 库样式"
+    description: |
+      通用库配套样式，包含：
+      - 通知样式（info/warning/error）
+      - 进度指示器样式
+      - 对话框样式
+      - 状态标签样式
+      - 响应式布局
+    source_path: "webresources/shared/css/XRM.Common.css"
+    dependencies: []
+    minify: true
+
+# ==================== 使用示例 ====================
+#
+# 1. 在表单 onLoad 事件中初始化：
+#    XRM.Common.init(executionContext);
+#
+# 2. 表单操作：
+#    XRM.Common.Form.setValue('new_field', 'value');
+#    XRM.Common.Form.save();
+#
+# 3. 数据操作：
+#    XRM.Common.Data.create('account', { name: 'Test Account' })
+#        .then(function(res) { console.log('Created:', res.id); });
+#
+# 4. 导航操作：
+#    XRM.Common.Nav.alert('操作成功');
+#    XRM.Common.Nav.openForm('account', recordId);
+#
+# 5. 链式调用：
+#    XRM.Common.$('new_field')
+#        .val('value')
+#        .disable()
+#        .hide();
+#
+# ==================== 命名规则 ====================
+#
+# 所有 Web Resource 的 Schema Name 前缀:
+# - 自定义资源: new_xxx
+# - 系统资源: 不强制前缀
+#
+# 使用命名转换工具：
+# naming_convert --input "xrm_common" --type webresource
