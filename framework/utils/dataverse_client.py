@@ -413,7 +413,21 @@ class DataverseClient:
         response = self.session.post(url, json=attribute_metadata)
         response.raise_for_status()
 
-        return response.json()
+        # 处理空响应（字段已存在时可能返回空响应）
+        if not response.text or response.status_code == 204:
+            return {
+                "status": "already_exists",
+                "message": "Attribute may already exist or response was empty"
+            }
+
+        try:
+            return response.json()
+        except Exception:
+            # JSON 解析失败，返回原始响应
+            return {
+                "status": "unknown",
+                "response_text": response.text[:500] if response.text else ""
+            }
 
     def get_attributes(
         self,

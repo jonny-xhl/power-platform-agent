@@ -537,19 +537,38 @@ class MetadataAgent:
                 # 创建新属性
                 try:
                     converted_attr = client._convert_attribute_metadata(attr, attr_type)
-                    client.create_attribute(entity_name, converted_attr)
-                    attr_results.append({
-                        "attribute": attr_name,
-                        "type": attr_type,
-                        "status": "created",
-                        "action": "created"
-                    })
+                    create_result = client.create_attribute(entity_name, converted_attr)
+
+                    # 检查是否已存在
+                    if create_result.get("status") == "already_exists":
+                        attr_results.append({
+                            "attribute": attr_name,
+                            "status": "already_exists",
+                            "action": "skipped"
+                        })
+                    else:
+                        attr_results.append({
+                            "attribute": attr_name,
+                            "type": attr_type,
+                            "status": "created",
+                            "action": "created"
+                        })
                 except Exception as e:
-                    attr_results.append({
-                        "attribute": attr_name,
-                        "status": "failed",
-                        "error": str(e)
-                    })
+                    error_str = str(e).lower()
+                    # 检查是否是"已存在"错误
+                    if any(x in error_str for x in ["already exists", "already been created", "duplicate", "cannot create duplicate"]):
+                        attr_results.append({
+                            "attribute": attr_name,
+                            "status": "already_exists",
+                            "action": "skipped",
+                            "error": str(e)
+                        })
+                    else:
+                        attr_results.append({
+                            "attribute": attr_name,
+                            "status": "failed",
+                            "error": str(e)
+                        })
 
             result["updates"].append({
                 "type": "attributes",
