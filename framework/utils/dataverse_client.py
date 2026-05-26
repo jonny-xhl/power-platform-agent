@@ -1793,11 +1793,10 @@ class DataverseClient:
 
             # 添加 Lookup 属性定义（Deep Insert）
             if lookup_attr_def:
-                # 注意：根据 Dataverse API 文档，Lookup 的 SchemaName 应该为空字符串
-                # Dataverse 会自动根据关系 SchemaName 生成 Lookup 字段名称
+                # 根据官方文档，Lookup 的 SchemaName 应该指定实际的字段名
                 relationship["Lookup"] = {
                     "@odata.type": "Microsoft.Dynamics.CRM.LookupAttributeMetadata",
-                    "SchemaName": "",  # 必须为空，让 Dataverse 自动生成
+                    "SchemaName": lookup_attr_def.get("schema_name"),  # 使用实际的字段名
                     "AttributeType": "Lookup",
                     "AttributeTypeName": {"Value": "LookupType"},
                     "DisplayName": self._convert_to_label(lookup_attr_def.get("display_name", related_entity)),
@@ -1871,6 +1870,7 @@ class DataverseClient:
         Returns:
             创建的关系元数据
         """
+        # 使用 RelationshipDefinitions 端点（官方文档）
         url = self.get_api_url("RelationshipDefinitions")
 
         # 转换关系元数据
