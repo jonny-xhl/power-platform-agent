@@ -310,7 +310,20 @@ class DataverseClient:
         entity_definition = self._convert_entity_metadata(metadata)
 
         response = self.session.post(url, json=entity_definition)
-        response.raise_for_status()
+
+        # 详细错误处理
+        if not response.ok:
+            try:
+                error_detail = response.json()
+                error_msg = error_detail.get("error", {}).get("message", {}).get("value", str(error_detail))
+            except:
+                error_msg = response.text
+
+            raise Exception(
+                f"Failed to create entity '{metadata.get('schema_name')}'. "
+                f"Status: {response.status_code}. "
+                f"Error: {error_msg}"
+            )
 
         return response.json()
 
@@ -1420,11 +1433,18 @@ class DataverseClient:
 
         Args:
             metadata: 原始元数据，包含 schema 和 attributes
+                     支持嵌套结构（{"schema": {...}, "attributes": [...]}）
+                     或扁平结构（{"schema_name": "...", "attributes": [...]}）
 
         Returns:
             Dataverse API格式的元数据，包含 Attributes 数组
         """
-        schema = metadata.get("schema", {})
+        # 支持嵌套和扁平两种结构
+        if "schema" in metadata and isinstance(metadata.get("schema"), dict):
+            schema = metadata.get("schema", {})
+        else:
+            # 扁平结构：直接使用顶层字段
+            schema = metadata
 
         # 基本实体定义
         entity_definition = {
@@ -1449,10 +1469,21 @@ class DataverseClient:
 
             for attr in attributes:
                 attr_type = attr.get("type", "String")
+                attr_schema_name = attr.get("schema_name")
+
+                # 跳过主键字段 - Dataverse 自动创建
+                if attr_schema_name.endswith("id") and attr_type == "Uniqueidentifier":
+                    logger.info(f"Skipping primary key attribute '{attr_schema_name}' - auto-created by Dataverse")
+                    continue
+
+                # 跳过基货币字段 - Dataverse 自动创建
+                if attr_schema_name.endswith("_base") and attr_type == "Money":
+                    logger.info(f"Skipping base currency attribute '{attr_schema_name}' - auto-created by Dataverse")
+                    continue
 
                 # 跳过 Lookup 类型 - 必须通过关系创建
                 if attr_type == "Lookup":
-                    logger.info(f"Skipping Lookup attribute '{attr.get('name')}' - must be created via relationship")
+                    logger.info(f"Skipping Lookup attribute '{attr_schema_name}' - must be created via relationship")
                     continue
 
                 # 转换属性元数据
@@ -1464,7 +1495,7 @@ class DataverseClient:
                         converted_attr["IsPrimaryName"] = True
                     else:
                         logger.warning(
-                            f"Attribute '{attr.get('name')}' marked as primary name but is not String type. "
+                            f"Attribute '{attr_schema_name}' marked as primary name but is not String type. "
                             "Primary name attribute must be String type."
                         )
 
@@ -1518,6 +1549,7 @@ class DataverseClient:
             "Decimal": "Microsoft.Dynamics.CRM.DecimalAttributeMetadata",
             "Double": "Microsoft.Dynamics.CRM.DoubleAttributeMetadata",
             "BigInt": "Microsoft.Dynamics.CRM.BigIntAttributeMetadata",
+            "Uniqueidentifier": "Microsoft.Dynamics.CRM.UniqueIdentifierAttributeMetadata",
         }
 
         metadata_type = type_mapping.get(attribute_type, type_mapping["String"])
@@ -1526,7 +1558,7 @@ class DataverseClient:
             "@odata.type": metadata_type,
             "AttributeType": attribute_type,
             "AttributeTypeName": {"Value": f"{attribute_type}Type"},
-            "SchemaName": attribute.get("schema_name") or attribute.get("name"),
+            "SchemaName": attribute.get("schema_name"),
             "DisplayName": self._convert_to_label(attribute.get("display_name", "")),
             "Description": self._convert_to_label(attribute.get("description", "")),
             "RequiredLevel": {
@@ -1568,7 +1600,27 @@ class DataverseClient:
             attribute_metadata["MaxLength"] = attribute.get("max_length", 2000)
 
         elif attribute_type == "DateTime":
-            attribute_metadata["Format"] = "DateOnly"
+            # 根据 behavior 设置 Format
+            behavior = attribute.get("behavior", "DateOnly")
+            if behavior == "UserLocal":
+                attribute_metadata["Format"] = "DateAndTime"
+            else:
+                attribute_metadata["Format"] = "DateOnly"
+
+        elif attribute_type == "Integer":
+            # 处理整数范围
+            if attribute.get("min_value") is not None:
+                attribute_metadata["MinValue"] = attribute.get("min_value")
+            if attribute.get("max_value") is not None:
+                attribute_metadata["MaxValue"] = attribute.get("max_value")
+
+        elif attribute_type == "Decimal":
+            # 处理小数精度和范围
+            attribute_metadata["Precision"] = attribute.get("precision", 2)
+            if attribute.get("min_value") is not None:
+                attribute_metadata["MinValue"] = attribute.get("min_value")
+            if attribute.get("max_value") is not None:
+                attribute_metadata["MaxValue"] = attribute.get("max_value")
 
         # 移除空值
         return {k: v for k, v in attribute_metadata.items() if v is not None}

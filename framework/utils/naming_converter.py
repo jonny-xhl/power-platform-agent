@@ -259,11 +259,15 @@ class NamingConverter:
 
         for attr in attributes:
             converted = attr.copy()
-            name = attr.get("name", "")
+            # 支持 schema_name
+            name = attr.get("schema_name")
 
             # 检查是否为标准属性（不转换）
             if not self._is_standard_attribute(entity_name, name):
-                converted["name"] = self.convert_schema_name(name)
+                converted_name = self.convert_schema_name(name)
+                # 同时更新 schema_name 和 name 字段
+                if "schema_name" in attr:
+                    converted["schema_name"] = converted_name                
 
             result.append(converted)
 
