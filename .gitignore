@@ -56,6 +56,12 @@ desktop.ini
 # Metadata generated files
 metadata/.generated/
 
+# Ignore all metadata content except _schema schema definitions
+metadata/*
+sources/*
+!metadata/_schema/
+!metadata/_schema/**
+
 # Data dictionary temp files
 docs/data_dictionary/*.tmp
 

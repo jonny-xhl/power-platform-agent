@@ -178,8 +178,11 @@ table_schema:
             description: "精度（小数位数）"
 
           default_value:
-            type: "string"
-            description: "默认值"
+            oneOf:
+              - type: "string"
+              - type: "boolean"
+              - type: "number"
+            description: "默认值（Boolean 类型为 true/false，其他类型为字符串或数字）"
 
           is_primary_name:
             type: "boolean"
@@ -224,11 +227,63 @@ table_schema:
             type: "string"
             description: "关系名称"
 
+    lookup_attributes:
+      type: "array"
+      description: "查找字段定义（与 relationships 配对使用）"
+      items:
+        type: "object"
+        required: ["schema_name", "display_name", "type", "target"]
+        properties:
+          schema_name:
+            type: "string"
+            pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+            description: "查找字段Schema名称"
+
+          display_name:
+            type: "string"
+            minLength: 1
+            description: "查找字段显示名称"
+
+          description:
+            type: "string"
+            description: "查找字段描述"
+
+          type:
+            type: "string"
+            enum: ["Lookup"]
+            description: "字段类型（必须为 Lookup）"
+
+          target:
+            type: "string"
+            description: "目标实体（被引用实体）"
+
+          required:
+            type: "boolean"
+            default: false
+            description: "是否必填"
+
+    # ===== 重要：lookup_attributes 与 relationships 配对规则 =====
+    # 对于 ManyToOne 类型关系：
+    # 1. 必须在 lookup_attributes 中定义对应的查找字段
+    # 2. relationships 中的 referencing_attribute 必须匹配 lookup_attributes 中的 schema_name
+    # 3. lookup_attributes 中的 target 必须匹配 relationships 中的 related_entity
+    #
+    # 示例：
+    # lookup_attributes:
+    #   - schema_name: "new_account_id"
+    #     target: "account"
+    # relationships:
+    #   - schema_name: "new_entity_new_account"
+    #     related_entity: "account"
+    #     relationship_type: "ManyToOne"
+    #     referencing_attribute: "new_account_id"  # 必须匹配上面的 schema_name
+    # ============================================================
+
     relationships:
       type: "array"
       items:
         type: "object"
-        required: ["schema_name", "related_entity", "relationship_type"]
+        required: ["schema_name", "related_entity", "relationship_type", "referencing_attribute"]
         properties:
           schema_name:
             type: "string"
@@ -316,7 +371,23 @@ example:
         - value: 100000002
           label: "关闭"
 
+  lookup_attributes:
+    - schema_name: "new_parentaccount_id"
+      type: "Lookup"
+      display_name: "父账户"
+      target: "account"
+
   relationships:
+    # ManyToOne 关系示例（需要配对的 lookup_attribute）
+    - schema_name: "new_account_parentaccountid_account"
+      related_entity: "account"
+      relationship_type: "ManyToOne"
+      referencing_attribute: "new_parentaccount_id"  # 对应上面的 lookup_attribute
+      display_name: "父账户"
+      cascade_assign: "NoCascade"
+      cascade_delete: "RemoveLink"
+
+    # OneToMany 关系示例（不需要 lookup_attribute）
     - schema_name: "account_contact"
       related_entity: "contact"
       relationship_type: "OneToMany"
