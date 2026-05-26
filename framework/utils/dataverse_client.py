@@ -274,7 +274,7 @@ class DataverseClient:
         entity_name: str = None
     ) -> Union[dict[str, Any], list[dict[str, Any]]]:
         """
-        获取实体元数据
+        获取实体元数据（带重试）
 
         Args:
             entity_name: 实体逻辑名称，如果为None则返回所有实体
@@ -293,6 +293,23 @@ class DataverseClient:
         if entity_name:
             return response.json()
         return response.json().get("value", [])
+
+    def entity_exists(self, entity_name: str) -> bool:
+        """
+        检查实体是否存在（不重试，快速失败）
+
+        Args:
+            entity_name: 实体逻辑名称
+
+        Returns:
+            True 如果实体存在，False 如果不存在
+        """
+        try:
+            url = self.get_api_url(f"EntityDefinitions(LogicalName='{entity_name}')")
+            response = self.session.get(url, timeout=10)
+            return response.status_code == 200
+        except Exception:
+            return False
 
     def create_entity(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """
@@ -325,7 +342,15 @@ class DataverseClient:
                 f"Error: {error_msg}"
             )
 
-        return response.json()
+        # 创建成功时返回 204 No Content，从响应头获取实体ID
+        entity_id = response.headers.get("OData-EntityId", "")
+        if entity_id:
+            # 从类似 "EntityDefinitions(abc-123)" 中提取 ID
+            entity_id = entity_id.split("(")[-1].rstrip(")")
+            return {"MetadataId": entity_id, "schema_name": metadata.get("schema_name")}
+
+        # 如果没有 OData-EntityId 头，返回成功状态
+        return {"success": True, "schema_name": metadata.get("schema_name")}
 
     def update_entity(
         self,
@@ -1447,6 +1472,8 @@ class DataverseClient:
             schema = metadata
 
         # 基本实体定义
+        # 官方文档：https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/create-update-entity-definitions-using-web-api#create-table-definitions
+        # 创建实体时，IsActivity/HasActivities/HasNotes/IsQuickCreateEnabled 都是布尔值，不是 ManagedProperty
         entity_definition = {
             "@odata.type": "Microsoft.Dynamics.CRM.EntityMetadata",
             "SchemaName": schema.get("schema_name"),
@@ -1457,9 +1484,10 @@ class DataverseClient:
             "Description": self._convert_to_label(schema.get("description", "")),
             "OwnershipType": schema.get("ownership_type", "UserOwned"),
             "IsActivity": schema.get("has_activities", False),
-            "HasNotes": schema.get("has_notes", False),
-            "IsAuditEnabled": {"Value": schema.get("is_audit_enabled", False)},
-            "IsQuickCreateEnabled": {"Value": schema.get("options", {}).get("enable_quick_create", False)}
+            "HasActivities": schema.get("has_activities", False),  # 布尔值，不是对象
+            "HasNotes": schema.get("has_notes", False),  # 布尔值，不是对象
+            "IsQuickCreateEnabled": schema.get("options", {}).get("enable_quick_create", False)  # 布尔值
+            # IsAuditEnabled 在创建时不包含，使用默认值
         }
 
         # 处理属性数组
@@ -1562,7 +1590,9 @@ class DataverseClient:
             "DisplayName": self._convert_to_label(attribute.get("display_name", "")),
             "Description": self._convert_to_label(attribute.get("description", "")),
             "RequiredLevel": {
-                "Value": "ApplicationRequired" if attribute.get("required") else "None"
+                "Value": "ApplicationRequired" if attribute.get("required") else "None",
+                "CanBeChanged": True,
+                "ManagedPropertyLogicalName": "canmodifyrequirementlevelsettings"
             }
         }
 
@@ -1578,6 +1608,7 @@ class DataverseClient:
         elif attribute_type == "Picklist":
             options = attribute.get("options", [])
             attribute_metadata["OptionSet"] = {
+                "IsGlobal": False,  # 局部选项集
                 "Options": [
                     {
                         "Value": opt.get("value"),
@@ -1621,6 +1652,44 @@ class DataverseClient:
                 attribute_metadata["MinValue"] = attribute.get("min_value")
             if attribute.get("max_value") is not None:
                 attribute_metadata["MaxValue"] = attribute.get("max_value")
+
+        elif attribute_type == "Boolean":
+            # Boolean 类型必须包含 DefaultValue 和 OptionSet
+            # 从 YAML 获取 default_value，默认为 false
+            default_value = attribute.get("default_value", False)
+            # 确保是 Python 布尔值
+            if isinstance(default_value, str):
+                default_value = default_value.lower() in ("true", "1", "yes")
+            attribute_metadata["DefaultValue"] = bool(default_value)
+
+            # Boolean 类型必须包含 OptionSet，使用 TrueOption 和 FalseOption
+            # 使用 YAML 中的 display_name 作为 True 标签，"否"作为 False 标签
+            display_name = attribute.get("display_name", "")
+            # 从 display_name 中提取肯定形式（去掉"是否"等前缀）
+            true_label = display_name
+            if "是否" in display_name:
+                true_label = display_name.replace("是否", "")
+            elif "Is" in display_name or "is" in display_name:
+                true_label = display_name
+            else:
+                # 默认：字段名本身作为 True 标签
+                true_label = display_name
+
+            # False 标签（可以从 YAML 获取）
+            false_label = attribute.get("false_label", "否")
+
+            # BooleanOptionSetMetadata 使用 TrueOption 和 FalseOption
+            attribute_metadata["OptionSet"] = {
+                "@odata.type": "Microsoft.Dynamics.CRM.BooleanOptionSetMetadata",
+                "TrueOption": {
+                    "Value": 1,
+                    "Label": self._convert_to_label(true_label)
+                },
+                "FalseOption": {
+                    "Value": 0,
+                    "Label": self._convert_to_label(false_label)
+                }
+            }
 
         # 移除空值
         return {k: v for k, v in attribute_metadata.items() if v is not None}
@@ -1724,16 +1793,14 @@ class DataverseClient:
 
             # 添加 Lookup 属性定义（Deep Insert）
             if lookup_attr_def:
-                # 使用原始名称（snake_case）
-                attr_name = lookup_attr_def.get("name", "")
-
+                # 注意：根据 Dataverse API 文档，Lookup 的 SchemaName 应该为空字符串
+                # Dataverse 会自动根据关系 SchemaName 生成 Lookup 字段名称
                 relationship["Lookup"] = {
                     "@odata.type": "Microsoft.Dynamics.CRM.LookupAttributeMetadata",
-                    "SchemaName": attr_name,
+                    "SchemaName": "",  # 必须为空，让 Dataverse 自动生成
                     "AttributeType": "Lookup",
                     "AttributeTypeName": {"Value": "LookupType"},
-                    "DisplayName": self._convert_to_label(lookup_attr_def.get("display_name", "")),
-                    "Description": self._convert_to_label(lookup_attr_def.get("description", "")),
+                    "DisplayName": self._convert_to_label(lookup_attr_def.get("display_name", related_entity)),
                     "RequiredLevel": {
                         "Value": "ApplicationRequired" if lookup_attr_def.get("required") else "None",
                         "CanBeChanged": True,
@@ -1742,6 +1809,10 @@ class DataverseClient:
                     # 关键：指定目标实体（被引用实体）
                     "Targets": [lookup_attr_def.get("target", related_entity)]
                 }
+
+                # 只有当 description 存在时才添加
+                if lookup_attr_def.get("description"):
+                    relationship["Lookup"]["Description"] = self._convert_to_label(lookup_attr_def.get("description", ""))
 
             return relationship
 

@@ -908,8 +908,8 @@ class SolutionAgent:
                     "error": f"Solution check failed: {solution_result.get('error')}"
                 }, indent=2)
 
-            # 获取同步配置
-            conflict_strategy = on_conflict or sync_config.get("on_conflict", "skip")
+            # 获取同步配置（优先使用 YAML 配置，其次使用参数）
+            conflict_strategy = sync_config.get("on_conflict") or on_conflict
             sync_order = sync_config.get("order", DEFAULT_SYNC_ORDER)
 
             # 收集组件文件
@@ -966,6 +966,8 @@ class SolutionAgent:
                     action = "update"
                 elif conflict_strategy == "replace":
                     action = "replace"
+                elif conflict_strategy == "merge":
+                    action = "update"  # merge 策略映射为 update（增量更新）
                 elif conflict_strategy == "create_only":
                     action = "skip"
 
@@ -1124,7 +1126,7 @@ class SolutionAgent:
                         errors.append(f"Invalid sync order item: {item}")
 
                 on_conflict = sync.get("on_conflict")
-                if on_conflict and on_conflict not in ("skip", "update", "replace", "create_only"):
+                if on_conflict and on_conflict not in ("skip", "update", "replace", "create_only", "merge"):
                     errors.append(f"Invalid on_conflict value: {on_conflict}")
 
             return json.dumps({
@@ -1291,8 +1293,7 @@ class SolutionAgent:
             if component_type == "table":
                 schema_name = data.get("schema", {}).get("schema_name")
                 if schema_name:
-                    entity_meta = client.get_entity_metadata(schema_name)
-                    return bool(entity_meta and entity_meta.get("MetadataId"))
+                    return client.entity_exists(schema_name)
 
             elif component_type == "form":
                 entity = data.get("form", {}).get("entity")
@@ -1304,6 +1305,10 @@ class SolutionAgent:
                 entity = data.get("view", {}).get("entity")
                 view_name = data.get("view", {}).get("schema_name")
                 if entity and view_name:
+                    # 先检查实体是否存在（快速失败）
+                    if not client.entity_exists(entity):
+                        return False
+                    # 实体存在，获取逻辑名称并检查视图
                     entity_meta = client.get_entity_metadata(entity)
                     logical_name = entity_meta.get("LogicalName")
                     if logical_name:
@@ -2068,6 +2073,9 @@ class SolutionAgent:
 
                 if comp_type == "table":
                     schema_name = data.get("schema", {}).get("schema_name")
+                    # 快速检查实体是否存在
+                    if not client.entity_exists(schema_name):
+                        return {"success": False, "error": f"Entity '{schema_name}' does not exist"}
                     # 获取实体 ID
                     entity_meta = client.get_entity_metadata(schema_name)
                     if entity_meta:

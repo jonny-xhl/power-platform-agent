@@ -328,15 +328,14 @@ class MetadataAgent:
                     "error": "No core agent available for authentication"
                 }, indent=2)
 
-            # 检查实体是否已存在
+            # 检查实体是否已存在（使用快速检查方法，不重试）
+            entity_exists = client.entity_exists(converted_name)
             existing_entity = None
-            entity_exists = False
-            try:
-                existing_entity = client.get_entity_metadata(converted_name)
-                if existing_entity:
-                    entity_exists = True
-            except Exception:
-                pass
+            if entity_exists:
+                try:
+                    existing_entity = client.get_entity_metadata(converted_name)
+                except Exception:
+                    pass
 
             # ========== create 模式：强制创建 ==========
             if mode == "create":
