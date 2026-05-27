@@ -171,6 +171,31 @@ class MetadataAgent:
                     arguments.get("name")  # type: ignore[arg-type]
                 )
 
+            elif tool_name == "metadata_sync_webresource":
+                return await self.sync_webresource(
+                    arguments.get("file_path"),  # type: ignore[arg-type]
+                    arguments.get("publisher"),
+                    arguments.get("resource_type"),
+                    arguments.get("display_name"),
+                    arguments.get("environment"),
+                    arguments.get("mode", "auto")
+                )
+
+            elif tool_name == "metadata_sync_webresource_batch":
+                return await self.sync_webresource_batch(
+                    arguments.get("source_dir"),  # type: ignore[arg-type]
+                    arguments.get("publisher"),
+                    arguments.get("file_pattern", "**/*"),
+                    arguments.get("environment"),
+                    arguments.get("mode", "auto")
+                )
+
+            elif tool_name == "metadata_list_webresources":
+                return await self.list_webresources(
+                    arguments.get("filter"),
+                    arguments.get("resource_type")
+                )
+
             else:
                 return json.dumps({
                     "error": f"Unknown tool: {tool_name}"
@@ -1784,3 +1809,404 @@ class MetadataAgent:
             ),
             "recommendation": "Use solution management to remove components"
         }, indent=2)
+
+    # ==================== Web Resource 同步 ====================
+
+    async def sync_webresource(
+        self,
+        file_path: str,
+        publisher: str = None,
+        resource_type: str = None,
+        display_name: str = None,
+        environment: str = None,
+        mode: str = "auto"
+    ) -> str:
+        """
+        同步本地资源文件到 Dataverse
+
+        Args:
+            file_path: 本地文件路径
+            publisher: 发布商前缀 (默认使用配置中的当前发布商)
+            resource_type: 资源类型 (css/js/html/img等)，默认根据文件扩展名推断
+            display_name: 显示名称 (默认使用文件名)
+            environment: 目标环境
+            mode: 操作模式
+                - "auto": 自动判断（默认），检查资源是否存在后决定创建或更新
+                - "create": 强制创建新资源
+                - "update": 更新现有资源
+
+        Returns:
+            同步结果
+        """
+        import base64
+        import mimetypes
+
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client(environment)
+
+            # 读取文件
+            local_file = Path(file_path)
+            if not local_file.exists():
+                return json.dumps({
+                    "error": f"File not found: {file_path}"
+                }, indent=2)
+
+            file_name = local_file.name
+            file_ext = local_file.suffix.lstrip(".").lower()
+
+            # 获取发布商前缀
+            if not publisher:
+                publisher_info = self.naming_converter.get_current_publisher()
+                if publisher_info:
+                    publisher = publisher_info.get("prefix", "new")
+                else:
+                    publisher = self.naming_converter.prefix
+
+            # 推断资源类型
+            if not resource_type:
+                type_map = {
+                    "css": "css",
+                    "js": "js",
+                    "html": "html",
+                    "htm": "html",
+                    "png": "img",
+                    "jpg": "img",
+                    "jpeg": "img",
+                    "gif": "img",
+                    "svg": "img",
+                    "ico": "img",
+                    "xml": "xml",
+                    "xslt": "xslt",
+                    "xsl": "xslt"
+                }
+                resource_type = type_map.get(file_ext, file_ext)
+
+            # 构建 Web Resource 名称：{publisher}/{type}/{file_name}
+            webresource_name = f"{publisher}/{resource_type}/{file_name}"
+
+            # 获取 Web Resource 类型代码
+            wr_type_map = {
+                "html": 1,      # HTML
+                "css": 2,       # CSS
+                "js": 3,        # JavaScript
+                "xml": 4,       # XML
+                "xslt": 5,      # XSLT
+                "png": 6,       # PNG
+                "jpg": 7,       # JPG
+                "gif": 8,       # GIF
+                "jpeg": 7,      # JPG (与 jpg 相同)
+                "ico": 9,       # ICO
+                "svg": 10,      # SVG
+                "img": 6,       # 默认图片类型 (PNG)
+                "resx": 11,     # RESX
+                "string": 12    # String
+            }
+
+            webresource_type = wr_type_map.get(resource_type.lower(), 1)
+
+            # 读取文件内容并编码
+            with open(local_file, "rb") as f:
+                content_bytes = f.read()
+
+            # 检查是否为文本类型
+            text_types = {"html", "css", "js", "xml", "xslt", "xsl"}
+            if resource_type.lower() in text_types:
+                # 文本类型：读取为 UTF-8 字符串，然后 Base64 编码
+                with open(local_file, "r", encoding="utf-8") as f:
+                    content_str = f.read()
+                content = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+            else:
+                # 二进制类型：直接 Base64 编码
+                content = base64.b64encode(content_bytes).decode("utf-8")
+
+            # 显示名称
+            if not display_name:
+                display_name = file_name
+
+            # 检查资源是否已存在
+            existing_resources = client.get_webresources(filter=f"name eq '{webresource_name}'")
+            existing = existing_resources[0] if existing_resources else None
+
+            # create 模式：强制创建
+            if mode == "create":
+                if existing:
+                    return json.dumps({
+                        "error": f"Web Resource '{webresource_name}' already exists. Use mode='update' to modify.",
+                        "existing_id": existing.get("webresourceid")
+                    }, indent=2)
+
+                result = client.create_webresource(
+                    name=webresource_name,
+                    display_name=display_name,
+                    content=content,
+                    webresource_type=webresource_type
+                )
+                return json.dumps({
+                    "success": True,
+                    "action": "create",
+                    "name": webresource_name,
+                    "webresourceid": result.get("webresourceid"),
+                    "type": resource_type,
+                    "file_path": str(local_file),
+                    "size_bytes": len(content_bytes),
+                    "message": f"Web Resource '{webresource_name}' created successfully"
+                }, indent=2, ensure_ascii=False)
+
+            # update 模式：更新指定资源
+            if mode == "update":
+                if not existing:
+                    return json.dumps({
+                        "error": f"Web Resource '{webresource_name}' not found. Use mode='create' to create."
+                    }, indent=2)
+
+                webresource_id = existing.get("webresourceid")
+                result = client.update_webresource(
+                    webresource_id=webresource_id,
+                    content=content
+                )
+                return json.dumps({
+                    "success": True,
+                    "action": "update",
+                    "name": webresource_name,
+                    "webresourceid": webresource_id,
+                    "type": resource_type,
+                    "file_path": str(local_file),
+                    "size_bytes": len(content_bytes),
+                    "message": f"Web Resource '{webresource_name}' updated successfully"
+                }, indent=2, ensure_ascii=False)
+
+            # auto 模式：自动判断
+            if existing:
+                webresource_id = existing.get("webresourceid")
+                result = client.update_webresource(
+                    webresource_id=webresource_id,
+                    content=content
+                )
+                return json.dumps({
+                    "success": True,
+                    "action": "update",
+                    "name": webresource_name,
+                    "webresourceid": webresource_id,
+                    "type": resource_type,
+                    "file_path": str(local_file),
+                    "size_bytes": len(content_bytes),
+                    "message": f"Web Resource '{webresource_name}' updated (already existed)"
+                }, indent=2, ensure_ascii=False)
+            else:
+                result = client.create_webresource(
+                    name=webresource_name,
+                    display_name=display_name,
+                    content=content,
+                    webresource_type=webresource_type
+                )
+                return json.dumps({
+                    "success": True,
+                    "action": "create",
+                    "name": webresource_name,
+                    "webresourceid": result.get("webresourceid"),
+                    "type": resource_type,
+                    "file_path": str(local_file),
+                    "size_bytes": len(content_bytes),
+                    "message": f"Web Resource '{webresource_name}' created successfully"
+                }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            import traceback
+            return json.dumps({
+                "error": f"Failed to sync webresource: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, indent=2)
+
+    async def sync_webresource_batch(
+        self,
+        source_dir: str,
+        publisher: str = None,
+        file_pattern: str = "**/*",
+        environment: str = None,
+        mode: str = "auto"
+    ) -> str:
+        """
+        批量同步本地资源目录到 Dataverse
+
+        Args:
+            source_dir: 源目录路径
+            publisher: 发布商前缀 (默认使用配置中的当前发布商)
+            file_pattern: 文件匹配模式 (默认 **/*)
+            environment: 目标环境
+            mode: 操作模式 (auto/create/update)
+
+        Returns:
+            批量同步结果
+        """
+        from pathlib import Path
+
+        try:
+            source_path = Path(source_dir)
+            if not source_path.exists() or not source_path.is_dir():
+                return json.dumps({
+                    "error": f"Source directory not found: {source_dir}"
+                }, indent=2)
+
+            # 支持的文件扩展名
+            supported_exts = {
+                ".html", ".htm", ".css", ".js",
+                ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+                ".xml", ".xslt", ".xsl"
+            }
+
+            # 查找所有文件
+            files = [
+                f for f in source_path.glob(file_pattern)
+                if f.is_file() and f.suffix.lower() in supported_exts
+            ]
+
+            if not files:
+                return json.dumps({
+                    "warning": f"No supported files found in {source_dir}",
+                    "supported_extensions": list(supported_exts)
+                }, indent=2)
+
+            results = []
+            success_count = 0
+            failed_count = 0
+
+            for file_path in files:
+                # 计算相对路径，用于推断 resource_type
+                rel_path = file_path.relative_to(source_path)
+                parent_dir = rel_path.parent.name if rel_path.parent else ""
+
+                # 推断 resource_type
+                file_ext = file_path.suffix.lstrip(".").lower()
+                type_map = {
+                    "css": "css",
+                    "js": "js",
+                    "html": "html",
+                    "htm": "html",
+                    "png": "img",
+                    "jpg": "img",
+                    "jpeg": "img",
+                    "gif": "img",
+                    "svg": "img",
+                    "ico": "img",
+                    "xml": "xml",
+                    "xslt": "xslt",
+                    "xsl": "xslt"
+                }
+
+                # 如果父目录名是有效的类型，使用它
+                if parent_dir in type_map.values():
+                    resource_type = parent_dir
+                else:
+                    resource_type = type_map.get(file_ext, file_ext)
+
+                result_str = await self.sync_webresource(
+                    file_path=str(file_path),
+                    publisher=publisher,
+                    resource_type=resource_type,
+                    display_name=file_path.name,
+                    environment=environment,
+                    mode=mode
+                )
+
+                result = json.loads(result_str)
+                result["file"] = str(file_path)
+                results.append(result)
+
+                if result.get("success"):
+                    success_count += 1
+                else:
+                    failed_count += 1
+
+            return json.dumps({
+                "success": True,
+                "source_dir": str(source_path),
+                "total_files": len(files),
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "results": results
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            import traceback
+            return json.dumps({
+                "error": f"Failed to sync webresources: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, indent=2)
+
+    async def list_webresources(
+        self,
+        filter: str = None,
+        resource_type: str = None
+    ) -> str:
+        """
+        列出 Web Resources
+
+        Args:
+            filter: 可选的过滤条件
+            resource_type: 资源类型过滤
+
+        Returns:
+            Web Resource 列表
+        """
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client()
+
+            # 构建过滤条件
+            odata_filter = filter
+            if resource_type:
+                # Web Resource 类型代码映射
+                type_map = {
+                    "html": 1,
+                    "css": 2,
+                    "js": 3,
+                    "xml": 4,
+                    "xslt": 5,
+                    "png": 6,
+                    "jpg": 7,
+                    "gif": 8,
+                    "ico": 9,
+                    "svg": 10
+                }
+                type_code = type_map.get(resource_type.lower())
+                if type_code:
+                    type_filter = f"webresourcetype eq {type_code}"
+                    if odata_filter:
+                        odata_filter = f"{odata_filter} and {type_filter}"
+                    else:
+                        odata_filter = type_filter
+
+            resources = client.get_webresources(filter=odata_filter)
+
+            # 类型代码到名称的映射
+            type_names = {
+                1: "HTML", 2: "CSS", 3: "JavaScript", 4: "XML",
+                5: "XSLT", 6: "PNG", 7: "JPG", 8: "GIF",
+                9: "ICO", 10: "SVG", 11: "RESX", 12: "String"
+            }
+
+            return json.dumps({
+                "count": len(resources),
+                "resources": [
+                    {
+                        "webresourceid": r.get("webresourceid"),
+                        "name": r.get("name"),
+                        "displayname": r.get("displayname"),
+                        "type": type_names.get(r.get("webresourcetype"), "Unknown"),
+                        "type_code": r.get("webresourcetype"),
+                        "createdon": r.get("createdon"),
+                        "modifiedon": r.get("modifiedon")
+                    }
+                    for r in resources
+                ]
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            return json.dumps({
+                "error": f"Failed to list webresources: {str(e)}"
+            }, indent=2)

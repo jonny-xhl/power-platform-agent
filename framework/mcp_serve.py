@@ -34,6 +34,19 @@ logger = logging.getLogger(__name__)
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# 首先加载 .env 文件（必须在导入其他模块之前）
+# 这样确保环境变量对所有模块都可用
+try:
+    from dotenv import load_dotenv
+    env_file = project_root / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+        logger.info(f"Loaded .env from: {env_file}")
+    else:
+        logger.warning(f".env file not found at: {env_file}")
+except ImportError:
+    logger.warning("python-dotenv not available, environment variables not loaded from .env")
+
 from mcp.server import Server  # noqa: E402
 from mcp.types import Tool, Resource, TextContent  # noqa: E402
 
@@ -416,6 +429,94 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["type"]
+            }
+        ),
+        Tool(
+            name="metadata_sync_webresource",
+            description="同步本地资源文件到 Dataverse。上传的文件名格式为 {publisher}/{type}/{file_name}，例如 new/css/myStyles.css",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "本地文件路径"
+                    },
+                    "publisher": {
+                        "type": "string",
+                        "description": "发布商前缀 (默认使用配置中的当前发布商)"
+                    },
+                    "resource_type": {
+                        "type": "string",
+                        "description": "资源类型 (css/js/html/img等)，默认根据文件扩展名推断",
+                        "enum": ["css", "js", "html", "img", "png", "jpg", "gif", "svg", "xml", "xslt"]
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "description": "显示名称 (默认使用文件名)"
+                    },
+                    "environment": {
+                        "type": "string",
+                        "description": "目标环境"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "操作模式: auto=自动判断(默认), create=强制创建, update=更新现有",
+                        "enum": ["auto", "create", "update"],
+                        "default": "auto"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        ),
+        Tool(
+            name="metadata_sync_webresource_batch",
+            description="批量同步本地资源目录到 Dataverse。支持 html、css、js、图片等文件",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_dir": {
+                        "type": "string",
+                        "description": "源目录路径"
+                    },
+                    "publisher": {
+                        "type": "string",
+                        "description": "发布商前缀 (默认使用配置中的当前发布商)"
+                    },
+                    "file_pattern": {
+                        "type": "string",
+                        "description": "文件匹配模式 (默认 **/*)",
+                        "default": "**/*"
+                    },
+                    "environment": {
+                        "type": "string",
+                        "description": "目标环境"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "操作模式: auto=自动判断(默认), create=强制创建, update=更新现有",
+                        "enum": ["auto", "create", "update"],
+                        "default": "auto"
+                    }
+                },
+                "required": ["source_dir"]
+            }
+        ),
+        Tool(
+            name="metadata_list_webresources",
+            description="列出 Web Resources",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filter": {
+                        "type": "string",
+                        "description": "可选的 OData 过滤条件"
+                    },
+                    "resource_type": {
+                        "type": "string",
+                        "description": "资源类型过滤",
+                        "enum": ["html", "css", "js", "xml", "xslt", "png", "jpg", "gif", "svg", "ico"]
+                    }
+                }
             }
         ),
 

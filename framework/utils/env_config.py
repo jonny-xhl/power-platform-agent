@@ -25,13 +25,36 @@ def load_env_file(env_file: str = None) -> None:
 
     if env_file:
         load_dotenv(env_file)
-    else:
-        # Try common locations
-        project_root = Path.cwd()
-        for path in [".env", ".env.local", "../.env"]:
-            if (project_root / path).exists():
-                load_dotenv(project_root / path)
-                break
+        return
+
+    # 自动查找项目根目录和 .env 文件
+    # 策略：
+    # 1. 首先检查当前目录
+    # 2. 然后检查父目录（如果当前目录是 framework/）
+    # 3. 最后向上查找包含 .env 文件的目录
+
+    current_dir = Path.cwd()
+
+    # 检查当前目录
+    if (current_dir / ".env").exists():
+        load_dotenv(current_dir / ".env")
+        return
+
+    # 检查父目录（处理从 framework/ 目录运行的情况）
+    parent_dir = current_dir.parent
+    if (parent_dir / ".env").exists():
+        load_dotenv(parent_dir / ".env")
+        return
+
+    # 向上查找包含 .env 的目录（最多 3 级）
+    search_dir = current_dir
+    for _ in range(3):
+        if (search_dir / ".env").exists():
+            load_dotenv(search_dir / ".env")
+            return
+        search_dir = search_dir.parent
+        if search_dir == search_dir.parent:  # 到达根目录
+            break
 
 
 def expand_env_vars(value: Any) -> Any:
