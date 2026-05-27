@@ -3,6 +3,11 @@ Excel实体设计转YAML元数据转换器
 
 将Excel中的Dataverse实体设计转换为符合Schema规范的YAML元数据文件
 支持根据naming_rules.yaml配置自动转换schema name
+
+中文编码提醒：
+- openpyxl 读取 Excel 时中文内容正确（UTF-8）
+- Windows 终端可能显示乱码，但数据本身无误
+- 调试时可写入文件用 Read 工具查看
 """
 
 from openpyxl import load_workbook
