@@ -2318,7 +2318,8 @@ class MetadataAgent:
 
                 # 生成文档
                 doc_content = self._generate_table_dictionary(entity, filtered_attrs)
-                output_path = tables_dir / f"{schema_name}.md"
+                # 使用 logical_name 作为文件名（小写，符合命名规范）
+                output_path = tables_dir / f"{logical_name}.md"
 
                 with open(output_path, "w", encoding="utf-8") as f:
                     f.write(doc_content)
@@ -2405,7 +2406,8 @@ class MetadataAgent:
 
             # 生成文档
             doc_content = self._generate_table_dictionary(entity, filtered_attrs)
-            output_path = tables_dir / f"{schema_name}.md"
+            # 使用 logical_name 作为文件名（小写，符合命名规范）
+            output_path = tables_dir / f"{logical_name}.md"
 
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(doc_content)
@@ -2413,6 +2415,7 @@ class MetadataAgent:
             return json.dumps({
                 "success": True,
                 "entity": entity_name,
+                "logical_name": logical_name,
                 "schema_name": schema_name,
                 "output_file": str(output_path),
                 "field_count": len(filtered_attrs)
