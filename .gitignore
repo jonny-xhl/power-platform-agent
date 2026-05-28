@@ -63,7 +63,9 @@ sources/*
 !metadata/_schema/**
 
 # Data dictionary temp files
-docs/data_dictionary/*.tmp
+docs/data_dictionary/*
+docs/data_dictionary/*.md
+!docs/data_dictionary/CLAUDE.md
 
 # Documentation agent suggestion files
 *.suggest

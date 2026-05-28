@@ -519,6 +519,50 @@ async def list_tools() -> list[Tool]:
                 }
             }
         ),
+        Tool(
+            name="metadata_export_dictionary",
+            description="从 Dataverse 环境导出数据字典。只导出自定义表和自定义字段，自动过滤虚拟字段",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "output_dir": {
+                        "type": "string",
+                        "description": "输出目录 (默认 docs/data_dictionary)"
+                    },
+                    "environment": {
+                        "type": "string",
+                        "description": "目标环境"
+                    },
+                    "custom_only": {
+                        "type": "boolean",
+                        "description": "是否只导出自定义表/字段",
+                        "default": True
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="metadata_export_entity_dictionary",
+            description="导出单个实体的数据字典",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_name": {
+                        "type": "string",
+                        "description": "实体名称"
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "输出目录"
+                    },
+                    "environment": {
+                        "type": "string",
+                        "description": "目标环境"
+                    }
+                },
+                "required": ["entity_name"]
+            }
+        ),
 
         # ===== 命名规则 =====
         Tool(

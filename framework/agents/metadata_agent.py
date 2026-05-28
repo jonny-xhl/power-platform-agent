@@ -196,6 +196,20 @@ class MetadataAgent:
                     arguments.get("resource_type")
                 )
 
+            elif tool_name == "metadata_export_dictionary":
+                return await self.export_data_dictionary(
+                    arguments.get("output_dir"),
+                    arguments.get("environment"),
+                    arguments.get("custom_only", True)
+                )
+
+            elif tool_name == "metadata_export_entity_dictionary":
+                return await self.export_entity_dictionary(
+                    arguments.get("entity_name"),  # type: ignore[arg-type]
+                    arguments.get("output_dir"),
+                    arguments.get("environment")
+                )
+
             else:
                 return json.dumps({
                     "error": f"Unknown tool: {tool_name}"
@@ -2210,3 +2224,512 @@ class MetadataAgent:
             return json.dumps({
                 "error": f"Failed to list webresources: {str(e)}"
             }, indent=2)
+
+    # ==================== 数据字典导出 ====================
+
+    async def export_data_dictionary(
+        self,
+        output_dir: str = None,
+        environment: str = None,
+        custom_only: bool = True
+    ) -> str:
+        """
+        从 Dataverse 环境导出数据字典
+
+        Args:
+            output_dir: 输出目录 (默认 docs/data_dictionary)
+            environment: 目标环境
+            custom_only: 是否只导出自定义表/字段 (默认 True，使用 IsCustomEntity 属性判断)
+
+        Returns:
+            导出结果
+        """
+        import re
+        from datetime import datetime
+        from pathlib import Path
+
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client(environment)
+
+            # 设置输出目录
+            if not output_dir:
+                project_root = Path(__file__).parent.parent.parent
+                output_dir = project_root / "docs" / "data_dictionary"
+            else:
+                output_dir = Path(output_dir)
+
+            tables_dir = output_dir / "tables"
+            tables_dir.mkdir(parents=True, exist_ok=True)
+
+            # 获取所有实体
+            entities = client.get_entity_metadata()
+
+            # 过滤自定义实体
+            if custom_only:
+                filtered_entities = []
+                for entity in entities:
+                    # 直接使用 IsCustomEntity 属性判断
+                    if entity.get("IsCustomEntity", False):
+                        filtered_entities.append(entity)
+
+                entities = filtered_entities
+
+            results = {
+                "total_entities": len(entities),
+                "exported": 0,
+                "skipped": 0,
+                "tables": []
+            }
+
+            for entity in entities:
+                schema_name = entity.get("SchemaName", "")
+                logical_name = entity.get("LogicalName", "")
+
+                # 获取属性
+                try:
+                    attributes = client.get_attributes(logical_name)
+                except Exception as e:
+                    logger.warning(f"Failed to get attributes for {logical_name}: {e}")
+                    results["skipped"] += 1
+                    continue
+
+                # 过滤自定义属性和虚拟字段
+                filtered_attrs = []
+                for attr in attributes:
+                    # 过滤自定义属性
+                    if custom_only and not attr.get("IsCustomAttribute", False):
+                        # 检查 SchemaName 前缀作为备选判断
+                        attr_schema = attr.get("SchemaName", "")
+                        if not any(attr_schema.lower().startswith(p) for p in ["new_", "custom_"]):
+                            continue
+
+                    # 过滤虚拟字段
+                    if self._is_virtual_attribute(attr, attributes):
+                        continue
+
+                    filtered_attrs.append(attr)
+
+                if not filtered_attrs:
+                    results["skipped"] += 1
+                    continue
+
+                # 生成文档
+                doc_content = self._generate_table_dictionary(entity, filtered_attrs)
+                output_path = tables_dir / f"{schema_name}.md"
+
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(doc_content)
+
+                results["exported"] += 1
+                results["tables"].append({
+                    "schema_name": schema_name,
+                    "logical_name": logical_name,
+                    "file": str(output_path),
+                    "field_count": len(filtered_attrs)
+                })
+
+            # 生成汇总文档
+            self._generate_dictionary_summary(entities, results, output_dir)
+
+            return json.dumps({
+                "success": True,
+                "environment": environment or "default",
+                "output_dir": str(output_dir),
+                "results": results
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            import traceback
+            return json.dumps({
+                "error": f"Failed to export data dictionary: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, indent=2)
+
+    async def export_entity_dictionary(
+        self,
+        entity_name: str,
+        output_dir: str = None,
+        environment: str = None
+    ) -> str:
+        """
+        导出单个实体的数据字典
+
+        Args:
+            entity_name: 实体名称
+            output_dir: 输出目录
+            environment: 目标环境
+
+        Returns:
+            导出结果
+        """
+        from datetime import datetime
+        from pathlib import Path
+
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            client = self.core_agent.get_client(environment)
+
+            # 设置输出目录
+            if not output_dir:
+                project_root = Path(__file__).parent.parent.parent
+                output_dir = project_root / "docs" / "data_dictionary"
+            else:
+                output_dir = Path(output_dir)
+
+            tables_dir = output_dir / "tables"
+            tables_dir.mkdir(parents=True, exist_ok=True)
+
+            # 获取实体元数据
+            entity = client.get_entity_metadata(entity_name)
+            if not entity:
+                return json.dumps({
+                    "error": f"Entity not found: {entity_name}"
+                }, indent=2)
+
+            logical_name = entity.get("LogicalName", "")
+            schema_name = entity.get("SchemaName", "")
+
+            # 获取属性
+            attributes = client.get_attributes(logical_name)
+
+            # 过滤虚拟字段
+            filtered_attrs = [
+                attr for attr in attributes
+                if not self._is_virtual_attribute(attr, attributes)
+            ]
+
+            # 生成文档
+            doc_content = self._generate_table_dictionary(entity, filtered_attrs)
+            output_path = tables_dir / f"{schema_name}.md"
+
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(doc_content)
+
+            return json.dumps({
+                "success": True,
+                "entity": entity_name,
+                "schema_name": schema_name,
+                "output_file": str(output_path),
+                "field_count": len(filtered_attrs)
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            import traceback
+            return json.dumps({
+                "error": f"Failed to export entity dictionary: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, indent=2)
+
+    def _is_virtual_attribute(
+        self,
+        attr: dict[str, Any],
+        all_attrs: list[dict[str, Any]]
+    ) -> bool:
+        """
+        判断是否为虚拟属性
+
+        Args:
+            attr: 属性元数据
+            all_attrs: 所有属性列表（用于检测关联字段）
+
+        Returns:
+            True 表示虚拟字段
+        """
+        logical_name = attr.get("LogicalName", "").lower()
+
+        # 系统虚拟字段列表
+        system_virtual_fields = {
+            "createdon", "createdby", "modifiedon", "modifiedby",
+            "createdonbehalfby", "modifiedonbehalfby",
+            "ownerid", "owningbusinessunit", "owninguser", "owningteam",
+            "statecode", "statuscode",
+            "versionnumber", "importsequencenumber", "overriddencreatedon",
+            "transactioncurrencyid", "exchangerate",
+            "timezonecod", "utcconversiontimezonecode",
+            "processid", "stageid",
+        }
+
+        # 检查是否为系统虚拟字段
+        if logical_name in system_virtual_fields:
+            return True
+
+        # 计算字段
+        if attr.get("IsComputed"):
+            return True
+
+        # Rollup 字段
+        if attr.get("AggregateType"):
+            return True
+
+        # Virtual 类型
+        odata_type = attr.get("@odata.type", "")
+        if "VirtualAttributeMetadata" in odata_type:
+            return True
+
+        # Lookup 的 _name 关联字段
+        if logical_name.endswith("_name") and all_attrs:
+            base_name = logical_name[:-5]
+
+            # 检查对应的 Lookup 字段
+            lookup_candidates = [base_name]
+            if not base_name.endswith("_id"):
+                lookup_candidates.append(f"{base_name}_id")
+
+            for lookup_name in lookup_candidates:
+                for other_attr in all_attrs:
+                    if other_attr.get("LogicalName", "").lower() == lookup_name:
+                        attr_type = other_attr.get("AttributeType", "")
+                        if attr_type in ("Lookup", "Customer", "Owner"):
+                            return True
+                        odata_type = other_attr.get("@odata.type", "")
+                        if any(t in odata_type for t in [
+                            "LookupAttributeMetadata",
+                            "CustomerAttributeMetadata",
+                            "OwnerAttributeMetadata"
+                        ]):
+                            return True
+
+        return False
+
+    def _get_display_label(self, label_obj: dict[str, Any]) -> str:
+        """从 Label 对象获取显示名称"""
+        if not label_obj:
+            return ""
+
+        # 检查 LocalizedLabels
+        localized = label_obj.get("LocalizedLabels", [])
+        if localized:
+            # 优先使用中文
+            for label in localized:
+                if label.get("LanguageCode") == 2052:
+                    return label.get("Label", "")
+            return localized[0].get("Label", "")
+
+        # 检查 UserLocalizedLabel
+        user_label = label_obj.get("UserLocalizedLabel", {})
+        if user_label:
+            return user_label.get("Label", "")
+
+        return ""
+
+    def _get_attribute_type(self, attr: dict[str, Any]) -> str:
+        """获取属性类型"""
+        odata_type = attr.get("@odata.type", "")
+
+        # 先检查完整的类型名称
+        type_map = {
+            # 完整类型名称
+            "Microsoft.Dynamics.CRM.StringAttributeMetadata": "String",
+            "Microsoft.Dynamics.CRM.IntegerAttributeMetadata": "Integer",
+            "Microsoft.Dynamics.CRM.BigIntAttributeMetadata": "BigInt",
+            "Microsoft.Dynamics.CRM.DecimalAttributeMetadata": "Decimal",
+            "Microsoft.Dynamics.CRM.DoubleAttributeMetadata": "Double",
+            "Microsoft.Dynamics.CRM.MoneyAttributeMetadata": "Money",
+            "Microsoft.Dynamics.CRM.BooleanAttributeMetadata": "Boolean",
+            "Microsoft.Dynamics.CRM.DateTimeAttributeMetadata": "DateTime",
+            "Microsoft.Dynamics.CRM.LookupAttributeMetadata": "Lookup",
+            "Microsoft.Dynamics.CRM.PicklistAttributeMetadata": "Picklist",
+            "Microsoft.Dynamics.CRM.MemoAttributeMetadata": "Memo",
+            "Microsoft.Dynamics.CRM.UniqueIdentifierAttributeMetadata": "Uniqueidentifier",
+            "Microsoft.Dynamics.CRM.CustomerAttributeMetadata": "Customer",
+            "Microsoft.Dynamics.CRM.OwnerAttributeMetadata": "Owner",
+            "Microsoft.Dynamics.CRM.StateAttributeMetadata": "State",
+            "Microsoft.Dynamics.CRM.StatusAttributeMetadata": "Status",
+            "Microsoft.Dynamics.CRM.MultiSelectPicklistAttributeMetadata": "MultiSelectPicklist",
+            # 短格式类型名称（某些 API 返回格式）
+            "StringAttributeMetadata": "String",
+            "IntegerAttributeMetadata": "Integer",
+            "BigIntAttributeMetadata": "BigInt",
+            "DecimalAttributeMetadata": "Decimal",
+            "DoubleAttributeMetadata": "Double",
+            "MoneyAttributeMetadata": "Money",
+            "BooleanAttributeMetadata": "Boolean",
+            "DateTimeAttributeMetadata": "DateTime",
+            "LookupAttributeMetadata": "Lookup",
+            "PicklistAttributeMetadata": "Picklist",
+            "MemoAttributeMetadata": "Memo",
+            "UniqueIdentifierAttributeMetadata": "Uniqueidentifier",
+            "CustomerAttributeMetadata": "Customer",
+            "OwnerAttributeMetadata": "Owner",
+            "StateAttributeMetadata": "State",
+            "StatusAttributeMetadata": "Status",
+            "MultiSelectPicklistAttributeMetadata": "MultiSelectPicklist",
+        }
+
+        # 先尝试完整匹配
+        if odata_type in type_map:
+            return type_map[odata_type]
+
+        # 提取类型名称（去掉命名空间）
+        type_name = odata_type.split(".")[-1] if odata_type else ""
+        if type_name.endswith("AttributeMetadata"):
+            type_name = type_name[:-16]  # 去掉 "AttributeMetadata"
+
+        # 返回映射的类型或原始类型名称
+        return type_map.get(type_name, type_name)
+
+    def _get_required_level(self, attr: dict[str, Any]) -> str:
+        """获取必填状态"""
+        required_level = attr.get("RequiredLevel", {})
+        if isinstance(required_level, dict):
+            value = required_level.get("Value", "None")
+        else:
+            value = str(required_level)
+
+        if value in ("ApplicationRequired", "SystemRequired", "None"):
+            if value == "None":
+                return "否"
+            return "是" if value != "None" else "否"
+        return "否"
+
+    def _get_lookup_targets(self, attr: dict[str, Any]) -> str:
+        """获取 Lookup 目标实体"""
+        targets = attr.get("Targets", [])
+        if targets:
+            return ", ".join(f"`{t}`" for t in targets)
+        return ""
+
+    def _get_option_set_info(self, attr: dict[str, Any]) -> str:
+        """
+        获取选项集信息，格式化为 label:value; label:value
+
+        支持全局选项集和本地选项集
+        """
+        option_set = attr.get("OptionSet", {})
+        if not option_set:
+            return ""
+
+        options = option_set.get("Options", [])
+        if not options:
+            return ""
+
+        # 格式化为 label:value; label:value
+        parts = []
+        for opt in options:
+            value = opt.get("Value", "")
+            label_obj = opt.get("Label", {})
+            label = self._get_display_label(label_obj)
+
+            if label and value is not None:
+                parts.append(f"{label}:{value}")
+
+        return "; ".join(parts) if parts else ""
+
+    def _generate_table_dictionary(
+        self,
+        entity: dict[str, Any],
+        attributes: list[dict[str, Any]]
+    ) -> str:
+        """生成表的数据字典内容"""
+        from datetime import datetime
+
+        schema_name = entity.get("SchemaName", "")
+        logical_name = entity.get("LogicalName", "")
+        display_name = self._get_display_label(entity.get("DisplayName", {}))
+        description = self._get_display_label(entity.get("Description", {}))
+        ownership_type = entity.get("OwnershipType", "UserOwned")
+
+        lines = [
+            f"# {display_name} (`{schema_name}`)",
+            "",
+            f"**Logical Name**: `{logical_name}`",
+            "",
+            f"**说明**: {description or '-'}",
+            "",
+            f"**所有权类型**: `{ownership_type}`",
+            "",
+            "---",
+            "",
+            "## 字段列表",
+            "",
+            "| Schema Name | 中文显示名称 | 类型 | 必填 | 说明 | Lookup对象 | 选项集引用 |",
+            "|-------------|--------------|------|------|------|-----------|-----------|",
+        ]
+
+        for attr in attributes:
+            attr_schema = attr.get("SchemaName", "")
+            attr_display = self._get_display_label(attr.get("DisplayName", {}))
+            attr_type = self._get_attribute_type(attr)
+            required = self._get_required_level(attr)
+            attr_desc = self._get_display_label(attr.get("Description", {}))
+            lookup_targets = self._get_lookup_targets(attr)
+            option_set_info = self._get_option_set_info(attr)
+
+            # 处理说明中的换行
+            if "\n" in attr_desc:
+                attr_desc = attr_desc.replace("\n", "<br>")
+
+            lines.append(
+                f"| `{attr_schema}` | {attr_display} | `{attr_type}` | {required} | {attr_desc} | {lookup_targets} | {option_set_info} |"
+            )
+
+        # 添加元数据
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## 元数据",
+            "",
+            f"- **Schema Name**: `{schema_name}`",
+            f"- **Logical Name**: `{logical_name}`",
+            f"- **Entity Set Name**: `{entity.get('EntitySetName', '')}`",
+            f"- **Primary Id Attribute**: `{entity.get('PrimaryIdAttribute', '')}`",
+            f"- **Primary Name Attribute**: `{entity.get('PrimaryNameAttribute', '')}`",
+            f"- **Is Custom Entity**: {entity.get('IsCustomEntity', False)}",
+            f"- **导出时间**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`",
+        ])
+
+        return "\n".join(lines)
+
+    def _generate_dictionary_summary(
+        self,
+        entities: list[dict[str, Any]],
+        results: dict[str, Any],
+        output_dir: Path
+    ) -> None:
+        """生成汇总文档"""
+        from datetime import datetime
+
+        lines = [
+            "# 数据字典 - 从环境导出",
+            "",
+            f"*导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+            "",
+            "---",
+            "",
+            "## 统计",
+            "",
+            f"- 总实体数: {len(entities)}",
+            f"- 已导出: {results['exported']}",
+            f"- 跳过: {results['skipped']}",
+            "",
+            "---",
+            "",
+            "## 表列表",
+            "",
+            "| 表名 | Schema Name | Logical Name | 字段数 |",
+            "|------|-------------|--------------|--------|",
+        ]
+
+        for table_info in results.get("tables", []):
+            schema_name = table_info.get("schema_name", "")
+            logical_name = table_info.get("logical_name", "")
+            # 从 entities 获取显示名称
+            display_name = "-"
+            for entity in entities:
+                if entity.get("SchemaName") == schema_name:
+                    display_name = self._get_display_label(entity.get("DisplayName", {}))
+                    break
+
+            field_count = table_info.get("field_count", 0)
+            display_linked = f"[{display_name}](tables/{schema_name}.md)"
+            lines.append(f"| {display_linked} | `{schema_name}` | `{logical_name}` | {field_count} |")
+
+        output_path = output_dir / "from_env_tables.md"
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))

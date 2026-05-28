@@ -22,4 +22,4 @@
 - **Schema Name**: `new_customer_status`
 - **类型**: 全局选项集
 - **源文件**: [`global_optionsets.yaml`](../../metadata/optionsets/global_optionsets.yaml)
-- **最后更新**: `2026-04-23 01:25:40`
+- **最后更新**: `2026-05-28 10:47:57`
