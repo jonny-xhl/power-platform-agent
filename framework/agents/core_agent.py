@@ -10,6 +10,7 @@ from typing import Any
 import msal
 from framework.utils.dataverse_client import DataverseClient, AuthenticationError
 from framework.utils.naming_converter import NamingConverter
+from framework.utils.auth_cache import AuthCache, AutoAuthenticator
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -35,12 +36,17 @@ class CoreAgent:
         # 初始化命名转换器
         self.naming_converter = NamingConverter()
 
+        # 初始化认证缓存
+        self.auth_cache = AuthCache()
+        self.auto_authenticator = AutoAuthenticator("config/environments.yaml")
+
         # 延迟加载的代理引用
         self._metadata_agent = None
         self._plugin_agent = None
         self._solution_agent = None
 
         self._load_config()
+        self._load_cached_tokens()
 
     @property
     def metadata_agent(self):
@@ -75,6 +81,17 @@ class CoreAgent:
         else:
             self._config = {"environments": {}}
             self._environments = {"environments": {}}
+
+    def _load_cached_tokens(self) -> None:
+        """启动时加载缓存的token到内存"""
+        if not self._environments:
+            return
+
+        for env_name in self._environments.get("environments", {}).keys():
+            cached = self.auth_cache.load_token(env_name)
+            if cached and cached.get("access_token"):
+                self._tokens[env_name] = cached["access_token"]
+                logger.info(f"Loaded cached token for environment: {env_name}")
 
     def get_environment_config(self, environment: str = None) -> dict[str, Any]:
         """
@@ -138,9 +155,18 @@ class CoreAgent:
             result = app.acquire_token_for_client(scopes=scope)
 
             if "access_token" in result:
-                # 保存token
+                # 保存token到内存和缓存
                 self._tokens[env] = result["access_token"]
                 self._current_environment = env
+
+                # 保存到持久化缓存
+                from datetime import datetime, timedelta
+                expires_in = result.get("expires_in", 3600)
+                expires_on = datetime.now() + timedelta(seconds=expires_in)
+                self.auth_cache.save_token(env, {
+                    "access_token": result["access_token"],
+                    "expires_on": expires_on.isoformat()
+                })
 
                 # 创建并保存客户端
                 client = DataverseClient(env, access_token=result["access_token"])
@@ -150,7 +176,8 @@ class CoreAgent:
                     "success": True,
                     "environment": env,
                     "url": env_config.get("url"),
-                    "expires_in": result.get("expires_in", 3600)
+                    "expires_in": expires_in,
+                    "expires_on": expires_on.isoformat()
                 }
             else:
                 return {
@@ -181,6 +208,9 @@ class CoreAgent:
 
         if env in self._clients:
             del self._clients[env]
+
+        # 从持久化缓存中移除
+        self.auth_cache.remove_token(env)
 
         return {"success": True, "environment": env}
 
@@ -253,7 +283,7 @@ class CoreAgent:
 
     def get_client(self, environment: str = None) -> DataverseClient:
         """
-        获取Dataverse客户端
+        获取Dataverse客户端（自动处理token缓存和刷新）
 
         Args:
             environment: 环境名称
@@ -262,17 +292,35 @@ class CoreAgent:
             Dataverse客户端实例
 
         Raises:
-            AuthenticationError: 未认证
+            AuthenticationError: 未认证或认证失败
         """
         env = environment or self._current_environment or ""
 
-        if env not in self._clients:
-            if env in self._tokens:
-                self._clients[env] = DataverseClient(env, access_token=self._tokens[env])
-            else:
-                raise AuthenticationError(f"Not authenticated to environment: {env}")
+        # 如果已有客户端，先检查是否可用
+        if env in self._clients:
+            try:
+                client = self._clients[env]
+                # 简单的ping检查
+                if hasattr(client, 'ping') and client.ping():
+                    return self._clients[env]
+            except Exception:
+                # 客户端可能已失效，继续获取新token
+                pass
 
-        return self._clients[env]
+        # 获取环境配置
+        env_config = self.get_environment_config(env)
+        if not env_config:
+            raise AuthenticationError(f"Environment not found: {env}")
+
+        # 尝试使用自动认证器获取token（会自动使用缓存或刷新）
+        try:
+            access_token = self.auto_authenticator.get_cached_or_refresh_token(env, env_config)
+            self._tokens[env] = access_token
+            self._clients[env] = DataverseClient(env, access_token=access_token)
+            self._current_environment = env
+            return self._clients[env]
+        except Exception as e:
+            raise AuthenticationError(f"Failed to authenticate to environment {env}: {e}")
 
     # ==================== 命名转换 ====================
 
