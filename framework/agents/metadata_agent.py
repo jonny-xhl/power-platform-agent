@@ -2288,9 +2288,9 @@ class MetadataAgent:
                 schema_name = entity.get("SchemaName", "")
                 logical_name = entity.get("LogicalName", "")
 
-                # 获取属性
+                # 获取属性（包括完整的选项集信息）
                 try:
-                    attributes = client.get_attributes(logical_name)
+                    attributes = client.get_attributes_with_optionsets(logical_name)
                 except Exception as e:
                     logger.warning(f"Failed to get attributes for {logical_name}: {e}")
                     results["skipped"] += 1
@@ -2395,8 +2395,8 @@ class MetadataAgent:
             logical_name = entity.get("LogicalName", "")
             schema_name = entity.get("SchemaName", "")
 
-            # 获取属性
-            attributes = client.get_attributes(logical_name)
+            # 获取属性（包括完整的选项集信息）
+            attributes = client.get_attributes_with_optionsets(logical_name)
 
             # 过滤虚拟字段
             filtered_attrs = [

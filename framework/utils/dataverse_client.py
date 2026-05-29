@@ -457,6 +457,206 @@ class DataverseClient:
 
         return response.json().get("value", [])
 
+    def get_attributes_with_optionsets(
+        self,
+        entity_name: str
+    ) -> list[dict[str, Any]]:
+        """
+        获取实体的所有属性，包括完整的选项集信息
+
+        对于 Picklist 和 Boolean 类型的属性，会额外获取选项集的完整值。
+
+        Args:
+            entity_name: 实体逻辑名称
+
+        Returns:
+            属性列表（包含选项集信息）
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 获取实体元数据 ID
+        entity_metadata = self.get_entity_metadata(entity_name)
+        entity_metadata_id = entity_metadata.get("MetadataId")
+
+        if not entity_metadata_id:
+            return self.get_attributes(entity_name)
+
+        # 先获取基本属性列表
+        attributes = self.get_attributes(entity_name)
+
+        # 缓存全局选项集
+        global_optionsets = {}
+
+        # 增强 Picklist 和 Boolean 属性的选项集信息
+        for attr in attributes:
+            attr_type = attr.get("@odata.type", "")
+            metadata_id = attr.get("MetadataId")
+
+            if not metadata_id:
+                continue
+
+            # Picklist 属性
+            if "PicklistAttributeMetadata" in attr_type:
+                schema_name = attr.get("SchemaName", "")
+                # 尝试获取选项集信息
+                try:
+                    optionset_url = self.get_api_url(
+                        f"EntityDefinitions({entity_metadata_id})/Attributes({metadata_id})/Microsoft.Dynamics.CRM.PicklistAttributeMetadata/OptionSet"
+                    )
+                    response = self.session.get(optionset_url)
+                    if response.status_code == 200:
+                        optionset_data = response.json()
+                        # 检查是否为全局选项集
+                        if optionset_data.get("IsGlobal"):
+                            # 获取全局选项集的完整信息
+                            optionset_name = optionset_data.get("Name")
+                            if optionset_name and optionset_name not in global_optionsets:
+                                try:
+                                    global_url = self.get_api_url(
+                                        f"GlobalOptionSetDefinitions('{optionset_name}')"
+                                    )
+                                    global_response = self.session.get(global_url)
+                                    if global_response.status_code == 200:
+                                        global_optionsets[optionset_name] = global_response.json()
+                                except Exception as e:
+                                    logger.debug(f"Failed to get global optionset {optionset_name}: {e}")
+                            # 使用全局选项集数据
+                            if optionset_name in global_optionsets:
+                                attr["OptionSet"] = global_optionsets[optionset_name]
+                            else:
+                                attr["OptionSet"] = optionset_data
+                        else:
+                            # 合并局部选项集信息到属性中
+                            attr["OptionSet"] = optionset_data
+                    elif response.status_code == 204:
+                        # 204 No Content - 选项集可能为空或需要从其他地方获取
+                        # 检查是否为是/否类型的字段（通常使用全局是/否选项集）
+                        display_name = attr.get("DisplayName", {})
+                        if isinstance(display_name, dict):
+                            user_label = display_name.get("UserLocalizedLabel", {})
+                            if isinstance(user_label, dict):
+                                label = user_label.get("Label", "")
+                                # 如果字段名或显示名包含"是否"、"is"等关键词，使用默认是/否选项集
+                                if ("是否" in label or "is" in schema_name.lower() or
+                                    "void" in schema_name.lower() or "作废" in label):
+                                    # 使用 Dataverse 的标准是/否选项集
+                                    # 尝试获取全局是/否选项集
+                                    yes_no_optionset = self._get_yes_no_optionset()
+                                    if yes_no_optionset:
+                                        attr["OptionSet"] = yes_no_optionset
+                except Exception as e:
+                    logger.debug(f"Failed to get optionset for {schema_name}: {e}")
+
+            # Boolean 属性
+            elif "BooleanAttributeMetadata" in attr_type:
+                try:
+                    optionset_url = self.get_api_url(
+                        f"EntityDefinitions({entity_metadata_id})/Attributes({metadata_id})/Microsoft.Dynamics.CRM.BooleanAttributeMetadata/OptionSet"
+                    )
+                    response = self.session.get(optionset_url)
+                    if response.status_code == 200:
+                        optionset_data = response.json()
+                        attr["OptionSet"] = optionset_data
+                except Exception as e:
+                    logger.debug(f"Failed to get optionset for {attr.get('SchemaName')}: {e}")
+
+            # State 属性
+            elif "StateAttributeMetadata" in attr_type:
+                try:
+                    optionset_url = self.get_api_url(
+                        f"EntityDefinitions({entity_metadata_id})/Attributes({metadata_id})/Microsoft.Dynamics.CRM.StateAttributeMetadata/OptionSet"
+                    )
+                    response = self.session.get(optionset_url)
+                    if response.status_code == 200:
+                        optionset_data = response.json()
+                        attr["OptionSet"] = optionset_data
+                except Exception as e:
+                    logger.debug(f"Failed to get optionset for {attr.get('SchemaName')}: {e}")
+
+            # Status 属性
+            elif "StatusAttributeMetadata" in attr_type:
+                try:
+                    optionset_url = self.get_api_url(
+                        f"EntityDefinitions({entity_metadata_id})/Attributes({metadata_id})/Microsoft.Dynamics.CRM.StatusAttributeMetadata/OptionSet"
+                    )
+                    response = self.session.get(optionset_url)
+                    if response.status_code == 200:
+                        optionset_data = response.json()
+                        attr["OptionSet"] = optionset_data
+                except Exception as e:
+                    logger.debug(f"Failed to get optionset for {attr.get('SchemaName')}: {e}")
+
+        return attributes
+
+    def _get_yes_no_optionset(self) -> dict[str, Any]:
+        """
+        获取或创建默认的是/否选项集
+
+        Returns:
+            选项集字典，包含"是:1"和"否:0"两个选项
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 尝试从全局选项集中查找是/否选项集
+        try:
+            url = "GlobalOptionSetDefinitions?$top=50"
+            full_url = self.get_api_url(url)
+            response = self.session.get(full_url)
+            if response.status_code == 200:
+                data = response.json()
+                optionsets = data.get('value', [])
+
+                # 查找可能的是/否选项集
+                for opt in optionsets:
+                    name = opt.get('Name', '').lower()
+                    options = opt.get('Options', [])
+
+                    # 检查是否为是/否选项集（只有2个选项，值为0和1）
+                    if len(options) == 2:
+                        values = sorted([opt_val.get('Value') for opt_val in options])
+                        if values == [0, 1]:
+                            # 检查标签是否为是/否
+                            labels = []
+                            for opt_val in options:
+                                label_obj = opt_val.get('Label', {})
+                                if isinstance(label_obj, dict):
+                                    user_label = label_obj.get('UserLocalizedLabel', {})
+                                    if isinstance(user_label, dict):
+                                        labels.append(user_label.get('Label', ''))
+
+                            # 如果包含"是"和"否"，返回这个选项集
+                            if '是' in labels and '否' in labels:
+                                return opt
+
+        except Exception as e:
+            logger.debug(f"Failed to get yes/no optionset: {e}")
+
+        # 如果没有找到，创建默认的是/否选项集
+        return {
+            "IsGlobal": False,
+            "Name": "default_yes_no",
+            "Options": [
+                {
+                    "Value": 1,
+                    "Label": {
+                        "UserLocalizedLabel": {
+                            "Label": "是"
+                        }
+                    }
+                },
+                {
+                    "Value": 0,
+                    "Label": {
+                        "UserLocalizedLabel": {
+                            "Label": "否"
+                        }
+                    }
+                }
+            ]
+        }
+
     def get_relationships(
         self,
         entity_name: str
