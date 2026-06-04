@@ -427,7 +427,7 @@ class MarkdownGenerator:
         return output_path
 
     def generate_index(self, tables: List[Dict[str, Any]], optionsets: List[Dict[str, Any]]) -> Path:
-        """生成汇总索引"""
+        """生成汇总索引 - 扫描 docs 目录中的 md 文件"""
         lines = [
             "# 数据字典索引",
             "",
@@ -441,24 +441,53 @@ class MarkdownGenerator:
             "|------|-------------|--------|----------|------|",
         ]
 
-        for table in tables:
-            schema = table['data'].get('schema', {})
-            schema_name = schema.get('schema_name', 'unknown')
-            display_name = schema.get('display_name', '')
-            description = schema.get('description', '')
-            attributes = table['data'].get('attributes', [])
-            filtered_attributes = [
-                attr for attr in attributes
-                if not VirtualFieldFilter.is_virtual_field(attr)
-            ]
+        # 扫描 tables 目录中的所有 md 文件
+        tables_dir = self.output_dir / 'tables'
+        table_entries = []
 
-            display_name_linked = f"[{display_name}](tables/{schema_name}.md)"
+        if tables_dir.exists():
+            for md_file in sorted(tables_dir.glob('*.md')):
+                # 从文件名获取 schema_name
+                schema_name = md_file.stem
+                # 读取文件内容提取信息
+                try:
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        # 提取显示名称（第一个 # 标题）
+                        title_match = re.search(r'# ([^(]+)\s*\(`' + re.escape(schema_name) + r'`\)', content)
+                        display_name = title_match.group(1).strip() if title_match else schema_name
+                        # 提取说明
+                        desc_match = re.search(r'\*\*说明\*\*:\s*(.+?)(?:\n|$)', content)
+                        description = desc_match.group(1).strip() if desc_match else ''
+                        # 统计字段数（计算表格行数，排除表头）
+                        table_rows = re.findall(r'^\| \`', content, re.MULTILINE)
+                        field_count = len(table_rows)
+                        # 提取更新时间
+                        time_match = re.search(r'\*\*导出时间\*\*:\s*`(\d{4}-\d{2}-\d{2})', content)
+                        last_update = time_match.group(1) if time_match else datetime.now().strftime('%Y-%m-%d')
+
+                        table_entries.append({
+                            'display_name': display_name,
+                            'schema_name': schema_name,
+                            'field_count': field_count,
+                            'last_update': last_update,
+                            'description': description
+                        })
+                except Exception as e:
+                    print(f"Warning: Failed to parse {md_file}: {e}")
+                    continue
+
+        # 按表名排序
+        table_entries.sort(key=lambda x: x['schema_name'])
+
+        for entry in table_entries:
+            display_name_linked = f"[{entry['display_name']}](tables/{entry['schema_name']}.md)"
             lines.append(
-                f"| {display_name_linked} | `{schema_name}` | {len(filtered_attributes)} | "
-                f"{datetime.now().strftime('%Y-%m-%d')} | {description} |"
+                f"| {display_name_linked} | `{entry['schema_name']}` | {entry['field_count']} | "
+                f"{entry['last_update']} | {entry['description']} |"
             )
 
-        # 收集所有选项集
+        # 扫描选项集目录
         lines.extend([
             "",
             "## 选项集 (Option Sets)",
@@ -467,21 +496,35 @@ class MarkdownGenerator:
             "|--------|-------------|------|----------|",
         ])
 
-        all_optionsets = []
-        for opt_file in optionsets:
-            data = opt_file['data']
-            if 'global_optionsets' in data:
-                all_optionsets.extend(data['global_optionsets'])
-            else:
-                all_optionsets.append(data)
+        optionsets_dir = self.output_dir / 'optionsets'
+        optionset_entries = []
 
-        for opt in all_optionsets:
-            name = opt.get('name', 'unknown')
-            display_name = opt.get('display_name', '')
-            options = opt.get('options', [])
+        if optionsets_dir.exists():
+            for md_file in sorted(optionsets_dir.glob('*.md')):
+                schema_name = md_file.stem
+                try:
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        title_match = re.search(r'# ([^(]+)\s*\(`' + re.escape(schema_name) + r'`\)', content)
+                        display_name = title_match.group(1).strip() if title_match else schema_name
+                        # 统计选项数（表格行数，排除表头）
+                        table_rows = re.findall(r'^\| \d+\s+\|', content, re.MULTILINE)
+                        option_count = len(table_rows)
 
-            display_name_linked = f"[{display_name}](optionsets/{name}.md)"
-            lines.append(f"| {display_name_linked} | `{name}` | 全局 | {len(options)} |")
+                        optionset_entries.append({
+                            'display_name': display_name,
+                            'schema_name': schema_name,
+                            'option_count': option_count
+                        })
+                except Exception as e:
+                    print(f"Warning: Failed to parse {md_file}: {e}")
+                    continue
+
+        optionset_entries.sort(key=lambda x: x['schema_name'])
+
+        for entry in optionset_entries:
+            display_name_linked = f"[{entry['display_name']}](optionsets/{entry['schema_name']}.md)"
+            lines.append(f"| {display_name_linked} | `{entry['schema_name']}` | 全局 | {entry['option_count']} |")
 
         lines.extend([
             "",

@@ -2436,16 +2436,41 @@ class MetadataAgent:
         """
         判断是否为虚拟属性
 
+        使用 Dataverse API 返回的字段标识，而不是硬编码：
+        - AttributeOf: 非空表示是另一个属性的关联字段
+        - IsLogical: true 表示是逻辑/虚拟属性
+        - IsValidForCreate: false 表示不能用于创建（虚拟字段特征）
+
         Args:
             attr: 属性元数据
-            all_attrs: 所有属性列表（用于检测关联字段）
+            all_attrs: 所有属性列表（保留参数以兼容）
 
         Returns:
             True 表示虚拟字段
         """
-        logical_name = attr.get("LogicalName", "").lower()
+        # 方法1: AttributeOf 非空表示是关联字段（如 createdbyname -> AttributeOf: createdby）
+        if attr.get("AttributeOf"):
+            return True
 
-        # 系统虚拟字段列表
+        # 方法2: IsLogical 为 true 表示是逻辑属性
+        if attr.get("IsLogical"):
+            return True
+
+        # 方法3: 计算字段
+        if attr.get("IsComputed"):
+            return True
+
+        # 方法4: Rollup 字段
+        if attr.get("AggregateType"):
+            return True
+
+        # 方法5: Virtual 类型（显式声明为虚拟类型）
+        odata_type = attr.get("@odata.type", "")
+        if "VirtualAttributeMetadata" in odata_type:
+            return True
+
+        # 方法6: 系统虚拟字段（这些字段是 Dataverse 系统字段，通常不需要显示）
+        logical_name = attr.get("LogicalName", "").lower()
         system_virtual_fields = {
             "createdon", "createdby", "modifiedon", "modifiedby",
             "createdonbehalfby", "modifiedonbehalfby",
@@ -2455,47 +2480,10 @@ class MetadataAgent:
             "transactioncurrencyid", "exchangerate",
             "timezonecod", "utcconversiontimezonecode",
             "processid", "stageid",
+            "timezoneruleversionnumber",
         }
-
-        # 检查是否为系统虚拟字段
         if logical_name in system_virtual_fields:
             return True
-
-        # 计算字段
-        if attr.get("IsComputed"):
-            return True
-
-        # Rollup 字段
-        if attr.get("AggregateType"):
-            return True
-
-        # Virtual 类型
-        odata_type = attr.get("@odata.type", "")
-        if "VirtualAttributeMetadata" in odata_type:
-            return True
-
-        # Lookup 的 _name 关联字段
-        if logical_name.endswith("_name") and all_attrs:
-            base_name = logical_name[:-5]
-
-            # 检查对应的 Lookup 字段
-            lookup_candidates = [base_name]
-            if not base_name.endswith("_id"):
-                lookup_candidates.append(f"{base_name}_id")
-
-            for lookup_name in lookup_candidates:
-                for other_attr in all_attrs:
-                    if other_attr.get("LogicalName", "").lower() == lookup_name:
-                        attr_type = other_attr.get("AttributeType", "")
-                        if attr_type in ("Lookup", "Customer", "Owner"):
-                            return True
-                        odata_type = other_attr.get("@odata.type", "")
-                        if any(t in odata_type for t in [
-                            "LookupAttributeMetadata",
-                            "CustomerAttributeMetadata",
-                            "OwnerAttributeMetadata"
-                        ]):
-                            return True
 
         return False
 
@@ -2524,25 +2512,47 @@ class MetadataAgent:
         """获取属性类型"""
         odata_type = attr.get("@odata.type", "")
 
-        # 先检查完整的类型名称
+        # 优先使用 AttributeType 字段（更简洁）
+        attribute_type = attr.get("AttributeType")
+        if attribute_type:
+            return attribute_type
+
+        # 先检查完整的类型名称（支持带/不带 # 前缀）
         type_map = {
             # 完整类型名称
+            "#Microsoft.Dynamics.CRM.StringAttributeMetadata": "String",
             "Microsoft.Dynamics.CRM.StringAttributeMetadata": "String",
+            "#Microsoft.Dynamics.CRM.IntegerAttributeMetadata": "Integer",
             "Microsoft.Dynamics.CRM.IntegerAttributeMetadata": "Integer",
+            "#Microsoft.Dynamics.CRM.BigIntAttributeMetadata": "BigInt",
             "Microsoft.Dynamics.CRM.BigIntAttributeMetadata": "BigInt",
+            "#Microsoft.Dynamics.CRM.DecimalAttributeMetadata": "Decimal",
             "Microsoft.Dynamics.CRM.DecimalAttributeMetadata": "Decimal",
+            "#Microsoft.Dynamics.CRM.DoubleAttributeMetadata": "Double",
             "Microsoft.Dynamics.CRM.DoubleAttributeMetadata": "Double",
+            "#Microsoft.Dynamics.CRM.MoneyAttributeMetadata": "Money",
             "Microsoft.Dynamics.CRM.MoneyAttributeMetadata": "Money",
+            "#Microsoft.Dynamics.CRM.BooleanAttributeMetadata": "Boolean",
             "Microsoft.Dynamics.CRM.BooleanAttributeMetadata": "Boolean",
+            "#Microsoft.Dynamics.CRM.DateTimeAttributeMetadata": "DateTime",
             "Microsoft.Dynamics.CRM.DateTimeAttributeMetadata": "DateTime",
+            "#Microsoft.Dynamics.CRM.LookupAttributeMetadata": "Lookup",
             "Microsoft.Dynamics.CRM.LookupAttributeMetadata": "Lookup",
+            "#Microsoft.Dynamics.CRM.PicklistAttributeMetadata": "Picklist",
             "Microsoft.Dynamics.CRM.PicklistAttributeMetadata": "Picklist",
+            "#Microsoft.Dynamics.CRM.MemoAttributeMetadata": "Memo",
             "Microsoft.Dynamics.CRM.MemoAttributeMetadata": "Memo",
+            "#Microsoft.Dynamics.CRM.UniqueIdentifierAttributeMetadata": "Uniqueidentifier",
             "Microsoft.Dynamics.CRM.UniqueIdentifierAttributeMetadata": "Uniqueidentifier",
+            "#Microsoft.Dynamics.CRM.CustomerAttributeMetadata": "Customer",
             "Microsoft.Dynamics.CRM.CustomerAttributeMetadata": "Customer",
+            "#Microsoft.Dynamics.CRM.OwnerAttributeMetadata": "Owner",
             "Microsoft.Dynamics.CRM.OwnerAttributeMetadata": "Owner",
+            "#Microsoft.Dynamics.CRM.StateAttributeMetadata": "State",
             "Microsoft.Dynamics.CRM.StateAttributeMetadata": "State",
+            "#Microsoft.Dynamics.CRM.StatusAttributeMetadata": "Status",
             "Microsoft.Dynamics.CRM.StatusAttributeMetadata": "Status",
+            "#Microsoft.Dynamics.CRM.MultiSelectPicklistAttributeMetadata": "MultiSelectPicklist",
             "Microsoft.Dynamics.CRM.MultiSelectPicklistAttributeMetadata": "MultiSelectPicklist",
             # 短格式类型名称（某些 API 返回格式）
             "StringAttributeMetadata": "String",
@@ -2571,7 +2581,7 @@ class MetadataAgent:
         # 提取类型名称（去掉命名空间）
         type_name = odata_type.split(".")[-1] if odata_type else ""
         if type_name.endswith("AttributeMetadata"):
-            type_name = type_name[:-16]  # 去掉 "AttributeMetadata"
+            type_name = type_name[:-17]  # 正确去掉 "AttributeMetadata" (17个字符)
 
         # 返回映射的类型或原始类型名称
         return type_map.get(type_name, type_name)
