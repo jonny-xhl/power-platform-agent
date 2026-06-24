@@ -169,6 +169,15 @@ def cmd_reverse(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_delete(args: argparse.Namespace) -> int:
+    """Delete a table from Dataverse (destructive; cascades attributes + relationships)."""
+    client = get_client(args.env)
+    logical = args.name.lower()
+    result = client.delete_entity(logical)
+    _print_json({"name": logical, **result})
+    return 0
+
+
 # ----------------------------------------------------------------- entry
 
 
@@ -219,6 +228,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output file (default: <definitions-dir>/<name>.py).",
     )
     p_rev.set_defaults(func=cmd_reverse)
+
+    p_del = sub.add_parser(
+        "delete",
+        help="Delete a table from Dataverse (destructive; cascades attributes + relationships).",
+    )
+    p_del.add_argument("name", help="Logical name of the table to delete.")
+    p_del.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p_del.set_defaults(func=cmd_delete)
 
     return parser
 

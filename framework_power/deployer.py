@@ -202,8 +202,19 @@ def _deploy_entity(
         client.update_entity(logical, serialize_entity_patch(table))
         result["entity"] = {"action": "updated"}
     except Exception as e:  # noqa: BLE001
-        result["entity"] = {"action": "update_failed", "error": str(e)}
-        logger.warning(f"Entity property sync failed for '{logical}': {e}")
+        msg = str(e).lower()
+        # 0x80060888 "Operation not supported on EntityMetadata": some tenants/auths reject
+        # entity-property PATCH via Web API while allowing create + attribute updates. The
+        # entity already exists (and for a reverse snapshot its props already match), so
+        # treat this as a benign skip rather than a hard failure.
+        if "0x80060888" in msg or "operation not supported on entitymetadata" in msg:
+            result["entity"] = {
+                "action": "skipped",
+                "note": "entity-property update not supported via Web API in this environment",
+            }
+        else:
+            result["entity"] = {"action": "update_failed", "error": str(e)}
+            logger.warning(f"Entity property sync failed for '{logical}': {e}")
     return False
 
 

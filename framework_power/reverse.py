@@ -122,17 +122,27 @@ def _attr_to_column(
     logical = attr.get("LogicalName")
     schema = attr.get("SchemaName") or logical
     atype = attr.get("AttributeType")
+    odata = attr.get("@odata.type") or ""
 
     if atype == "Lookup":
         return None, attr
-    if atype in _SKIP_TYPES:
+
+    # File columns report AttributeType "Virtual" but carry FileAttributeMetadata in
+    # @odata.type; resolve them BEFORE the Virtual/Image skip below.
+    member: Optional[AttributeType] = None
+    if "FileAttributeMetadata" in odata:
+        member = AttributeType.File
+    elif "ImageAttributeMetadata" in odata:
+        return None, None  # Image not supported
+    elif atype in _SKIP_TYPES:
         return None, None
+    else:
+        member = TYPE_TO_ENUM.get(atype or "")
+
     if _is_virtual(attr) or attr.get("IsPrimaryId"):
         return None, None
     if schema and schema.lower().endswith("_base"):
         return None, None
-
-    member = TYPE_TO_ENUM.get(atype or "")
     if member is None:
         logger.debug(f"reverse: skipping attribute {schema!r} (unsupported type {atype!r})")
         return None, None
@@ -150,6 +160,8 @@ def _attr_to_column(
         kwargs["is_primary_name"] = True
     if attr.get("MaxLength") is not None:
         kwargs["max_length"] = attr.get("MaxLength")
+    if attr.get("MaxSizeInKB") is not None:
+        kwargs["max_size_in_kb"] = attr.get("MaxSizeInKB")
     fmt_name = (attr.get("FormatName") or {}).get("Value")
     if fmt_name:
         kwargs["format_name"] = fmt_name

@@ -81,6 +81,26 @@ def test_reverse_keeps_standard_skips_virtual_pk_base():
     assert credit.type == AttributeType.Money and credit.precision == 2
 
 
+def test_reverse_file_column_resolved_via_odata():
+    # File columns report AttributeType "Virtual"; reverse must resolve via @odata.type.
+    entity = {"SchemaName": "Contact", "LogicalName": "contact", "PrimaryNameAttribute": "firstname",
+              "DisplayName": {"LocalizedLabels": [{"Label": "Contact", "LanguageCode": 1033}]}}
+    attrs = [
+        {"LogicalName": "firstname", "SchemaName": "FirstName", "AttributeType": "String",
+         "DisplayName": {"LocalizedLabels": [{"Label": "First", "LanguageCode": 1033}]}},
+        {"LogicalName": "new_doc", "SchemaName": "new_Doc", "AttributeType": "Virtual",
+         "@odata.type": "#Microsoft.Dynamics.CRM.FileAttributeMetadata",
+         "DisplayName": {"LocalizedLabels": [{"Label": "Doc", "LanguageCode": 1033}]}, "MaxSizeInKB": 2048},
+    ]
+    client = ReverseFakeClient(entity, attrs, [])
+    table = reverse_table(client, "contact")
+
+    doc = next((c for c in table.columns if c.schema_name == "new_Doc"), None)
+    assert doc is not None
+    assert doc.type == AttributeType.File
+    assert doc.max_size_in_kb == 2048
+
+
 def test_reverse_lookup_becomes_relationship():
     client = ReverseFakeClient(_ENTITY, _ATTRIBUTES, _RELATIONSHIPS)
     table = reverse_table(client, "contact")

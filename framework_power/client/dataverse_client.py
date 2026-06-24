@@ -180,12 +180,31 @@ class DataverseClient:
         return {"status": "created"}
 
     def update_entity(self, entity_name: str, patch: dict[str, Any]) -> dict[str, Any]:
-        """PATCH updatable entity properties (keyed by LogicalName)."""
-        url = self.get_api_url(f"EntityDefinitions(LogicalName='{entity_name}')")
+        """PATCH updatable entity properties (keyed by MetadataId; LogicalName PATCH is 405)."""
+        metadata_id = self.get_entity_metadata(entity_name).get("MetadataId")
+        if not metadata_id:
+            raise ValueError(f"Entity {entity_name} not found")
+        url = self.get_api_url(f"EntityDefinitions({metadata_id})")
         response = self.session.patch(url, json=patch)
         if not response.ok:
             self._raise_with_detail(response, f"update entity '{entity_name}'")
         return {"status": "updated"}
+
+    def delete_entity(self, logical_name: str) -> dict[str, Any]:
+        """DELETE an entity by logical name.
+
+        Cascades to the entity's attributes and the relationships it owns (including its
+        lookup columns). Destructive — not used by ``deploy_table``; exposed for explicit
+        teardown (e.g. removing test tables).
+        """
+        metadata_id = self.get_entity_metadata(logical_name).get("MetadataId")
+        if not metadata_id:
+            raise ValueError(f"Entity {logical_name} not found")
+        url = self.get_api_url(f"EntityDefinitions({metadata_id})")
+        response = self.session.delete(url)
+        if not response.ok:
+            self._raise_with_detail(response, f"delete entity '{logical_name}'")
+        return {"status": "deleted", "logical_name": logical_name}
 
     @retry_on_metadata_error(
         max_retries=5,
