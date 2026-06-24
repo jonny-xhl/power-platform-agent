@@ -530,21 +530,45 @@ class DataverseClient:
                             # 合并局部选项集信息到属性中
                             attr["OptionSet"] = optionset_data
                     elif response.status_code == 204:
-                        # 204 No Content - 选项集可能为空或需要从其他地方获取
-                        # 检查是否为是/否类型的字段（通常使用全局是/否选项集）
-                        display_name = attr.get("DisplayName", {})
-                        if isinstance(display_name, dict):
-                            user_label = display_name.get("UserLocalizedLabel", {})
-                            if isinstance(user_label, dict):
-                                label = user_label.get("Label", "")
-                                # 如果字段名或显示名包含"是否"、"is"等关键词，使用默认是/否选项集
-                                if ("是否" in label or "is" in schema_name.lower() or
-                                    "void" in schema_name.lower() or "作废" in label):
-                                    # 使用 Dataverse 的标准是/否选项集
-                                    # 尝试获取全局是/否选项集
-                                    yes_no_optionset = self._get_yes_no_optionset()
-                                    if yes_no_optionset:
-                                        attr["OptionSet"] = yes_no_optionset
+                        # 204 No Content - 尝试通过属性名匹配全局选项集
+                        # Dataverse 约定：如果 Picklist 属性的 SchemaName 与全局选项集名称相同，则使用该全局选项集
+                        if schema_name and schema_name not in global_optionsets:
+                            try:
+                                # 先获取全局选项集列表，找到匹配的 MetadataId
+                                global_list_url = self.get_api_url("GlobalOptionSetDefinitions")
+                                global_list_response = self.session.get(global_list_url)
+                                if global_list_response.status_code == 200:
+                                    global_list = global_list_response.json().get("value", [])
+                                    # 查找名称匹配的选项集
+                                    for os in global_list:
+                                        if os.get("Name") == schema_name:
+                                            os_metadata_id = os.get("MetadataId")
+                                            if os_metadata_id:
+                                                # 使用 MetadataId 获取完整的选项集信息
+                                                global_url = self.get_api_url(f"GlobalOptionSetDefinitions({os_metadata_id})")
+                                                global_response = self.session.get(global_url)
+                                                if global_response.status_code == 200:
+                                                    global_optionsets[schema_name] = global_response.json()
+                                                    attr["OptionSet"] = global_optionsets[schema_name]
+                                                    logger.debug(f"Found global optionset by name: {schema_name}")
+                                                    break
+                            except Exception as e:
+                                logger.debug(f"Failed to get global optionset by name {schema_name}: {e}")
+
+                        # 如果仍然没有找到，检查是否为是/否类型的字段
+                        if not attr.get("OptionSet"):
+                            display_name = attr.get("DisplayName", {})
+                            if isinstance(display_name, dict):
+                                user_label = display_name.get("UserLocalizedLabel", {})
+                                if isinstance(user_label, dict):
+                                    label = user_label.get("Label", "")
+                                    # 如果字段名或显示名包含"是否"、"is"等关键词，使用默认是/否选项集
+                                    if ("是否" in label or "is" in schema_name.lower() or
+                                        "void" in schema_name.lower() or "作废" in label):
+                                        # 使用 Dataverse 的标准是/否选项集
+                                        yes_no_optionset = self._get_yes_no_optionset()
+                                        if yes_no_optionset:
+                                            attr["OptionSet"] = yes_no_optionset
                 except Exception as e:
                     logger.debug(f"Failed to get optionset for {schema_name}: {e}")
 
