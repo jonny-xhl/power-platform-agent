@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Optional
 
 from .deployer import deploy_table, plan_table
@@ -110,14 +111,14 @@ def cmd_lint(args: argparse.Namespace) -> int:
 def cmd_plan(args: argparse.Namespace) -> int:
     defn = get_definition(args.name, args.definitions_dir)
     client = get_client(args.env)
-    _print_json(plan_table(client, defn.table))
+    _print_json(plan_table(client, defn.table, prefix=_publisher_prefix()))
     return 0
 
 
 def cmd_deploy(args: argparse.Namespace) -> int:
     defn = get_definition(args.name, args.definitions_dir)
     client = get_client(args.env)
-    _print_json(deploy_table(client, defn.table))
+    _print_json(deploy_table(client, defn.table, prefix=_publisher_prefix()))
     return 0
 
 
@@ -129,14 +130,42 @@ def cmd_deploy_all(args: argparse.Namespace) -> int:
     order = deploy_order(defs)
     print(f"Deploy order: {order}")
     client = get_client(args.env)
+    prefix = _publisher_prefix()
     summary = []
     for name in order:
         print(f"\n=== deploying {name} ===")
-        result = deploy_table(client, defs[name].table)
+        result = deploy_table(client, defs[name].table, prefix=prefix)
         summary.append({"name": name, "entity": result["entity"].get("action")})
         _print_json(result)
     print("\n=== summary ===")
     _print_json(summary)
+    return 0
+
+
+def cmd_reverse(args: argparse.Namespace) -> int:
+    from .codegen import table_to_python_source
+    from .reverse import reverse_table
+
+    client = get_client(args.env)
+    table = reverse_table(client, args.name)
+    out_path = Path(args.output) if args.output else Path(args.definitions_dir) / f"{args.name}.py"
+    header = [
+        f'"""Reverse-exported from Dataverse ({args.name!r}) by framework_power.',
+        "",
+        "Full snapshot (custom + standard attributes + relationships) for local reference,",
+        "diffing, and AI constraint. Forward `deploy` skips standard (non-custom) items",
+        "automatically, so this same file is safe to sync.",
+        "",
+        "Regenerate: python -m framework_power reverse " + f"{args.name} --env <env>",
+        '"""',
+    ]
+    source = table_to_python_source(table, header=header)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(source, encoding="utf-8")
+    print(
+        f"[ok] reverse {args.name} -> {out_path} "
+        f"({len(table.columns)} cols, {len(table.relationships)} rels)"
+    )
     return 0
 
 
@@ -178,6 +207,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_all = sub.add_parser("deploy-all", help="Deploy all definitions in dependency order.")
     p_all.add_argument("--env", default=None, help="Target environment (default: config 'current').")
     p_all.set_defaults(func=cmd_deploy_all)
+
+    p_rev = sub.add_parser(
+        "reverse",
+        help="Export a table FROM Dataverse into a definition file (full snapshot).",
+    )
+    p_rev.add_argument("name", help="Logical name of the table to export (e.g. contact).")
+    p_rev.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p_rev.add_argument(
+        "-o", "--output", default=None,
+        help="Output file (default: <definitions-dir>/<name>.py).",
+    )
+    p_rev.set_defaults(func=cmd_reverse)
 
     return parser
 

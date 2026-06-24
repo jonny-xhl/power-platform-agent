@@ -245,3 +245,37 @@ def test_deploy_no_string_column_raises():
     client = FakeClient(table_exists=False)
     with pytest.raises(ValueError):
         deploy_table(client, table, config=NO_DELAY)
+
+
+def test_deploy_skips_standard_columns_and_relationships():
+    """A reverse-style snapshot: standard (non-prefixed) items are skipped on forward sync."""
+    table = Table(
+        schema_name="new_X",
+        display_name=Label.zh("X"),
+        columns=[
+            Column("new_Name", AttributeType.String, display_name=Label.zh("名")),  # custom
+            Column("firstname", AttributeType.String, display_name=Label.zh("名")),  # standard
+        ],
+        relationships=[
+            Relationship(schema_name="new_X_Account", referenced_entity="account",
+                         referencing_entity="new_x",
+                         lookup=LookupColumn("new_AccountId", Label.zh("客户"), target_entity="account")),
+            Relationship(schema_name="standard_rel", referenced_entity="account",
+                         referencing_entity="new_x",
+                         lookup=LookupColumn("new_A", Label.zh("x"), target_entity="account")),
+        ],
+    )
+    existing_attrs = [{
+        "LogicalName": "new_name", "MaxLength": 100, "FormatName": {"Value": "Text"},
+        "RequiredLevel": {"Value": "None"}, "DisplayName": serialize_label(Label.zh("名")),
+    }]
+    client = FakeClient(table_exists=True, existing_attributes=existing_attrs)
+    result = deploy_table(client, table, config=NO_DELAY)
+
+    attr_actions = {a["attribute"]: a["action"] for a in result["attributes"]}
+    assert attr_actions["new_Name"] == "skipped"
+    assert attr_actions["firstname"] == "skipped_standard"
+
+    rel_actions = {r["relationship"]: r["action"] for r in result["relationships"]}
+    assert rel_actions["new_X_Account"] == "created"
+    assert rel_actions["standard_rel"] == "skipped_standard"

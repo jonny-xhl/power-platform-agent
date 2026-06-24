@@ -54,6 +54,8 @@ from .registry import (
     get_definition,
 )
 from .lint import Issue, lint_table, lint_definitions, has_errors
+from .codegen import table_to_python_source
+from .reverse import reverse_table
 
 __all__ = [
     # models
@@ -94,4 +96,7 @@ __all__ = [
     "lint_table",
     "lint_definitions",
     "has_errors",
+    # codegen + reverse
+    "table_to_python_source",
+    "reverse_table",
 ]
