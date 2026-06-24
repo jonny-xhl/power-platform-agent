@@ -82,6 +82,65 @@ def deploy_table(
     return result
 
 
+def plan_table(
+    client: Any,
+    table: Table,
+) -> dict[str, Any]:
+    """Read-only dry run: compute what ``deploy_table`` would do, with NO API writes.
+
+    Returns a plan dict using ``would_create`` / ``would_update`` / ``would_patch`` /
+    ``would_skip`` / ``manual_update_required`` actions.
+    """
+    logical = table.logical_name
+    result: dict[str, Any] = {
+        "schema_name": table.schema_name,
+        "logical_name": logical,
+        "entity": {},
+        "attributes": [],
+        "relationships": [],
+    }
+
+    if not client.entity_exists(logical):
+        # Fresh create: entity + inline attributes + relationships all created together.
+        result["entity"] = {"action": "would_create"}
+        for col in table.columns:
+            result["attributes"].append({"attribute": col.schema_name, "action": "would_create"})
+        for rel in table.relationships:
+            result["relationships"].append({"relationship": rel.schema_name, "action": "would_create"})
+        return result
+
+    result["entity"] = {
+        "action": "would_update",
+        "fields": list(serialize_entity_patch(table).keys()),
+    }
+
+    existing_attrs = {a.get("LogicalName"): a for a in client.get_attributes(logical)}
+    for col in table.columns:
+        cl = col.schema_name.lower()
+        if cl not in existing_attrs:
+            result["attributes"].append({"attribute": col.schema_name, "action": "would_create"})
+            continue
+        existing = existing_attrs[cl]
+        if optionset_changed(col, existing):
+            result["attributes"].append({"attribute": col.schema_name, "action": "manual_update_required"})
+            continue
+        patch = build_attribute_patch(col, existing)
+        result["attributes"].append(
+            {
+                "attribute": col.schema_name,
+                "action": "would_patch" if patch else "would_skip",
+                "fields": list(patch.keys()) if patch else [],
+            }
+        )
+
+    existing_names = {r.get("SchemaName") for r in client.get_relationships(logical)}
+    for rel in table.relationships:
+        action = "would_skip" if rel.schema_name in existing_names else "would_create"
+        result["relationships"].append({"relationship": rel.schema_name, "action": action})
+
+    return result
+
+
 def _deploy_entity(
     client: Any,
     table: Table,

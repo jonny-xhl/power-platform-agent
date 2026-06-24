@@ -43,6 +43,34 @@ A complete reference script covering every column type + a 1:N relationship live
 python -m framework_power.examples.setup_projectbudget --env dev
 ```
 
+## Defining & deploying tables (the CLI workflow)
+
+The intended pipeline is **需求 → definition → sync**, with definitions living in
+`metadata_py/tables/` (one `<schema>.py` per table, each exposing `TABLE`). Drive it
+through one CLI:
+
+```bash
+python -m framework_power list                           # discover metadata_py/tables/*.py
+python -m framework_power show new_projectbudget         # print the serialized payload (offline)
+python -m framework_power lint new_projectbudget         # offline convention gate (0 errors required)
+python -m framework_power lint                           # lint ALL definitions
+python -m framework_power plan new_projectbudget --env dev   # read-only dry run
+python -m framework_power deploy new_projectbudget --env dev # sync to Dataverse
+python -m framework_power deploy-all --env dev           # deploy all, referenced entities first
+```
+
+- **Requirement → definition**: the `dv-model-to-python` skill converts an Excel design
+  (from `design-dv-model`) into `metadata_py/tables/<schema>.py`, constrained by
+  [`docs/metadata-py-conventions.md`](metadata-py-conventions.md) and the typed models.
+- **Triggering**: `framework_power` is a plain library (not MCP tools), so the AI runs
+  the CLI above via Bash — no MCP round-trip.
+- **`lint` is the constraint gate**: it enforces the authoring contract offline (prefix,
+  PascalCase, single primary-name, duplicate checks) so generation is bounded before any
+  environment access. Unlike the YAML path, names are **validated, not auto-rewritten**.
+
+A canonical definition lives at `metadata_py/tables/new_projectbudget.py`; a thin
+programmatic runner is at `framework_power/examples/setup_projectbudget.py`.
+
 ## Deploy semantics
 
 `deploy_table(client, table)` is **idempotent and never destructive**:

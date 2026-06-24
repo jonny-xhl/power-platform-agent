@@ -44,8 +44,16 @@ from .serializer import (
     serialize_relationship,
     serialize_table_for_create,
 )
-from .deployer import DeployConfig, deploy_table
+from .deployer import DeployConfig, deploy_table, plan_table
 from .runtime import get_client, argparse_env
+from .registry import (
+    DEFAULT_DEFINITIONS_DIR,
+    Definition,
+    deploy_order,
+    discover_definitions,
+    get_definition,
+)
+from .lint import Issue, lint_table, lint_definitions, has_errors
 
 __all__ = [
     # models
@@ -71,7 +79,19 @@ __all__ = [
     # deployer
     "DeployConfig",
     "deploy_table",
+    "plan_table",
     # runtime
     "get_client",
     "argparse_env",
+    # registry
+    "DEFAULT_DEFINITIONS_DIR",
+    "Definition",
+    "deploy_order",
+    "discover_definitions",
+    "get_definition",
+    # lint
+    "Issue",
+    "lint_table",
+    "lint_definitions",
+    "has_errors",
 ]
