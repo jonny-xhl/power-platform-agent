@@ -563,6 +563,55 @@ async def list_tools() -> list[Tool]:
                 "required": ["entity_name"]
             }
         ),
+        Tool(
+            name="metadata_generate_optionset_constants",
+            description=(
+                "从 Dataverse 环境拉取选项集定义，生成语义化 JS 常量模块 "
+                "(XRM.Options.js)。用 XRM.Options.entities.<entity>.<field>.<Name> "
+                "替代 JS/HTML 中的 picklist 魔法数字。数据源为环境（非本地 YAML）。"
+                "split_by_entity=true 时按实体拆分为 core + 每实体一个文件，供各 form 按需挂载。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entities": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "实体逻辑名列表（字段级 Picklist）。为空则仅生成全局选项集"
+                    },
+                    "include_global": {
+                        "type": "boolean",
+                        "description": "是否导出环境内全部全局选项集",
+                        "default": True
+                    },
+                    "output_file": {
+                        "type": "string",
+                        "description": "单文件模式为输出 JS 路径；split_by_entity 模式为输出目录 (默认 webresources/shared/js)"
+                    },
+                    "split_by_entity": {
+                        "type": "boolean",
+                        "description": "True 时按实体拆分：XRM.Options.core.js + 每实体 XRM.Options.<entity>.js (+ 可选 global.js)",
+                        "default": False
+                    },
+                    "label_lang_name": {
+                        "type": "string",
+                        "enum": ["en", "zh"],
+                        "description": "常量名使用的标签语言 (en=英文/PascalCase, zh=中文)",
+                        "default": "en"
+                    },
+                    "label_lang_display": {
+                        "type": "string",
+                        "enum": ["en", "zh"],
+                        "description": "labels 显示标签使用的语言",
+                        "default": "zh"
+                    },
+                    "environment": {
+                        "type": "string",
+                        "description": "目标环境"
+                    }
+                }
+            }
+        ),
 
         # ===== 命名规则 =====
         Tool(

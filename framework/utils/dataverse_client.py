@@ -681,6 +681,37 @@ class DataverseClient:
             ]
         }
 
+    def get_global_optionsets(self) -> list[dict[str, Any]]:
+        """
+        获取环境中所有全局选项集 (Global OptionSet) 的完整定义。
+
+        用于生成 JS 常量模块时导出全局选项集。返回结构与
+        get_attributes_with_optionsets() 中 attr["OptionSet"] 一致，
+        便于复用同一套常量生成逻辑（每个元素含 Name、IsGlobal、Options，
+        其中 Options[i] = {"Value": int, "Label": {...}}）。
+
+        Returns:
+            全局选项集列表
+        """
+        logger = logging.getLogger(__name__)
+
+        optionsets: list[dict[str, Any]] = []
+        # nextLink 为绝对 URL，首地址由 get_api_url 构建
+        url: str | None = self.get_api_url("GlobalOptionSetDefinitions")
+
+        try:
+            while url:
+                response = self.session.get(url)
+                response.raise_for_status()
+                data = response.json()
+                optionsets.extend(data.get("value", []))
+                # 跟随分页链接，直至取完全部全局选项集
+                url = data.get("@odata.nextLink")
+        except Exception as e:
+            logger.debug(f"Failed to list global optionsets: {e}")
+
+        return optionsets
+
     def get_relationships(
         self,
         entity_name: str

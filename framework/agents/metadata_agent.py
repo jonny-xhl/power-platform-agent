@@ -210,6 +210,17 @@ class MetadataAgent:
                     arguments.get("environment")
                 )
 
+            elif tool_name == "metadata_generate_optionset_constants":
+                return await self.generate_optionset_constants(
+                    arguments.get("entities"),
+                    arguments.get("include_global", True),
+                    arguments.get("output_file"),
+                    arguments.get("label_lang_name", "en"),
+                    arguments.get("label_lang_display", "zh"),
+                    arguments.get("split_by_entity", False),
+                    arguments.get("environment")
+                )
+
             else:
                 return json.dumps({
                     "error": f"Unknown tool: {tool_name}"
@@ -2486,6 +2497,459 @@ class MetadataAgent:
             return True
 
         return False
+
+    async def generate_optionset_constants(
+        self,
+        entities: list[str] | str | None = None,
+        include_global: bool = True,
+        output_file: str = None,
+        label_lang_name: str = "en",
+        label_lang_display: str = "zh",
+        split_by_entity: bool = False,
+        environment: str = None
+    ) -> str:
+        """
+        从 Dataverse 环境拉取选项集定义，生成语义化 JS 常量模块 (XRM.Options.js)。
+
+        数据源为连接的 Dataverse 环境（非本地 YAML），按指定表的字段级 Picklist
+        以及（可选）全局选项集生成，做到「一处定义、JS/HTML 共用、永不过期」。
+        替代在 JS/HTML 中直接写魔法数字（如 ``if (val === 100000001)``）。
+
+        Args:
+            entities: 实体逻辑名列表（或单个实体名）。为空时仅生成全局选项集。
+            include_global: 是否导出环境内全部全局选项集。
+            output_file: 单文件模式为输出 JS 路径（默认 webresources/shared/js/XRM.Options.js）；
+                split_by_entity 模式下视为输出目录（默认 webresources/shared/js/）。
+            label_lang_name: 常量名使用的标签语言（'en'=1033 / 'zh'=2052）。
+            label_lang_display: 显示标签使用的语言。
+            split_by_entity: True 时按实体拆分输出——一个共享 runtime (XRM.Options.core.js)
+                + 每个实体一个 XRM.Options.<entity>.js（+ 可选 XRM.Options.global.js）。
+                每个 form 只挂 core + 自己的实体文件，最小化 form 载荷与缓存爆炸半径。
+            environment: 目标环境。
+
+        Returns:
+            生成结果 JSON
+        """
+        import re
+        from datetime import datetime
+        from pathlib import Path
+
+        try:
+            if not self.core_agent:
+                return json.dumps({"error": "No core agent available"}, indent=2)
+
+            # 归一化实体列表
+            if entities is None:
+                entity_list: list[str] = []
+            elif isinstance(entities, str):
+                entity_list = [entities]
+            else:
+                entity_list = [str(e) for e in entities]
+
+            if not entity_list and not include_global:
+                return json.dumps({
+                    "error": "Nothing to generate: provide entities or set include_global=true"
+                }, indent=2, ensure_ascii=False)
+
+            client = self.core_agent.get_client(environment)
+
+            lang_name_code = 2052 if label_lang_name == "zh" else 1033
+            lang_display_code = 2052 if label_lang_display == "zh" else 1033
+            option_types = {"Picklist", "MultiSelectPicklist", "State", "Status"}
+
+            def extract_options(optionset: dict[str, Any]) -> list[dict[str, Any]]:
+                """从选项集字典提取 [{Value, Label}]，兼容 Options 数组。"""
+                if not optionset:
+                    return []
+                result: list[dict[str, Any]] = []
+                for opt in optionset.get("Options", []) or []:
+                    if opt.get("Value") is None:
+                        continue
+                    result.append({"Value": opt["Value"], "Label": opt.get("Label", {})})
+                return result
+
+            def to_member_key(name_label: str, value: Any) -> str:
+                """英文标签 -> 合法 JS 标识符（PascalCase）；无英文则回退 Option{value}。"""
+                if name_label:
+                    cleaned = re.sub(r"[^A-Za-z0-9 _]", "", name_label).strip()
+                    if cleaned:
+                        parts = re.split(r"[ _]+", cleaned)
+                        key = "".join(p[:1].upper() + p[1:] for p in parts if p)
+                        if key and key[0].isalpha():
+                            return key
+                return f"Option{value}"
+
+            def js_key(name: str) -> str:
+                """作为对象字面量键：合法标识符不加引号，否则加引号。"""
+                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", name):
+                    return name
+                return json.dumps(name, ensure_ascii=False)
+
+            def build_option_block(
+                options: list[dict[str, Any]]
+            ) -> tuple[list[str], dict[Any, str]]:
+                """
+                生成单个选项集的常量行（无缩进）与 value->显示标签 映射。
+                返回 (option_lines, label_map)
+                """
+                lines: list[str] = []
+                label_map: dict[Any, str] = {}
+                seen: set[str] = set()
+                for opt in options:
+                    value = opt["Value"]
+                    display = self._get_label_by_language(opt["Label"], lang_display_code)
+                    name_label = self._get_label_by_language(opt["Label"], lang_name_code)
+                    label_map[value] = display
+
+                    key = to_member_key(name_label, value)
+                    if key in seen:  # 同一选项集内键冲突 -> 追加值去重
+                        key = f"{key}_{value}"
+                    seen.add(key)
+
+                    comment = f"  // {display}" if display else ""
+                    lines.append(f"{key}: {value},{comment}")
+                return lines, label_map
+
+            # ---------- 收集数据 ----------
+            global_blocks: dict[str, list[str]] = {}
+            global_labels: dict[str, dict[Any, str]] = {}
+            entity_blocks: dict[str, dict[str, list[str]]] = {}
+            entity_labels: dict[str, dict[str, dict[Any, str]]] = {}
+            field_count = 0
+            option_count = 0
+
+            if include_global:
+                for osdef in client.get_global_optionsets():
+                    os_name = osdef.get("Name", "")
+                    if not os_name:
+                        continue
+                    options = extract_options(osdef)
+                    if not options:
+                        continue
+                    opt_lines, label_map = build_option_block(options)
+                    global_blocks[os_name] = opt_lines
+                    global_labels[os_name] = label_map
+                    option_count += len(options)
+
+            generated_entities: list[dict[str, Any]] = []
+            for entity_name in entity_list:
+                try:
+                    attributes = client.get_attributes_with_optionsets(entity_name)
+                except Exception as e:
+                    logger.warning(f"Failed to get attributes for {entity_name}: {e}")
+                    continue
+
+                fields: dict[str, list[str]] = {}
+                field_labels: dict[str, dict[Any, str]] = {}
+                for attr in attributes:
+                    if self._get_attribute_type(attr) not in option_types:
+                        continue
+                    options = extract_options(attr.get("OptionSet", {}))
+                    logical = attr.get("LogicalName", "")
+                    if not options or not logical:
+                        continue
+                    opt_lines, label_map = build_option_block(options)
+                    fields[logical] = opt_lines
+                    field_labels[logical] = label_map
+                    option_count += len(options)
+                    field_count += 1
+
+                if fields:
+                    entity_blocks[entity_name] = fields
+                    entity_labels[entity_name] = field_labels
+                    generated_entities.append({
+                        "entity": entity_name,
+                        "fields": list(fields.keys())
+                    })
+
+            # ---------- 按实体拆分模式 ----------
+            if split_by_entity:
+                # 输出目录：split 模式下 output_file 视为目录（传入文件路径则取其父目录）
+                if output_file:
+                    out_dir = Path(output_file)
+                    if out_dir.suffix:
+                        out_dir = out_dir.parent
+                else:
+                    out_dir = Path(__file__).parent.parent.parent / "webresources" / "shared" / "js"
+                out_dir.mkdir(parents=True, exist_ok=True)
+
+                written: list[str] = []
+
+                def const_obj(opt_lines: list[str]) -> str:
+                    """register() 第 3 参：常量对象（多行）。"""
+                    if not opt_lines:
+                        return "{}"
+                    rows = []
+                    for ol in opt_lines:
+                        # opt 行形如 "Key: value,  // label" 或 "Key: value,"
+                        if "//" in ol:
+                            code, comment = ol.split("//", 1)
+                            rows.append("        " + code.rstrip().rstrip(",").rstrip() + ",  //" + comment)
+                        else:
+                            rows.append("        " + ol.rstrip().rstrip(",") + ",")
+                    return "{\n" + "\n".join(rows) + "\n    }"
+
+                def lbl_obj(label_map: dict[Any, str]) -> str:
+                    """register() 第 4 参：值->标签 映射（单行）。"""
+                    if not label_map:
+                        return "{}"
+                    items = ", ".join(
+                        f"{v}: {json.dumps(lbl, ensure_ascii=False)}"
+                        for v, lbl in label_map.items()
+                    )
+                    return "{ " + items + " }"
+
+                def part_header(filename: str, scope_desc: str) -> str:
+                    return (
+                        "/**\n"
+                        f" * {filename} — 自动生成的 OptionSet 常量（{scope_desc}）\n"
+                        " * ⚠️ 自动生成，请勿手动编辑。\n"
+                        f" * 数据源：Dataverse 环境「{environment or 'default'}」\n"
+                        " * 依赖：必须先于本文件加载 XRM.Options.core.js\n"
+                        " */\n"
+                    )
+
+                def part_guard(filename: str) -> list[str]:
+                    return [
+                        "(function (window, undefined) {",
+                        "    'use strict';",
+                        "    if (!window.XRM || !window.XRM.Options || !window.XRM.Options.register) {",
+                        f"        throw new Error('XRM.Options.core.js 必须先于 {filename} 加载（请检查窗体库加载顺序）');",
+                        "    }",
+                        "    var R = window.XRM.Options.register;",
+                    ]
+
+                # ---- core.js：共享 runtime（注册表 + getLabel/getValue） ----
+                core_path = out_dir / "XRM.Options.core.js"
+                core_content = (
+                    part_header("XRM.Options.core.js", "共享 runtime（注册表 + getLabel/getValue）")
+                    + "(function (window, undefined) {\n"
+                    + "    'use strict';\n"
+                    + "    window.XRM = window.XRM || {};\n\n"
+                    + "    // 防止 core 被重复加载导致覆盖已注册的常量\n"
+                    + "    if (window.XRM.Options && window.XRM.Options.register) {\n"
+                    + "        return;\n"
+                    + "    }\n\n"
+                    + "    var _labels = {};  // path -> { value: label }\n\n"
+                    + "    var O = window.XRM.Options = {\n"
+                    + "        global: {},\n"
+                    + "        entities: {},\n\n"
+                    + "        // 注册一个选项集的常量与标签。scope='global' 或实体名；name 为选项集/字段名。\n"
+                    + "        register: function (scope, name, constants, labels) {\n"
+                    + "            var store = (scope === 'global')\n"
+                    + "                ? O.global\n"
+                    + "                : (O.entities[scope] = O.entities[scope] || {});\n"
+                    + "            store[name] = constants;\n"
+                    + "            _labels[(scope === 'global' ? 'global.' : scope + '.') + name] = labels || {};\n"
+                    + "        },\n\n"
+                    + "        getLabel: function (path, value) {\n"
+                    + "            var m = _labels[path];\n"
+                    + "            return (m && m[value] !== undefined) ? m[value] : '';\n"
+                    + "        },\n"
+                    + "        getValue: function (path, label) {\n"
+                    + "            var m = _labels[path];\n"
+                    + "            if (!m) { return null; }\n"
+                    + "            for (var v in m) { if (m[v] === label) { return Number(v); } }\n"
+                    + "            return null;\n"
+                    + "        }\n"
+                    + "    };\n"
+                    + "})(window);\n"
+                )
+                with open(core_path, "w", encoding="utf-8") as f:
+                    f.write(core_content)
+                written.append(str(core_path))
+
+                # ---- global.js（仅当有全局选项集） ----
+                if global_blocks:
+                    gpath = out_dir / "XRM.Options.global.js"
+                    glines = [part_header("XRM.Options.global.js", "全局选项集")]
+                    glines += part_guard("XRM.Options.global.js")
+                    for name, opt_lines in global_blocks.items():
+                        glines.append(
+                            f"    R('global', {json.dumps(name, ensure_ascii=False)}, "
+                            f"{const_obj(opt_lines)}, {lbl_obj(global_labels[name])});"
+                        )
+                    glines.append("})(window);")
+                    with open(gpath, "w", encoding="utf-8") as f:
+                        f.write("\n".join(glines) + "\n")
+                    written.append(str(gpath))
+
+                # ---- 每个实体一个文件 ----
+                for entity_name, fields in entity_blocks.items():
+                    efile = f"XRM.Options.{entity_name}.js"
+                    epath = out_dir / efile
+                    elines = [part_header(efile, f"实体 {entity_name} 的字段级 Picklist")]
+                    elines += part_guard(efile)
+                    for field_name, opt_lines in fields.items():
+                        elines.append(
+                            f"    R({json.dumps(entity_name, ensure_ascii=False)}, "
+                            f"{json.dumps(field_name, ensure_ascii=False)}, "
+                            f"{const_obj(opt_lines)}, {lbl_obj(entity_labels[entity_name][field_name])});"
+                        )
+                    elines.append("})(window);")
+                    with open(epath, "w", encoding="utf-8") as f:
+                        f.write("\n".join(elines) + "\n")
+                    written.append(str(epath))
+
+                return json.dumps({
+                    "success": True,
+                    "mode": "split_by_entity",
+                    "environment": environment or "default",
+                    "output_dir": str(out_dir),
+                    "files": written,
+                    "global_count": len(global_blocks),
+                    "entity_count": len(entity_blocks),
+                    "field_count": field_count,
+                    "entities": generated_entities,
+                    "usage": (
+                        "每个 form 在「窗体库」中按顺序添加：XRM.Options.core.js + "
+                        "XRM.Options.<entity>.js（用到全局选项集时再加 XRM.Options.global.js）。"
+                    )
+                }, indent=2, ensure_ascii=False)
+
+            # ---------- 拼装 JS（单文件模式） ----------
+            def render_global() -> str:
+                if not global_blocks:
+                    return "        global: {},"
+                out = ["        global: {"]
+                for name, opt_lines in global_blocks.items():
+                    out.append(f"            // {name}")
+                    out.append(f"            {js_key(name)}: {{")
+                    for ol in opt_lines:
+                        out.append("                " + ol)
+                    out.append("            },")
+                out.append("        },")
+                return "\n".join(out)
+
+            def render_entities() -> str:
+                if not entity_blocks:
+                    return "        entities: {},"
+                out = ["        entities: {"]
+                for entity_name, fields in entity_blocks.items():
+                    out.append(f"            {js_key(entity_name)}: {{")
+                    for field_name, opt_lines in fields.items():
+                        out.append(f"                // {entity_name}.{field_name}")
+                        out.append(f"                {js_key(field_name)}: {{")
+                        for ol in opt_lines:
+                            out.append("                    " + ol)
+                        out.append("                },")
+                    out.append("            },")
+                out.append("        },")
+                return "\n".join(out)
+
+            def render_labels() -> str:
+                entries: list[str] = []
+                for name, label_map in global_labels.items():
+                    path = f"global.{name}"
+                    items = ", ".join(
+                        f"{v}: {json.dumps(lbl, ensure_ascii=False)}"
+                        for v, lbl in label_map.items()
+                    )
+                    entries.append(f"            {json.dumps(path, ensure_ascii=False)}: {{ {items} }},")
+                for entity_name, fields in entity_labels.items():
+                    for field_name, label_map in fields.items():
+                        path = f"{entity_name}.{field_name}"
+                        items = ", ".join(
+                            f"{v}: {json.dumps(lbl, ensure_ascii=False)}"
+                            for v, lbl in label_map.items()
+                        )
+                        entries.append(f"            {json.dumps(path, ensure_ascii=False)}: {{ {items} }},")
+                if not entries:
+                    return "        labels: {}"
+                return "        labels: {\n" + "\n".join(entries) + "\n        },"
+
+            header = (
+                "/**\n"
+                " * XRM.Options.js — 自动生成的 OptionSet 语义化常量模块\n"
+                " * ⚠️ 本文件由 metadata_generate_optionset_constants 工具自动生成，请勿手动编辑。\n"
+                " *\n"
+                f" * 数据源：Dataverse 环境「{environment or 'default'}」\n"
+                f" * 生成范围：{len(global_blocks)} 个全局选项集，"
+                f"{len(entity_blocks)} 个实体的 {field_count} 个字段级 Picklist\n"
+                f" * 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                " *\n"
+                " * 用法：\n"
+                " *   // 字段级：XRM.Options.entities.<entity>.<field>.<Name>\n"
+                " *   if (XRM.Form.getValue('new_status') ===\n"
+                " *       XRM.Options.entities.account.new_status.Active) { ... }\n"
+                " *   // 全局：XRM.Options.global.<optionset>.<Name>\n"
+                " *   if (val === XRM.Options.global.new_customer_status.Active) { ... }\n"
+                " *   // 显示标签：XRM.Options.getLabel('account.new_status', value)\n"
+                " *   // 反查值：  XRM.Options.getValue('account.new_status', '冻结')\n"
+                " *\n"
+                " * 说明：\n"
+                " *   - 常量键优先取英文标签；仅中文标签时回退 Option{value}（行尾注释保留中文）。\n"
+                " *   - Boolean（Two Options）字段不生成常量（其 getValue() 返回 true/false，请直接判断布尔值）。\n"
+                " *   - 数据来自环境定义，可能与本地 metadata YAML 不同，以本文件为准。\n"
+                " */\n"
+            )
+
+            js_content = (
+                header
+                + "(function (window, undefined) {\n"
+                + "    'use strict';\n"
+                + "    window.XRM = window.XRM || {};\n\n"
+                + "    var O = window.XRM.Options = {\n"
+                + render_global() + "\n"
+                + render_entities() + "\n"
+                + render_labels() + "\n"
+                + "        getLabel: function (path, value) {\n"
+                + "            var m = O.labels[path];\n"
+                + "            return (m && m[value] !== undefined) ? m[value] : '';\n"
+                + "        },\n"
+                + "        getValue: function (path, label) {\n"
+                + "            var m = O.labels[path];\n"
+                + "            if (!m) { return null; }\n"
+                + "            for (var v in m) { if (m[v] === label) { return Number(v); } }\n"
+                + "            return null;\n"
+                + "        }\n"
+                + "    };\n"
+                + "})(window);\n"
+            )
+
+            if not output_file:
+                project_root = Path(__file__).parent.parent.parent
+                output_path = project_root / "webresources" / "shared" / "js" / "XRM.Options.js"
+            else:
+                output_path = Path(output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(js_content)
+
+            return json.dumps({
+                "success": True,
+                "environment": environment or "default",
+                "output_file": str(output_path),
+                "global_count": len(global_blocks),
+                "entity_count": len(entity_blocks),
+                "field_count": field_count,
+                "option_count": option_count,
+                "entities": generated_entities
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as e:
+            import traceback
+            return json.dumps({
+                "error": f"Failed to generate optionset constants: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, indent=2, ensure_ascii=False)
+
+    def _get_label_by_language(self, label_obj: dict[str, Any], lang_code: int) -> str:
+        """
+        从 Label 对象获取指定语言的标签文本。
+
+        优先返回 LocalizedLabels 中匹配 lang_code 的标签，找不到则回退到
+        UserLocalizedLabel，再找不到返回空串。供 JS 常量生成时按语言取标签。
+        """
+        if not label_obj:
+            return ""
+        for lab in label_obj.get("LocalizedLabels", []) or []:
+            if lab.get("LanguageCode") == lang_code:
+                return lab.get("Label", "")
+        user_label = label_obj.get("UserLocalizedLabel", {})
+        if user_label:
+            return user_label.get("Label", "")
+        return ""
 
     def _get_display_label(self, label_obj: dict[str, Any]) -> str:
         """从 Label 对象获取显示名称"""
