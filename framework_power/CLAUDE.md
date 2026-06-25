@@ -146,6 +146,27 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 - **Money `*_base` 字段**由 Dataverse 自动创建，逆向/正向均跳过。
 - **delete 级联**：`delete_entity` 删表会级联其字段与所属关系（含查找列）。
 
+### 9.1 解决方案域（Phase 2，已 live 踩坑）
+
+- **全局选项集按 `Name` 键查询，且必须小写**：`GlobalOptionSetDefinitions` 不支持
+  `$filter`（返回 **405**）；用 `GlobalOptionSetDefinitions(Name='<lowercase>')` 键查询。
+  Dataverse 把选项集名存为**小写** logical name（`new_Priority` → `new_priority`），
+  查询时必须 `.lower()`，否则 404 → 误判不存在 → 再建触发 `0x80044363 名称不唯一`。
+- **解决方案组件走 `solutioncomponents` 实体集，不是导航属性**：`solutions(<id>)/
+  solution_solutioncomponents` 与 `.../SolutionComponents` 在部分租户 **404/400**。正确做法：
+  先 `get_solution_by_name` 拿 `solutionid`（`unique_name` 不是合法备用键），再
+  `solutioncomponents?$filter=_solutionid_value eq <solutionid>`。
+- **加入组件用部署返回的 id，不要建后立即按名再查**：元数据传播有延迟，建后立即按名
+  `resolve_id` 可能返回 None → 组件漏加（孤立）。各类型 `deploy` 返回 `{"action","id"}`
+  或 `{"add_targets":[...]}`（插件），`deploy_solution` 优先用它，避免 create→resolve 竞争。
+- **AddSolutionComponent 幂等**：重复加入已存在组件不报错（返回成功），故二次部署的"加入"
+  是良性 no-op。
+- **`solution deploy/plan` 必须透传 `--definitions-dir`**：表名引用从该目录解析，否则回退到
+  默认 `metadata_py/tables`。
+- **`PublishAllXml` 组织级**：发布**所有**未托管自定义项，无法只发布单个解决方案。
+- **插件自定义 Action create-only**：新建 SDK-message 自定义 Action 需 Workflow，Web API
+  单独建不了 → `manual_update_required`；只能加入已存在的。
+
 ## 10. 如何扩展
 
 - **新增属性类型**：`models.AttributeType` + `serializer._ODATA_TYPE`/`_UPDATABLE_BY_TYPE`/per-type 分支
