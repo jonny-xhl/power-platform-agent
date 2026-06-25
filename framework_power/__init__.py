@@ -56,6 +56,27 @@ from .registry import (
 from .lint import Issue, lint_table, lint_definitions, has_errors
 from .codegen import table_to_python_source
 from .reverse import reverse_table
+from .components.models import (
+    ComponentRef,
+    Form,
+    GlobalOptionSet,
+    Plugin,
+    PluginStep,
+    CustomAction,
+    Publisher,
+    Solution,
+    View,
+    WebResource,
+)
+from .solution_deployer import (
+    SolutionDeployConfig,
+    deploy_solution,
+    lint_solution,
+    plan_solution,
+    resolve_publisher,
+)
+from .solution_reverse import reverse_solution
+from .solution_codegen import solution_to_python_source
 
 __all__ = [
     # models
@@ -99,4 +120,22 @@ __all__ = [
     # codegen + reverse
     "table_to_python_source",
     "reverse_table",
+    # solution management (Phase 2)
+    "ComponentRef",
+    "Form",
+    "GlobalOptionSet",
+    "Plugin",
+    "PluginStep",
+    "CustomAction",
+    "Publisher",
+    "Solution",
+    "View",
+    "WebResource",
+    "SolutionDeployConfig",
+    "deploy_solution",
+    "lint_solution",
+    "plan_solution",
+    "resolve_publisher",
+    "reverse_solution",
+    "solution_to_python_source",
 ]

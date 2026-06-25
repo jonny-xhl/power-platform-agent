@@ -27,8 +27,18 @@ from .deployer import deploy_table, plan_table
 from .lint import ERROR, INFO, WARNING, has_errors, lint_table
 from .registry import DEFAULT_DEFINITIONS_DIR, deploy_order, discover_definitions, get_definition
 from .runtime import get_client
+from .components.models import Solution
+from .solution_deployer import (
+    _ref_type_code,
+    deploy_solution,
+    lint_solution,
+    plan_solution,
+)
+from .solution_codegen import solution_to_python_source
+from .solution_reverse import reverse_solution
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
+DEFAULT_SOLUTIONS_DIR = "metadata_py/solutions"
 
 
 def _publisher_prefix(config_path: str = PUBLISHERS_CONFIG) -> str:
@@ -178,6 +188,185 @@ def cmd_delete(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------- solutions
+
+
+def _load_solution_module(path: Path) -> Optional[Solution]:
+    """Import a solution-definition module by path and return its ``SOLUTION``."""
+    import importlib.util
+    import uuid
+
+    module_name = f"framework_power_solution_{path.stem}_{uuid.uuid4().hex[:8]}"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] failed to load solution '{path}': {e}")
+        return None
+    sol = getattr(module, "SOLUTION", None)
+    return sol if isinstance(sol, Solution) else None
+
+
+def _get_solution(name: str, solutions_dir: str) -> Solution:
+    path = Path(solutions_dir) / f"{name}.py"
+    if not path.exists():
+        raise SystemExit(f"Solution '{name}' not found under '{solutions_dir}'.")
+    sol = _load_solution_module(path)
+    if sol is None:
+        raise SystemExit(f"Solution '{name}' exists but failed to load (no SOLUTION: Solution?).")
+    return sol
+
+
+def _discover_solutions(solutions_dir: str) -> dict[str, Solution]:
+    root = Path(solutions_dir)
+    if not root.exists():
+        return {}
+    out: dict[str, Solution] = {}
+    for path in sorted(root.glob("*.py")):
+        if path.name == "__init__.py" or path.name.startswith("_"):
+            continue
+        sol = _load_solution_module(path)
+        if sol is not None:
+            out[path.stem] = sol
+    return out
+
+
+def cmd_solution_list(args: argparse.Namespace) -> int:
+    sols = _discover_solutions(args.solutions_dir)
+    if not sols:
+        print(f"No solutions found under '{args.solutions_dir}'.")
+        return 0
+    print(f"{'name':32} {'unique_name':28} version     tables refs  publisher")
+    for name, sol in sols.items():
+        pub = sol.publisher.name if sol.publisher else (sol.publisher_key or "-")
+        print(
+            f"{name:32} {sol.unique_name:28} {sol.version:11} {len(sol.tables):6} "
+            f"{len(sol.refs):5}  {pub}"
+        )
+    return 0
+
+
+def cmd_solution_show(args: argparse.Namespace) -> int:
+    sol = _get_solution(args.name, args.solutions_dir)
+    _print_json(
+        {
+            "unique_name": sol.unique_name,
+            "friendly_name": sol.friendly_name,
+            "version": sol.version,
+            "description": sol.description,
+            "publisher": sol.publisher.name if sol.publisher else None,
+            "publisher_key": sol.publisher_key,
+            "tables": sol.tables,
+            "refs": [
+                {"type": r.type, "name": r.name, "object_id": r.object_id} for r in sol.refs
+            ],
+            "counts": {
+                "tables": len(sol.tables),
+                "optionsets": len(sol.optionsets),
+                "webresources": len(sol.webresources),
+                "forms": len(sol.forms),
+                "views": len(sol.views),
+                "plugins": len(sol.plugins),
+                "refs": len(sol.refs),
+            },
+        }
+    )
+    return 0
+
+
+def cmd_solution_lint(args: argparse.Namespace) -> int:
+    prefix = _publisher_prefix()
+    if args.name:
+        targets = {args.name: _get_solution(args.name, args.solutions_dir)}
+    else:
+        targets = _discover_solutions(args.solutions_dir)
+    any_errors = False
+    for name, sol in targets.items():
+        issues = lint_solution(sol, prefix=prefix)
+        errors = [i for i in issues if i.severity == ERROR]
+        warnings = [i for i in issues if i.severity == WARNING]
+        status = "FAIL" if errors else "ok"
+        print(f"[{status}] {name}  ({len(errors)} err, {len(warnings)} warn)")
+        for i in issues:
+            print(f"    {i.severity}: {i.message}")
+        if has_errors(issues):
+            any_errors = True
+    return 1 if any_errors else 0
+
+
+def cmd_solution_plan(args: argparse.Namespace) -> int:
+    sol = _get_solution(args.name, args.solutions_dir)
+    client = get_client(args.env)
+    _print_json(plan_solution(client, sol, prefix=_publisher_prefix()))
+    return 0
+
+
+def cmd_solution_deploy(args: argparse.Namespace) -> int:
+    sol = _get_solution(args.name, args.solutions_dir)
+    client = get_client(args.env)
+    _print_json(deploy_solution(client, sol, prefix=_publisher_prefix()))
+    return 0
+
+
+def cmd_solution_reverse(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    sol = reverse_solution(client, args.name)
+    out_path = Path(args.output) if args.output else Path(args.solutions_dir) / f"{args.name}.py"
+    header = [
+        f'"""Reverse-exported solution {args.name!r} by framework_power.',
+        "",
+        "Full snapshot (publisher + tables as name refs + other components as refs).",
+        "Forward `deploy` skips standard (non-custom) items, so this file is safe to sync.",
+        "",
+        "Regenerate: python -m framework_power solution reverse " + f"{args.name} --env <env>",
+        '"""',
+    ]
+    source = solution_to_python_source(sol, header=header)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(source, encoding="utf-8")
+    print(
+        f"[ok] reverse solution {args.name} -> {out_path} "
+        f"({len(sol.tables)} tables, {len(sol.refs)} refs)"
+    )
+    return 0
+
+
+def cmd_solution_add_component(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    code = _ref_type_code(args.type)
+    oid = args.id
+    if not oid and args.type == "table" and args.name:
+        try:
+            oid = client.get_entity_metadata(args.name.lower()).get("MetadataId")
+        except Exception as e:  # noqa: BLE001
+            _print_json({"error": f"cannot resolve table '{args.name}': {e}"})
+            return 1
+    if not code or not oid:
+        _print_json(
+            {"error": f"cannot resolve component: type={args.type} name={args.name} id={args.id}"}
+        )
+        return 1
+    try:
+        _print_json(client.add_solution_component(args.solution, int(code), oid))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_solution_publish(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        _print_json(client.publish_all_xml())
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
 # ----------------------------------------------------------------- entry
 
 
@@ -190,6 +379,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--definitions-dir",
         default=DEFAULT_DEFINITIONS_DIR,
         help=f"Definitions directory (default: {DEFAULT_DEFINITIONS_DIR}).",
+    )
+    parser.add_argument(
+        "--solutions-dir",
+        default=DEFAULT_SOLUTIONS_DIR,
+        help=f"Solutions directory (default: {DEFAULT_SOLUTIONS_DIR}).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -236,6 +430,55 @@ def build_parser() -> argparse.ArgumentParser:
     p_del.add_argument("name", help="Logical name of the table to delete.")
     p_del.add_argument("--env", default=None, help="Target environment (default: config 'current').")
     p_del.set_defaults(func=cmd_delete)
+
+    # --- solution group (Phase 2) ---
+    p_sol = sub.add_parser("solution", help="Manage Power Platform solutions.")
+    sol_sub = p_sol.add_subparsers(dest="solution_command", required=True)
+
+    sol_sub.add_parser("list", help="List discovered solution definitions.").set_defaults(
+        func=cmd_solution_list
+    )
+
+    p = sol_sub.add_parser("show", help="Print a solution definition summary (no network).")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_solution_show)
+
+    p = sol_sub.add_parser("lint", help="Offline convention check on solution definitions.")
+    p.add_argument("name", nargs="?")
+    p.set_defaults(func=cmd_solution_lint)
+
+    p = sol_sub.add_parser("plan", help="Read-only dry run of a solution against an environment.")
+    p.add_argument("name")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_solution_plan)
+
+    p = sol_sub.add_parser("deploy", help="Deploy (sync) a solution to Dataverse.")
+    p.add_argument("name")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_solution_deploy)
+
+    p = sol_sub.add_parser(
+        "reverse", help="Export a solution FROM Dataverse into a definition file (full snapshot)."
+    )
+    p.add_argument("name", help="Unique name of the solution to export.")
+    p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p.add_argument(
+        "-o", "--output", default=None, help="Output file (default: <solutions-dir>/<name>.py)."
+    )
+    p.set_defaults(func=cmd_solution_reverse)
+
+    p = sol_sub.add_parser("add-component", help="Add an existing component to a solution.")
+    p.add_argument("solution", help="Solution unique name.")
+    p.add_argument("--type", required=True, help="Component type key (table/webresource/...) or code.")
+    p.add_argument("--name", default=None, help="Component name (resolved for table type).")
+    p.add_argument("--id", default=None, help="Component object id (GUID).")
+    p.add_argument("--entity", default=None)
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_solution_add_component)
+
+    p = sol_sub.add_parser("publish", help="Publish all customizations (PublishAllXml).")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_solution_publish)
 
     return parser
 

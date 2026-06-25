@@ -19,6 +19,21 @@ from .retry_helper import retry_on_metadata_error, retry_on_404
 logger = logging.getLogger(__name__)
 
 
+def _odata_quote(value: str) -> str:
+    """URL-encode a string for safe use inside an OData quoted literal."""
+    from urllib.parse import quote
+
+    return quote(value, safe="")
+
+
+def _entity_id(response: requests.Response) -> Optional[str]:
+    """Parse the GUID out of an ``OData-EntityId`` create-response header."""
+    entity_id = response.headers.get("OData-EntityId", "")
+    if entity_id:
+        return entity_id.split("(")[-1].rstrip(")")
+    return None
+
+
 class DataverseClient:
     """Thin Dataverse Web API client used by the metadata deployer."""
 
@@ -129,6 +144,13 @@ class DataverseClient:
     def get_entity_metadata(self, entity_name: str) -> dict[str, Any]:
         """Get the full entity metadata (retries on transient 404)."""
         url = self.get_api_url(f"EntityDefinitions(LogicalName='{entity_name}')")
+        response = self.session.get(url)
+        response.raise_for_status()
+        return response.json()
+
+    def get_entity_metadata_by_id(self, metadata_id: str) -> dict[str, Any]:
+        """Get entity metadata keyed by MetadataId (used by solution reverse)."""
+        url = self.get_api_url(f"EntityDefinitions({metadata_id})")
         response = self.session.get(url)
         response.raise_for_status()
         return response.json()
@@ -299,6 +321,147 @@ class DataverseClient:
         if not response.ok:
             self._raise_with_detail(response, "create relationship")
         return {"status": "created"}
+
+    # ----------------------------------------------------- solution / publisher
+    # Thin transport methods over the Web API. Create payloads are built by
+    # ``framework_power.components.serializer``; the client stays model-free.
+
+    def get_publishers(self) -> list[dict[str, Any]]:
+        """List all publishers."""
+        response = self.session.get(self.get_api_url("publishers"))
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_publisher_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        """Return the publisher whose ``uniquename == name``, or ``None``."""
+        encoded = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(f"publishers?$filter=uniquename eq '{encoded}'&$top=1")
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    def get_publisher_by_id(self, publisher_id: str) -> dict[str, Any]:
+        """Get a publisher keyed by its id (used by solution reverse)."""
+        response = self.session.get(self.get_api_url(f"publishers({publisher_id})"))
+        response.raise_for_status()
+        return response.json()
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_publisher(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a serialized publisher payload (``uniquename``/``friendlyname``/...)."""
+        response = self.session.post(self.get_api_url("publishers"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create publisher")
+        publisher_id = _entity_id(response)
+        return {"publisherid": publisher_id, "uniquename": payload.get("uniquename")}
+
+    def ensure_publisher_exists(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Idempotently ensure a publisher exists (looked up by ``uniquename``).
+
+        ``payload`` is the serialized publisher (from ``serialize_publisher``).
+        Returns ``{created, publisherid, uniquename}``.
+        """
+        name = payload.get("uniquename")
+        if not name:
+            raise ValueError("publisher payload missing 'uniquename'")
+        existing = self.get_publisher_by_name(name)
+        if existing:
+            return {
+                "created": False,
+                "publisherid": existing.get("publisherid"),
+                "uniquename": name,
+                "publisher": existing,
+            }
+        created = self.create_publisher(payload)
+        return {"created": True, **created}
+
+    def get_solutions(self) -> list[dict[str, Any]]:
+        """List all solutions."""
+        response = self.session.get(self.get_api_url("solutions"))
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_solution_by_name(self, unique_name: str) -> Optional[dict[str, Any]]:
+        """Return the solution whose ``uniquename == unique_name``, or ``None``."""
+        encoded = _odata_quote(unique_name)
+        response = self.session.get(
+            self.get_api_url(f"solutions?$filter=uniquename eq '{encoded}'&$top=1")
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_solution(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a serialized solution payload (incl. ``publisherid@odata.bind``)."""
+        response = self.session.post(self.get_api_url("solutions"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create solution")
+        solution_id = _entity_id(response)
+        return {"solutionid": solution_id, "uniquename": payload.get("uniquename")}
+
+    def update_solution_version(self, unique_name: str, version: str) -> dict[str, Any]:
+        """PATCH the version of an existing solution (looked up by unique name)."""
+        sol = self.get_solution_by_name(unique_name)
+        if not sol:
+            raise ValueError(f"Solution not found: {unique_name}")
+        solution_id = sol.get("solutionid")
+        response = self.session.patch(
+            self.get_api_url(f"solutions({solution_id})"), json={"version": version}
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"update solution '{unique_name}' version")
+        return {"updated": True, "uniquename": unique_name, "version": version}
+
+    def get_solution_components(self, unique_name: str) -> list[dict[str, Any]]:
+        """List a solution's components (``componenttype`` + ``objectid`` + ...)."""
+        encoded = _odata_quote(unique_name)
+        url = self.get_api_url(
+            f"solutions(unique_name='{encoded}')/solution_solutioncomponents"
+            f"?$select=componenttype,objectid,iscustomizable,rootcomponentbehavior,solutioncomponentid"
+        )
+        response = self.session.get(url)
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    @retry_on_metadata_error(max_retries=4, initial_delay=3.0)
+    def add_solution_component(
+        self,
+        unique_name: str,
+        component_type: int,
+        object_id: str,
+        add_required: bool = False,
+    ) -> dict[str, Any]:
+        """POST the ``AddSolutionComponent`` action (solutioncomponent has no Create)."""
+        payload = {
+            "SolutionUniqueName": unique_name,
+            "ComponentType": component_type,
+            "ComponentId": object_id,
+            "AddRequiredComponents": bool(add_required),
+            "DoNotIncludeSubcomponents": False,
+        }
+        response = self.session.post(self.get_api_url("AddSolutionComponent"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(
+                response,
+                f"add component type={component_type} id={object_id} to '{unique_name}'",
+            )
+        return {
+            "added": True,
+            "solution": unique_name,
+            "component_type": component_type,
+            "object_id": object_id,
+        }
+
+    @retry_on_metadata_error(max_retries=4, initial_delay=3.0)
+    def publish_all_xml(self) -> dict[str, Any]:
+        """POST ``PublishAllXml`` — publishes ALL unmanaged customizations in the org."""
+        response = self.session.post(self.get_api_url("PublishAllXml"))
+        if not response.ok:
+            self._raise_with_detail(response, "publish all customizations")
+        return {"published": True, "scope": "organization"}
 
     # ---------------------------------------------------------------- helpers
 
