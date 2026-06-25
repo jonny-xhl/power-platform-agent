@@ -38,6 +38,8 @@ class SolutionFakeClient:
         self.table_exists = table_exists
         self._optionsets: dict[str, dict[str, Any]] = {}
         self._webresources: dict[str, dict[str, Any]] = {}
+        self._forms: dict[tuple[str, str], dict[str, Any]] = {}
+        self._views: dict[tuple[str, str], dict[str, Any]] = {}
         self.calls: dict[str, list[Any]] = {
             "create_publisher": [],
             "create_solution": [],
@@ -146,6 +148,33 @@ class SolutionFakeClient:
 
     def update_webresource(self, webresourceid: str, patch: dict[str, Any]) -> dict[str, Any]:
         return {"updated": True, "webresourceid": webresourceid}
+
+    # forms / views (Wave 3)
+    def get_form_by_name(self, entity: str, name: str) -> Optional[dict[str, Any]]:
+        rec = self._forms.get((entity, name))
+        return dict(rec) if rec else None
+
+    def create_form(self, payload: dict[str, Any]) -> dict[str, Any]:
+        rec = {"formid": "f-id", "name": payload["name"]}
+        self._forms[(payload["objecttypecode"], payload["name"])] = rec
+        self.calls.setdefault("create_form", []).append(payload)
+        return rec
+
+    def update_form(self, form_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        return {"updated": True, "formid": form_id}
+
+    def get_view_by_name(self, entity: str, name: str) -> Optional[dict[str, Any]]:
+        rec = self._views.get((entity, name))
+        return dict(rec) if rec else None
+
+    def create_view(self, payload: dict[str, Any]) -> dict[str, Any]:
+        rec = {"savedqueryid": "v-id", "name": payload["name"]}
+        self._views[(payload["returnedtypecode"], payload["name"])] = rec
+        self.calls.setdefault("create_view", []).append(payload)
+        return rec
+
+    def update_view(self, savedquery_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        return {"updated": True, "savedqueryid": savedquery_id}
 
 
 def _solution(**kwargs: Any) -> Solution:
@@ -293,3 +322,23 @@ def test_deploy_solution_deploys_and_adds_optionset_and_webresource():
     assert client.calls["publish_all_xml"]
     # standard optionset name would be skipped — sanity on the custom path
     assert all(c["deploy"]["action"] == "created" for c in result["components"])
+
+
+def test_deploy_solution_deploys_and_adds_form_and_view():
+    from framework_power import Form, FormType, QueryType, View
+
+    sol = _solution(
+        forms=[Form(name="new_Budget Main", entity="new_budget", form_xml="<forms/>", form_type=FormType.Main)],
+        views=[
+            View(
+                name="new_Active Budgets", entity="new_budget",
+                fetch_xml="<fetch/>", layout_xml="<grid/>", query_type=QueryType.Public,
+            )
+        ],
+    )
+    client = SolutionFakeClient()
+    deploy_solution(client, sol, prefix="new", config=NO_DELAY)
+    assert client.calls["create_form"]
+    assert client.calls["create_view"]
+    codes = {c[1] for c in client.calls["add_solution_component"]}
+    assert 60 in codes and 26 in codes  # form + view add codes

@@ -386,6 +386,80 @@ class DataverseClient:
             self._raise_with_detail(response, f"update webresource '{webresourceid}'")
         return {"updated": True, "webresourceid": webresourceid}
 
+    # ---- forms / SystemForm (Wave 3) ----
+    def get_form_by_name(self, entity: str, name: str) -> Optional[dict[str, Any]]:
+        """Return the system form for ``entity`` named ``name``, or ``None``."""
+        e = _odata_quote(entity)
+        n = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(
+                f"systemforms?$filter=objecttypecode eq '{e}' and name eq '{n}'&$top=1"
+            )
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    def get_form_by_id(self, form_id: str) -> dict[str, Any]:
+        """Get a system form keyed by id (used by reverse)."""
+        response = self.session.get(self.get_api_url(f"systemforms({form_id})"))
+        response.raise_for_status()
+        return response.json()
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_form(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a serialized SystemForm payload (``formxml`` is opaque)."""
+        response = self.session.post(self.get_api_url("systemforms"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create form")
+        return {"formid": _entity_id(response), "name": payload.get("name")}
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def update_form(self, form_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH an existing system form (e.g. replace ``formxml``)."""
+        response = self.session.patch(self.get_api_url(f"systemforms({form_id})"), json=patch)
+        if not response.ok:
+            self._raise_with_detail(response, f"update form '{form_id}'")
+        return {"updated": True, "formid": form_id}
+
+    # ---- views / SavedQuery (Wave 3) ----
+    def get_view_by_name(self, entity: str, name: str) -> Optional[dict[str, Any]]:
+        """Return the saved query (view) for ``entity`` named ``name``, or ``None``."""
+        e = _odata_quote(entity)
+        n = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(
+                f"savedqueries?$filter=returnedtypecode eq '{e}' and name eq '{n}'&$top=1"
+            )
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    def get_view_by_id(self, savedquery_id: str) -> dict[str, Any]:
+        """Get a saved query keyed by id (used by reverse)."""
+        response = self.session.get(self.get_api_url(f"savedqueries({savedquery_id})"))
+        response.raise_for_status()
+        return response.json()
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_view(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a serialized SavedQuery payload (``fetchxml``/``layoutxml`` opaque)."""
+        response = self.session.post(self.get_api_url("savedqueries"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create view")
+        return {"savedqueryid": _entity_id(response), "name": payload.get("name")}
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def update_view(self, savedquery_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH an existing saved query (e.g. replace ``fetchxml``/``layoutxml``)."""
+        response = self.session.patch(
+            self.get_api_url(f"savedqueries({savedquery_id})"), json=patch
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"update view '{savedquery_id}'")
+        return {"updated": True, "savedqueryid": savedquery_id}
+
     # ----------------------------------------------------- solution / publisher
     # Thin transport methods over the Web API. Create payloads are built by
     # ``framework_power.components.serializer``; the client stays model-free.

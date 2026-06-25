@@ -151,6 +151,8 @@ def _register_module(mod: Any) -> None:
 # pure (no import from this package __init__), so there is no import cycle.
 from . import optionset as _optionset  # noqa: E402
 from . import webresource as _webresource  # noqa: E402
+from . import form as _form  # noqa: E402
+from . import view as _view  # noqa: E402
 
-for _mod in (_optionset, _webresource):  # noqa: E402
+for _mod in (_optionset, _webresource, _form, _view):  # noqa: E402
     _register_module(_mod)

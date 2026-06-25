@@ -94,3 +94,29 @@ def test_emit_imports_only_needed_names():
     src = solution_to_python_source(sol)
     # no inline publisher/refs/typed lists -> only Solution imported
     assert "from framework_power import (\n    Solution,\n)" in src
+
+
+def test_round_trip_with_forms_and_views():
+    from framework_power import Form, FormType, QueryType, View
+
+    sol = Solution(
+        unique_name="new_Core",
+        friendly_name="Core",
+        tables=["new_budget"],
+        forms=[
+            Form(
+                name="new_Budget Main", entity="new_budget",
+                form_xml="<forms><form/></forms>", form_type=FormType.Main,
+            )
+        ],
+        views=[
+            View(
+                name="new_Active", entity="new_budget", fetch_xml="<fetch/>",
+                layout_xml="<grid/>", query_type=QueryType.Public, is_default=True,
+            )
+        ],
+    )
+    sol2 = _round_trip(sol)
+    assert sol2 == sol
+    assert sol2.forms[0].form_xml == "<forms><form/></forms>"
+    assert sol2.views[0].query_type == QueryType.Public
