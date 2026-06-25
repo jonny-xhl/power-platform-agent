@@ -300,14 +300,16 @@ def cmd_solution_lint(args: argparse.Namespace) -> int:
 def cmd_solution_plan(args: argparse.Namespace) -> int:
     sol = _get_solution(args.name, args.solutions_dir)
     client = get_client(args.env)
-    _print_json(plan_solution(client, sol, prefix=_publisher_prefix()))
+    _print_json(plan_solution(client, sol, definitions_dir=args.definitions_dir, prefix=_publisher_prefix()))
     return 0
 
 
 def cmd_solution_deploy(args: argparse.Namespace) -> int:
     sol = _get_solution(args.name, args.solutions_dir)
     client = get_client(args.env)
-    _print_json(deploy_solution(client, sol, prefix=_publisher_prefix()))
+    _print_json(
+        deploy_solution(client, sol, definitions_dir=args.definitions_dir, prefix=_publisher_prefix())
+    )
     return 0
 
 

@@ -328,14 +328,21 @@ class DataverseClient:
 
     # ---- global optionsets (Wave 2) ----
     def get_global_optionset_by_name(self, name: str) -> Optional[dict[str, Any]]:
-        """Return the global optionset whose ``Name == name``, or ``None``."""
-        encoded = _odata_quote(name)
+        """Return the global optionset whose logical ``Name == name``, or ``None``.
+
+        ``GlobalOptionSetDefinitions`` is a metadata collection that does NOT support
+        ``$filter`` (405); address it by the ``Name`` alternate key instead. Dataverse
+        stores the optionset Name lowercased, so the lookup must use the lowercased
+        name regardless of the authored schema-name casing.
+        """
+        encoded = _odata_quote(name.lower())
         response = self.session.get(
-            self.get_api_url(f"GlobalOptionSetDefinitions?$filter=Name eq '{encoded}'&$top=1")
+            self.get_api_url(f"GlobalOptionSetDefinitions(Name='{encoded}')")
         )
+        if response.status_code == 404:
+            return None
         response.raise_for_status()
-        values = response.json().get("value", [])
-        return values[0] if values else None
+        return response.json()
 
     def get_global_optionset_by_id(self, metadata_id: str) -> dict[str, Any]:
         """Get a global optionset keyed by MetadataId (used by reverse)."""
@@ -623,13 +630,22 @@ class DataverseClient:
         return {"updated": True, "uniquename": unique_name, "version": version}
 
     def get_solution_components(self, unique_name: str) -> list[dict[str, Any]]:
-        """List a solution's components (``componenttype`` + ``objectid`` + ...)."""
-        encoded = _odata_quote(unique_name)
-        url = self.get_api_url(
-            f"solutions(unique_name='{encoded}')/solution_solutioncomponents"
-            f"?$select=componenttype,objectid,iscustomizable,rootcomponentbehavior,solutioncomponentid"
+        """List a solution's components (``componenttype`` + ``objectid``).
+
+        The collection-valued navigation properties (``solution_solutioncomponents`` /
+        ``SolutionComponents``) are unavailable in some tenants (404/400), so query the
+        ``solutioncomponents`` entity set filtered by the looked-up ``solutionid``.
+        """
+        sol = self.get_solution_by_name(unique_name)
+        if not sol:
+            return []
+        solution_id = sol.get("solutionid")
+        response = self.session.get(
+            self.get_api_url(
+                f"solutioncomponents?$filter=_solutionid_value eq {solution_id}"
+                f"&$select=componenttype,objectid"
+            )
         )
-        response = self.session.get(url)
         response.raise_for_status()
         return response.json().get("value", [])
 

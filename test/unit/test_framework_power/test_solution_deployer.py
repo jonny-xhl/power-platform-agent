@@ -242,7 +242,7 @@ def _write_table_def(dir_path, stem: str, schema: str) -> None:
 def test_deploy_with_custom_table_adds_to_solution(tmp_path):
     _write_table_def(tmp_path, "new_budget", "new_Budget")
     client = SolutionFakeClient(table_exists=True)
-    result = deploy_solution(
+    deploy_solution(
         client, _solution(tables=["new_budget"]), definitions_dir=str(tmp_path),
         prefix="new", config=NO_DELAY,
     )
@@ -379,3 +379,26 @@ def test_deploy_solution_plugin_multi_part_add():
     assert client.calls["create_plugin_step"]
     codes = {c[1] for c in client.calls["add_solution_component"]}
     assert 90 in codes and 92 in codes  # assembly + step multi-part add
+
+
+def test_deploy_solution_uses_deploy_result_id_not_relookup():
+    """Regression: the create->resolve propagation race. A freshly-created optionset
+    is not yet visible to a name lookup (get_global_optionset_by_name -> None), so
+    deploy_solution must add using the id the deploy returned, not a re-lookup."""
+    from framework_power import GlobalOptionSet, Label, Option
+
+    class RaceClient(SolutionFakeClient):
+        def get_global_optionset_by_name(self, name):
+            return None  # never visible by name (simulates post-create propagation delay)
+
+        def create_global_optionset(self, payload):
+            self.calls["create_global_optionset"].append(payload)
+            return {"MetadataId": "os-race-id", "Name": payload["Name"]}
+
+    sol = _solution(
+        optionsets=[GlobalOptionSet(name="new_P", display_name=Label.en("P"), options=[Option(1, Label.en("a"))])]
+    )
+    client = RaceClient()
+    deploy_solution(client, sol, prefix="new", config=NO_DELAY)
+    # Despite resolve-by-name returning None, the optionset was added via the returned id
+    assert ("new_Core", 9, "os-race-id") in client.calls["add_solution_component"]

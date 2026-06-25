@@ -67,7 +67,8 @@ def test_resolve_id():
 
 def test_plan_would_create_or_update():
     assert wr_mod.plan(FakeClient(existing=None), _model(), prefix="new")["action"] == "would_create"
-    assert wr_mod.plan(FakeClient(existing={"webresourceid": "wr-id"}), _model(), prefix="new")["action"] == "would_update"
+    existing = FakeClient(existing={"webresourceid": "wr-id"})
+    assert wr_mod.plan(existing, _model(), prefix="new")["action"] == "would_update"
 
 
 def test_reverse():

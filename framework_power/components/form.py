@@ -47,13 +47,13 @@ def deploy(client: Any, model: Form, *, prefix: str = "new", config: Any = None)
         return {"action": "skipped_standard"}
     existing = client.get_form_by_name(model.entity, model.name)
     if existing is None:
-        client.create_form(serialize(model))
-        return {"action": "created"}
+        res = client.create_form(serialize(model))
+        return {"action": "created", "id": res.get("formid")}
     patch: dict[str, Any] = {"formxml": model.form_xml}
     if model.description:
         patch["description"] = model.description
     client.update_form(existing["formid"], patch)
-    return {"action": "updated"}
+    return {"action": "updated", "id": existing["formid"]}
 
 
 def plan(client: Any, model: Form, *, prefix: str = "new") -> dict[str, Any]:

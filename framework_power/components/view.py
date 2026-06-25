@@ -50,13 +50,13 @@ def deploy(client: Any, model: View, *, prefix: str = "new", config: Any = None)
         return {"action": "skipped_standard"}
     existing = client.get_view_by_name(model.entity, model.name)
     if existing is None:
-        client.create_view(serialize(model))
-        return {"action": "created"}
+        res = client.create_view(serialize(model))
+        return {"action": "created", "id": res.get("savedqueryid")}
     patch: dict[str, Any] = {"fetchxml": model.fetch_xml, "layoutxml": model.layout_xml}
     if model.description:
         patch["description"] = model.description
     client.update_view(existing["savedqueryid"], patch)
-    return {"action": "updated"}
+    return {"action": "updated", "id": existing["savedqueryid"]}
 
 
 def plan(client: Any, model: View, *, prefix: str = "new") -> dict[str, Any]:

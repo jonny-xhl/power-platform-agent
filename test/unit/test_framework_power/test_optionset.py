@@ -39,13 +39,16 @@ def test_serialize_keys():
 
 def test_deploy_creates_when_absent():
     c = FakeClient(existing=None)
-    assert opt.deploy(c, _model(), prefix="new")["action"] == "created"
+    r = opt.deploy(c, _model(), prefix="new")
+    assert r["action"] == "created"
+    assert r["id"] == "os-id"  # returned id lets the solution deployer add without a re-lookup race
     assert c.created
 
 
 def test_deploy_exists_when_same_options():
     existing = {"MetadataId": "os-id", "Options": [{"Value": 1}, {"Value": 2}]}
-    assert opt.deploy(FakeClient(existing=existing), _model(), prefix="new")["action"] == "exists"
+    r = opt.deploy(FakeClient(existing=existing), _model(), prefix="new")
+    assert r["action"] == "exists" and r["id"] == "os-id"
 
 
 def test_deploy_manual_update_when_options_differ():

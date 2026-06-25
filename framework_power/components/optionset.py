@@ -70,9 +70,9 @@ def deploy(
                 "reason": "global optionset options cannot be PATCHed; use "
                 "InsertOptionValue/UpdateOptionValue or the maker portal.",
             }
-        return {"action": "exists"}
-    client.create_global_optionset(serialize(model))
-    return {"action": "created"}
+        return {"action": "exists", "id": existing.get("MetadataId")}
+    res = client.create_global_optionset(serialize(model))
+    return {"action": "created", "id": res.get("MetadataId")}
 
 
 def plan(client: Any, model: GlobalOptionSet, *, prefix: str = "new") -> dict[str, Any]:

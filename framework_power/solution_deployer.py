@@ -269,16 +269,19 @@ def deploy_solution(
             result["components"].append({"type": type_key, "name": label, "deploy": deploy_entry})
             cfg.sleep(cfg.after_component_create_delay)
             # A type may return its own add targets (e.g. a plugin adds assembly +
-            # each step + each action); otherwise add the single resolved id.
+            # each step + each action); otherwise add the single id. Prefer the id
+            # the deploy returned (avoids a create->lookup propagation race).
             extra = deploy_entry.get("add_targets") if isinstance(deploy_entry, dict) else None
             if extra:
                 for code, oid, lbl in extra:
                     add_targets.append((int(code), str(oid), lbl))
             else:
-                try:
-                    oid = ctype.resolve_id(client, model)
-                except Exception:  # noqa: BLE001
-                    oid = None
+                oid = deploy_entry.get("id") if isinstance(deploy_entry, dict) else None
+                if not oid:
+                    try:
+                        oid = ctype.resolve_id(client, model)
+                    except Exception:  # noqa: BLE001
+                        oid = None
                 if oid:
                     add_targets.append((ctype.solution_component_type, str(oid), label))
 

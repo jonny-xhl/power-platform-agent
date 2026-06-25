@@ -50,13 +50,13 @@ def deploy(
     payload = serialize(model)
     existing = client.get_webresource_by_name(model.name)
     if existing is None:
-        client.create_webresource(payload)
-        return {"action": "created"}
+        res = client.create_webresource(payload)
+        return {"action": "created", "id": res.get("webresourceid")}
     client.update_webresource(
         existing["webresourceid"],
         {"content": payload["content"], "displayname": payload["displayname"]},
     )
-    return {"action": "updated"}
+    return {"action": "updated", "id": existing["webresourceid"]}
 
 
 def plan(client: Any, model: WebResource, *, prefix: str = "new") -> dict[str, Any]:

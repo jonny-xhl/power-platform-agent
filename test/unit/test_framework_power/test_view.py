@@ -73,7 +73,8 @@ def test_resolve_id():
 
 def test_plan():
     assert view_mod.plan(FakeClient(existing=None), _model(), prefix="new")["action"] == "would_create"
-    assert view_mod.plan(FakeClient(existing={"savedqueryid": "v-id"}), _model(), prefix="new")["action"] == "would_update"
+    existing = FakeClient(existing={"savedqueryid": "v-id"})
+    assert view_mod.plan(existing, _model(), prefix="new")["action"] == "would_update"
 
 
 def test_reverse_preserves_opaque_xml():
