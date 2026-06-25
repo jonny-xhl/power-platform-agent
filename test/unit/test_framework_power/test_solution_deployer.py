@@ -36,6 +36,8 @@ class SolutionFakeClient:
         self._existing_publisher = existing_publisher
         self._existing_solution = existing_solution
         self.table_exists = table_exists
+        self._optionsets: dict[str, dict[str, Any]] = {}
+        self._webresources: dict[str, dict[str, Any]] = {}
         self.calls: dict[str, list[Any]] = {
             "create_publisher": [],
             "create_solution": [],
@@ -44,6 +46,8 @@ class SolutionFakeClient:
             "publish_all_xml": [],
             "create_entity": [],
             "update_entity": [],
+            "create_global_optionset": [],
+            "create_webresource": [],
         }
 
     # publisher
@@ -120,6 +124,28 @@ class SolutionFakeClient:
             "SchemaName": name,
             "PrimaryIdAttribute": f"{name}id",
         }
+
+    # optionset / webresource (Wave 2)
+    def get_global_optionset_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        return dict(self._optionsets[name]) if name in self._optionsets else None
+
+    def create_global_optionset(self, payload: dict[str, Any]) -> dict[str, Any]:
+        rec = {"MetadataId": "os-id", "Name": payload["Name"]}
+        self._optionsets[payload["Name"]] = rec
+        self.calls["create_global_optionset"].append(payload)
+        return rec
+
+    def get_webresource_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        return dict(self._webresources[name]) if name in self._webresources else None
+
+    def create_webresource(self, payload: dict[str, Any]) -> dict[str, Any]:
+        rec = {"webresourceid": "wr-id", "name": payload["name"]}
+        self._webresources[payload["name"]] = rec
+        self.calls["create_webresource"].append(payload)
+        return rec
+
+    def update_webresource(self, webresourceid: str, patch: dict[str, Any]) -> dict[str, Any]:
+        return {"updated": True, "webresourceid": webresourceid}
 
 
 def _solution(**kwargs: Any) -> Solution:
@@ -238,3 +264,32 @@ def test_plan_is_read_only():
     assert not client.calls["publish_all_xml"]
     assert result["solution_object"]["action"] == "exists"
     assert result["publish"]["action"] == "would_publish"
+
+
+def test_deploy_solution_deploys_and_adds_optionset_and_webresource():
+    from framework_power import GlobalOptionSet, Label, Option, WebResource, WebResourceType
+
+    sol = _solution(
+        optionsets=[
+            GlobalOptionSet(
+                name="new_Priority", display_name=Label.en("Priority"),
+                options=[Option(1, Label.en("Low"))],
+            )
+        ],
+        webresources=[
+            WebResource(
+                name="new_/js/x.js", display_name="X", content="YmFzZTY0",
+                webresource_type=WebResourceType.JScript,
+            )
+        ],
+    )
+    client = SolutionFakeClient()
+    result = deploy_solution(client, sol, prefix="new", config=NO_DELAY)
+    assert client.calls["create_global_optionset"]
+    assert client.calls["create_webresource"]
+    # both added to the solution (optionset code 9, webresource code 61)
+    codes = {c[1] for c in client.calls["add_solution_component"]}
+    assert 9 in codes and 61 in codes
+    assert client.calls["publish_all_xml"]
+    # standard optionset name would be skipped — sanity on the custom path
+    assert all(c["deploy"]["action"] == "created" for c in result["components"])

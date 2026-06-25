@@ -6,10 +6,11 @@ so it can be written to ``metadata_py/solutions/<unique_name>.py`` via
 :mod:`solution_codegen`. The same file is forward-syncable: ``deploy_solution``
 skips standard (non-custom) items, so re-deploying a snapshot is idempotent/safe.
 
-Wave 1 reconstructs TABLES as name refs (logical names); other component types are
-captured as :class:`ComponentRef` fallbacks (typed reconstruction arrives with the
-per-type waves). Nothing is silently dropped and nothing raises on an unresolvable
-component — a note-carrying ``ComponentRef`` is recorded instead.
+Dispatch is registry-driven: each component's ``componenttype`` code maps to a
+registered :class:`ComponentType` whose ``reverse`` reconstructs the typed model
+(tables become name refs via ``get_entity_metadata_by_id``; optionset/webresource/
+form/view/plugin reverse in their waves). Anything unresolvable degrades to a
+note-carrying :class:`ComponentRef` — nothing is silently dropped, nothing raises.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from .components import component_type_for_code
+from .components import COMPONENT_TYPES, component_type_for_code
 from .components.models import ComponentRef, Publisher, Solution
 
 logger = logging.getLogger(__name__)
@@ -41,15 +42,21 @@ def _extract_publisher(client: Any, solution_obj: dict[str, Any]) -> Optional[Pu
         return None
 
 
-def _reverse_component(
-    client: Any, code: int, oid: str
-) -> tuple[str, Any]:
-    """Map one solution component to ``("tables", name)`` or ``("refs", ComponentRef)``.
+def _reverse_component(client: Any, code: int, oid: str) -> tuple[str, Any]:
+    """Map one solution component to ``(bucket, value)``.
 
-    Later waves add typed branches (optionset/webresource/form/view/plugin) returning
-    ``("<type>s", model)``.
+    ``bucket`` is ``"tables"`` (name ref), ``"<type>s"`` (typed model list), or
+    ``"refs"`` (fallback ComponentRef).
     """
     key = component_type_for_code(code)
+    if key is None:
+        return (
+            "refs",
+            ComponentRef(
+                type=str(code), object_id=oid, note=f"reverse: unknown type {code} object {oid}"
+            ),
+        )
+
     if key == "table":
         try:
             meta = client.get_entity_metadata_by_id(oid)
@@ -58,8 +65,20 @@ def _reverse_component(
                 return ("tables", logical)
         except Exception as e:  # noqa: BLE001
             logger.debug(f"reverse: could not read table {oid}: {e}")
-    note = f"reverse: component type {code} ({key or 'unknown'}) object {oid}"
-    return ("refs", ComponentRef(type=key or str(code), object_id=oid, note=note))
+        return (
+            "refs",
+            ComponentRef(type="table", object_id=oid, note=f"reverse: table {oid} unreadable"),
+        )
+
+    ctype = COMPONENT_TYPES[key]
+    try:
+        return (key + "s", ctype.reverse(client, oid))
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"reverse: could not read {key} {oid}: {e}")
+        return (
+            "refs",
+            ComponentRef(type=key, object_id=oid, note=f"reverse: {key} {oid} unreadable: {e}"),
+        )
 
 
 def reverse_solution(client: Any, unique_name: str) -> Solution:
@@ -70,7 +89,7 @@ def reverse_solution(client: Any, unique_name: str) -> Solution:
         unique_name: The solution's unique name.
 
     Returns:
-        A :class:`Solution` populated with publisher + tables (name refs) + refs.
+        A :class:`Solution` populated with publisher + components.
 
     Raises:
         ValueError: If the solution does not exist.
@@ -84,6 +103,7 @@ def reverse_solution(client: Any, unique_name: str) -> Solution:
 
     tables: list[str] = []
     refs: list[ComponentRef] = []
+    typed: dict[str, list[Any]] = {}
     for comp in components:
         code = int(comp.get("componenttype") or 0)
         oid = str(comp.get("objectid") or "").strip().strip("{}")
@@ -95,6 +115,8 @@ def reverse_solution(client: Any, unique_name: str) -> Solution:
                 tables.append(value)
         elif bucket == "refs":
             refs.append(value)
+        else:
+            typed.setdefault(bucket, []).append(value)
 
     return Solution(
         unique_name=unique_name,
@@ -104,4 +126,9 @@ def reverse_solution(client: Any, unique_name: str) -> Solution:
         publisher=publisher,
         tables=tables,
         refs=refs,
+        optionsets=typed.get("optionsets", []),
+        webresources=typed.get("webresources", []),
+        forms=typed.get("forms", []),
+        views=typed.get("views", []),
+        plugins=typed.get("plugins", []),
     )

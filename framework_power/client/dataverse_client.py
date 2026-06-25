@@ -322,6 +322,70 @@ class DataverseClient:
             self._raise_with_detail(response, "create relationship")
         return {"status": "created"}
 
+    # ----------------------------------------------------- per-type components
+    # Endpoints for non-table component types, added per wave. Thin transport only;
+    # payloads are built by the per-type serializers.
+
+    # ---- global optionsets (Wave 2) ----
+    def get_global_optionset_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        """Return the global optionset whose ``Name == name``, or ``None``."""
+        encoded = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(f"GlobalOptionSetDefinitions?$filter=Name eq '{encoded}'&$top=1")
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    def get_global_optionset_by_id(self, metadata_id: str) -> dict[str, Any]:
+        """Get a global optionset keyed by MetadataId (used by reverse)."""
+        response = self.session.get(self.get_api_url(f"GlobalOptionSetDefinitions({metadata_id})"))
+        response.raise_for_status()
+        return response.json()
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_global_optionset(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a serialized global-optionset payload to ``GlobalOptionSetDefinitions``."""
+        response = self.session.post(self.get_api_url("GlobalOptionSetDefinitions"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create global optionset")
+        return {"MetadataId": _entity_id(response), "Name": payload.get("Name")}
+
+    # ---- web resources (Wave 2) ----
+    def get_webresource_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        """Return the web resource whose ``name == name``, or ``None``."""
+        encoded = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(f"webresourceset?$filter=name eq '{encoded}'&$top=1")
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    def get_webresource_by_id(self, webresourceid: str) -> dict[str, Any]:
+        """Get a web resource keyed by id (used by reverse)."""
+        response = self.session.get(self.get_api_url(f"webresourceset({webresourceid})"))
+        response.raise_for_status()
+        return response.json()
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_webresource(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a serialized web-resource payload (``content`` is base64)."""
+        response = self.session.post(self.get_api_url("webresourceset"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create webresource")
+        return {"webresourceid": _entity_id(response), "name": payload.get("name")}
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def update_webresource(self, webresourceid: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH an existing web resource (e.g. replace ``content``)."""
+        response = self.session.patch(
+            self.get_api_url(f"webresourceset({webresourceid})"), json=patch
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"update webresource '{webresourceid}'")
+        return {"updated": True, "webresourceid": webresourceid}
+
     # ----------------------------------------------------- solution / publisher
     # Thin transport methods over the Web API. Create payloads are built by
     # ``framework_power.components.serializer``; the client stays model-free.

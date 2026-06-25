@@ -53,3 +53,44 @@ def test_emit_includes_tables_and_refs_lists():
     src = solution_to_python_source(sol)
     assert "tables=['a', 'b']" in src
     assert "ComponentRef(" in src
+
+
+def test_round_trip_with_optionsets_and_webresources():
+    from framework_power import (
+        GlobalOptionSet,
+        Label,
+        Option,
+        WebResource,
+        WebResourceType,
+    )
+
+    sol = Solution(
+        unique_name="new_Core",
+        friendly_name="Core",
+        publisher_key="default",
+        tables=["new_budget"],
+        optionsets=[
+            GlobalOptionSet(
+                name="new_Priority",
+                display_name=Label.bilingual("优先级", "Priority"),
+                options=[Option(1, Label.en("Low"))],
+            )
+        ],
+        webresources=[
+            WebResource(
+                name="new_/js/x.js", display_name="X", content="YmFzZTY0",
+                webresource_type=WebResourceType.JScript,
+            )
+        ],
+    )
+    sol2 = _round_trip(sol)
+    assert sol2 == sol
+    assert sol2.optionsets[0].name == "new_Priority"
+    assert sol2.webresources[0].webresource_type == WebResourceType.JScript
+
+
+def test_emit_imports_only_needed_names():
+    sol = Solution(unique_name="new_Core", friendly_name="Core", tables=["a"])
+    src = solution_to_python_source(sol)
+    # no inline publisher/refs/typed lists -> only Solution imported
+    assert "from framework_power import (\n    Solution,\n)" in src

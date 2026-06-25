@@ -44,6 +44,7 @@ class ComponentType:
 
     key: str  # "table" | "optionset" | "webresource" | "form" | "view" | "plugin"
     solution_component_type: int  # AddSolutionComponent ComponentType code
+    model_cls: type  # the typed dataclass (Table | GlobalOptionSet | ...)
     serialize: Callable[..., Any]  # model -> Web API create payload (dict)
     deploy: Callable[..., Any]  # (client, model, *, prefix, config) -> dict
     plan: Callable[..., Any]  # (client, model, *, prefix) -> dict  (read-only)
@@ -53,6 +54,7 @@ class ComponentType:
     resolve_id: Callable[..., Any]  # (client, model) -> str | None
     lint: Callable[..., Any]  # (model, *, prefix) -> list[Issue]
     deploy_depends_on: tuple[str, ...] = ()
+    codegen_imports: tuple[str, ...] = ()  # names codegen references (for import line)
 
 
 # ----------------------------------------------------------------- table adapter
@@ -95,6 +97,7 @@ def _table_lint(table: Table, *, prefix: str = "new") -> list[Issue]:
 _TABLE_TYPE = ComponentType(
     key="table",
     solution_component_type=1,
+    model_cls=Table,
     serialize=_table_serialize,
     deploy=_table_deploy,
     plan=_table_plan,
@@ -123,3 +126,31 @@ def component_type_for_code(code: int) -> Optional[str]:
         if ctype.solution_component_type == code:
             return key
     return None
+
+
+def _register_module(mod: Any) -> None:
+    """Register a per-type module (uniform serialize/deploy/.../lint interface)."""
+    COMPONENT_TYPES[mod.KEY] = ComponentType(
+        key=mod.KEY,
+        solution_component_type=mod.SOLUTION_CODE,
+        model_cls=mod.MODEL_CLS,
+        serialize=mod.serialize,
+        deploy=mod.deploy,
+        plan=mod.plan,
+        reverse=mod.reverse,
+        codegen=mod.codegen,
+        exists=mod.exists,
+        resolve_id=mod.resolve_id,
+        lint=mod.lint,
+        deploy_depends_on=getattr(mod, "DEPENDS_ON", ()),
+        codegen_imports=getattr(mod, "CODEGEN_IMPORTS", ()),
+    )
+
+
+# Per-type handlers (imported AFTER COMPONENT_TYPES is defined). Each module is
+# pure (no import from this package __init__), so there is no import cycle.
+from . import optionset as _optionset  # noqa: E402
+from . import webresource as _webresource  # noqa: E402
+
+for _mod in (_optionset, _webresource):  # noqa: E402
+    _register_module(_mod)
