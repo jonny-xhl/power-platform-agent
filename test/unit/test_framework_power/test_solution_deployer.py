@@ -176,6 +176,24 @@ class SolutionFakeClient:
     def update_view(self, savedquery_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         return {"updated": True, "savedqueryid": savedquery_id}
 
+    # plugins (Wave 4)
+    def get_plugin_assembly_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        return None
+
+    def create_plugin_assembly(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls.setdefault("create_plugin_assembly", []).append(payload)
+        return {"pluginassemblyid": "asm-1", "name": payload["name"]}
+
+    def update_plugin_assembly(self, pluginassemblyid: str, patch: dict[str, Any]) -> dict[str, Any]:
+        return {"updated": True, "pluginassemblyid": pluginassemblyid}
+
+    def get_sdk_message_id(self, message: str) -> Optional[str]:
+        return "msg-1"
+
+    def create_plugin_step(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls.setdefault("create_plugin_step", []).append(payload)
+        return {"sdkmessageprocessingstepid": "step-1", "name": payload["name"]}
+
 
 def _solution(**kwargs: Any) -> Solution:
     return Solution(unique_name="new_Core", friendly_name="Core", publisher_key="default", **kwargs)
@@ -342,3 +360,22 @@ def test_deploy_solution_deploys_and_adds_form_and_view():
     assert client.calls["create_view"]
     codes = {c[1] for c in client.calls["add_solution_component"]}
     assert 60 in codes and 26 in codes  # form + view add codes
+
+
+def test_deploy_solution_plugin_multi_part_add():
+    from framework_power import Plugin, PluginStep
+
+    sol = _solution(
+        plugins=[
+            Plugin(
+                name="new_MyPlugin", content="Yg==",
+                steps=[PluginStep(name="on Create", message="Create", entity="new_budget")],
+            )
+        ]
+    )
+    client = SolutionFakeClient()
+    deploy_solution(client, sol, prefix="new", config=NO_DELAY)
+    assert client.calls["create_plugin_assembly"]
+    assert client.calls["create_plugin_step"]
+    codes = {c[1] for c in client.calls["add_solution_component"]}
+    assert 90 in codes and 92 in codes  # assembly + step multi-part add

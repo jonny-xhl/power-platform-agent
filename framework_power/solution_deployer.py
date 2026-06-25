@@ -268,12 +268,19 @@ def deploy_solution(
                 continue
             result["components"].append({"type": type_key, "name": label, "deploy": deploy_entry})
             cfg.sleep(cfg.after_component_create_delay)
-            try:
-                oid = ctype.resolve_id(client, model)
-            except Exception:  # noqa: BLE001
-                oid = None
-            if oid:
-                add_targets.append((ctype.solution_component_type, str(oid), label))
+            # A type may return its own add targets (e.g. a plugin adds assembly +
+            # each step + each action); otherwise add the single resolved id.
+            extra = deploy_entry.get("add_targets") if isinstance(deploy_entry, dict) else None
+            if extra:
+                for code, oid, lbl in extra:
+                    add_targets.append((int(code), str(oid), lbl))
+            else:
+                try:
+                    oid = ctype.resolve_id(client, model)
+                except Exception:  # noqa: BLE001
+                    oid = None
+                if oid:
+                    add_targets.append((ctype.solution_component_type, str(oid), label))
 
     # ---- STEP 4: add custom components (and explicit refs) to the solution ----
     for code, oid, label in add_targets:

@@ -120,3 +120,24 @@ def test_round_trip_with_forms_and_views():
     assert sol2 == sol
     assert sol2.forms[0].form_xml == "<forms><form/></forms>"
     assert sol2.views[0].query_type == QueryType.Public
+
+
+def test_round_trip_with_plugin():
+    from framework_power import CustomAction, IsolationMode, Label, Plugin, PluginStep, SourceType
+
+    sol = Solution(
+        unique_name="new_Core",
+        friendly_name="Core",
+        tables=["new_budget"],
+        plugins=[
+            Plugin(
+                name="new_MyPlugin", content="YmFzZTY0",
+                isolation_mode=IsolationMode.Sandbox, source_type=SourceType.Database,
+                steps=[PluginStep(name="on Create", message="Create", entity="new_budget")],
+                custom_actions=[CustomAction(schema_name="new_Score", display_name=Label.en("Score"))],
+            )
+        ],
+    )
+    sol2 = _round_trip(sol)
+    assert sol2 == sol
+    assert sol2.plugins[0].steps[0].message == "Create"

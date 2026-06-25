@@ -460,6 +460,75 @@ class DataverseClient:
             self._raise_with_detail(response, f"update view '{savedquery_id}'")
         return {"updated": True, "savedqueryid": savedquery_id}
 
+    # ---- plugins (Wave 4) ----
+    def get_plugin_assemblies(self) -> list[dict[str, Any]]:
+        """List all plugin assemblies."""
+        response = self.session.get(self.get_api_url("pluginassemblies"))
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_plugin_assembly_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        """Return the plugin assembly whose ``name == name``, or ``None``."""
+        encoded = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(f"pluginassemblies?$filter=name eq '{encoded}'&$top=1")
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    def get_plugin_assembly_by_id(self, pluginassemblyid: str) -> dict[str, Any]:
+        """Get a plugin assembly keyed by id (used by reverse)."""
+        response = self.session.get(self.get_api_url(f"pluginassemblies({pluginassemblyid})"))
+        response.raise_for_status()
+        return response.json()
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_plugin_assembly(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a serialized plugin-assembly payload (``content`` is base64 DLL)."""
+        response = self.session.post(self.get_api_url("pluginassemblies"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create plugin assembly")
+        return {"pluginassemblyid": _entity_id(response), "name": payload.get("name")}
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def update_plugin_assembly(self, pluginassemblyid: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH an existing plugin assembly (e.g. replace base64 ``content``)."""
+        response = self.session.patch(
+            self.get_api_url(f"pluginassemblies({pluginassemblyid})"), json=patch
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"update plugin assembly '{pluginassemblyid}'")
+        return {"updated": True, "pluginassemblyid": pluginassemblyid}
+
+    def get_sdk_message_id(self, message_name: str) -> Optional[str]:
+        """Resolve a global SDK message id by name (Create/Update/Delete/...)."""
+        encoded = _odata_quote(message_name)
+        response = self.session.get(
+            self.get_api_url(f"sdkmessages?$filter=name eq '{encoded}'&$top=1")
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0].get("sdkmessageid") if values else None
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_plugin_step(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a serialized SDK message processing step."""
+        response = self.session.post(self.get_api_url("sdkmessageprocessingsteps"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create plugin step")
+        return {"sdkmessageprocessingstepid": _entity_id(response), "name": payload.get("name")}
+
+    def get_steps_by_assembly(self, pluginassemblyid: str) -> list[dict[str, Any]]:
+        """List the SDK message processing steps owned by an assembly."""
+        response = self.session.get(
+            self.get_api_url(
+                f"sdkmessageprocessingsteps?$filter=_pluginassemblyid_value eq {pluginassemblyid}"
+            )
+        )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
     # ----------------------------------------------------- solution / publisher
     # Thin transport methods over the Web API. Create payloads are built by
     # ``framework_power.components.serializer``; the client stays model-free.
