@@ -19,6 +19,14 @@
 不使用 YAML，不使用官方 `PowerPlatform-DataverseClient-Python` SDK（无法更新元数据、类型覆盖不全）。
 **无新依赖**（仅复用项目已有的 `requests` + `msal`）。
 
+**Phase 2（解决方案）** 把同一思路扩展到 Solution 容器及其组件：`Solution` 模型 + 5 步
+`deploy_solution`（发布商→解决方案→部署组件→加入解决方案→发布）+ `reverse_solution`（全量快照）+
+单文件 `metadata_py/solutions/<name>.py`。组件类型经 `components/` 注册表统一分发：
+`table`（复用 Phase 1）/ `optionset` / `webresource` / `form` / `view` / `plugin`，各自有
+model + serializer + deployer + reverse + codegen + lint。`FormXml`/`FetchXml`/`LayoutXml` 与 DLL、
+Web 资源内容均为**不透明字符串**（库不生成也不解析）。CLI 入口：`python -m framework_power solution ...`，
+详见 `dv-solution-python` skill。
+
 ## 2. 硬性约束（必须遵守）
 
 - **与 `framework/` 完全隔离**：本包**不得 import** `framework.*`，也**不得修改** `framework/` 或
@@ -32,19 +40,32 @@
 
 ```
 framework_power/
-  __init__.py        公共 API 再导出（Table/Column/.../deploy_table/reverse_table/get_client）
+  __init__.py        公共 API 再导出（表 + 解决方案 + 组件枚举）
   __main__.py        支持 python -m framework_power ...
   models.py          类型化 dataclass：Table/Column/LookupColumn/Relationship/Label/Option/...
   serializer.py      模型 -> Dataverse Web API JSON（多语言、全类型）
   deployer.py        幂等 deploy_table / 只读 plan_table（前缀跳过、传播等待/重试）
-  codegen.py         Table 对象 -> Python 定义源码（逆向输出/往返保真）
+  codegen.py         Table 对象 -> Python 定义源码（逆向输出/往返保真）；emit_label 供复用
   reverse.py         环境元数据 -> Table（全量快照）
   registry.py        发现 metadata_py/tables/*.py（每文件导出 TABLE）；deploy_order 拓扑排序
   lint.py            离线约定校验门（无网络，0 errors 才允许 plan/deploy）
   runtime.py         get_client(env) + argparse_env（复用 client-secret 认证）
-  cli.py             list/show/lint/plan/deploy/deploy-all/reverse/delete
+  cli.py             表命令 + `solution` 子命令组 + --solutions-dir
+  solution_deployer.py  幂等 deploy_solution（5 步：发布商→解决方案→部署组件→加入→发布）+ plan_solution
+  solution_reverse.py   reverse_solution（环境 → Solution 全量快照，registry 驱动分发）
+  solution_codegen.py   Solution → metadata_py/solutions/<name>.py（registry 驱动、往返保真）
+  components/        解决方案组件类型（Phase 2）
+    __init__.py        ComponentType + COMPONENT_TYPES 注册表 + table 适配器 + _register_module
+    models.py          Solution/Publisher/ComponentRef + 全组件模型（GlobalOptionSet/WebResource/
+                       Form/View/Plugin + 枚举）；XML/base64 为不透明字符串
+    serializer.py      serialize_publisher / serialize_solution（含 publisherid@odata.bind）
+    _common.py         extract_label / is_custom 共享工具
+    optionset.py / webresource.py / form.py / view.py / plugin.py
+                       各类型统一接口（serialize/deploy/plan/reverse/codegen/exists/resolve_id/
+                       lint + KEY/SOLUTION_CODE/MODEL_CLS/CODEGEN_IMPORTS），自动注册
   client/            拷贝自 framework/utils 并精简（与 framework/ 隔离）
-    dataverse_client.py  精简 DataverseClient（仅传输 + 元数据端点，无 _convert_*）
+    dataverse_client.py  精简 DataverseClient（表元数据 + 各组件端点 + 解决方案/发布商/发布端点）
+    plugin_build.py      dotnet build → base64（插件作者期工具，需 .NET SDK）
     auth.py              AutoAuthenticator（MSAL client-credentials + 缓存）
     env_config.py        load_env_file / expand_env_vars / load_yaml_with_env
     retry_helper.py      @retry_on_metadata_error（默认错误模式已扩展 dv-metadata 信号）
