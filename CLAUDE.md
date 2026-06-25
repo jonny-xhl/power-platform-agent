@@ -12,6 +12,60 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - **解决方案管理**：Power Platform 解决方案的导入、导出、双向同步
 - **文档自律**：通过 Git hooks 自动检测代码变更并更新相关文档
 
+## framework_power（Python 优先的 Dataverse 部署库）
+
+`framework_power/` 是与 `framework/`（YAML→转换→Web API 链路）**并行**的自包含包，目标是
+用"类型化 Python 模型"取代 YAML 作为元数据的单一事实来源（需求 → Python 定义 → sync Dataverse）。
+**完全隔离**：不 import、不修改 `framework/` 或 `metadata/`；复用代码拷贝在 `framework_power/client/`。
+分支：`feat/framework-power-metadata`。**包内开发指南详见 `framework_power/CLAUDE.md`。**
+
+### Phase 1 — 表（已完成，已 live 验证）
+
+- `Table`/`Column`/`Relationship`/`Label` 类型化模型；幂等 `deploy_table`（create + PATCH-sync 字段
+  + create-only 关系，**非破坏**）+ 只读 `plan_table` + `reverse_table`（环境→本地全量快照）。
+- 定义文件 `metadata_py/tables/<schema>.py`（每文件导出 `TABLE`）；**双向单文件**：逆向覆盖、正向同步，
+  标准（无 `new_` 前缀）组件自动跳过 → 全量快照正向同步幂等且安全。
+- CLI：`python -m framework_power list|show|lint|plan|deploy|deploy-all|reverse|delete [name] --env dev`。
+- Skill：`dv-model-to-python`（Excel 设计→Python 定义）、`dv-reverse-metadata`（逆向）。
+
+### Phase 2 — 解决方案管理（已完成，已 live 验证）
+
+把同一思路扩展到 **Solution 容器 + 全部组件类型**：
+
+- `Solution`/`Publisher`/`ComponentRef` 模型；`deploy_solution` **5 步流程**
+  （发布商 → 解决方案 → 按依赖顺序部署组件 → 加入解决方案 → `PublishAllXml`）+ 只读 `plan_solution`
+  + `reverse_solution`（环境→Solution 全量快照）+ `solution_to_python_source`（往返保真）。
+- **双向单文件** `metadata_py/solutions/<name>.py`（导出 `SOLUTION`）；`tables` 为名称引用（指向
+  `metadata_py/tables/`），其它组件内联。
+- 组件类型经 `framework_power/components/` 注册表统一分发（`COMPONENT_TYPES`，各类型 serialize/deploy/
+  plan/reverse/codegen/lint 统一接口）：
+
+  | 类型 | 代码 | 部署语义 |
+  |------|------|----------|
+  | `table` | 1 | 复用 Phase 1 `deploy_table`（薄适配器，未重构） |
+  | `optionset` | 9 | 全局选项集；选项 create-only，变更报 `manual_update_required` |
+  | `webresource` | 61 | create 或 PATCH base64 `content` |
+  | `form` | 60 | create 或 PATCH 不透明 `formxml` |
+  | `view` | 26 | create 或 PATCH 不透明 `fetchxml`/`layoutxml` |
+  | `plugin` | 90+92 | assembly + steps；自定义 Action 报 `manual_update_required` |
+
+  新增类型只需加一个 per-type 模块并注册，`solution_codegen`/`solution_reverse` 自动支持。
+- **不透明负载**：FormXml/FetchXml/LayoutXml 与 DLL/WebResource 内容为字符串字段（库不生成/解析）；
+  插件 DLL 由 `client/plugin_build.py`（dotnet→base64）生成。
+- CLI：`python -m framework_power solution list|show|lint|plan|deploy|reverse|add-component|publish`。
+- Skill：`dv-solution-python`。
+- ZIP 导入导出（`ExportSolution`/`ImportSolution`）**本期暂缓** — 仅组件级管理。
+
+### 关键约束
+
+- 与 `framework/`、`metadata/` 隔离；复用代码在 `framework_power/client/`；认证复用
+  `config/environments.yaml` + `.env`（`get_client`，client-secret + MSAL）。
+- `deploy` **非破坏**（create/update/add）；标准（非 `new_` 前缀）组件正向同步**跳过** → 全量快照安全。
+- 布尔用 `True`/`False`；mypy 严格；`flake8 --max-line-length=120`；mypy 需 `--explicit-package-bases`（仓库根有遗留 `__init__.py`）。
+- **已 live 踩坑**（详见 `framework_power/CLAUDE.md §9`）：全局选项集按**小写** `Name` 键查询（禁
+  `$filter`/405）；解决方案组件走 `solutioncomponents` 实体集（导航属性 404/400）；部署返回 id 避免
+  create→resolve 竞争；`PublishAllXml` 组织级（发布全部未托管自定义项）。
+
 ## 编程语言要求
 
 - **主要语言**：Python 3.9+（MCP 服务器、Agent、工具链）
@@ -104,8 +158,14 @@ cd test && pytest -m "requires_auth"  # 需要 Dataverse 凭据
 ### 代码检查
 
 ```bash
+# framework/（旧工具链）
 flake8 framework/ --max-line-length=120
 mypy framework/ --ignore-missing-imports
+
+# framework_power/（Python 优先库；mypy 需 --explicit-package-bases，因仓库根有遗留 __init__.py）
+flake8 framework_power/ --max-line-length=120
+mypy framework_power --ignore-missing-imports --explicit-package-bases
+cd test && python -m pytest unit/test_framework_power -o addopts="" -q   # 168 单元测试，离线、fake client
 ```
 
 ### Git Hooks
@@ -212,9 +272,12 @@ YAML 定义存放在 `metadata/`：
 
 Claude Code 技能位于 `.claude/skills/`：
 - `design-dv-model` — 生成 Dataverse 实体设计 Excel 模板
-- `dv-model-to-yaml` — 将 Excel 设计转换为 YAML 元数据
+- `dv-model-to-yaml` — 将 Excel 设计转换为 YAML 元数据（旧 `framework/` 路径）
 - `dv-auth` — Dataverse 认证指南
 - `dv-overview` — Dataverse 元数据建模总览
+- `dv-model-to-python` — Excel 设计 → `framework_power` Python 表定义（Phase 1）
+- `dv-reverse-metadata` — 逆向导出表（环境 → Python，Phase 1）
+- `dv-solution-python` — `framework_power` 解决方案管理（Phase 2）
 
 ### CI
 
