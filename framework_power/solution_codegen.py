@@ -90,6 +90,8 @@ def solution_to_python_source(solution: Solution, *, header: Optional[list[str]]
         lines.append(f"    publisher_key={solution.publisher_key!r},")
     if solution.tables:
         lines.append("    tables=[" + ", ".join(repr(t) for t in solution.tables) + "],")
+    if solution.roles:
+        lines.append("    roles=[" + ", ".join(repr(r) for r in solution.roles) + "],")
     for type_key, ctype, items in populated:
         lines.append(f"    {type_key}s=[")
         for model in items:

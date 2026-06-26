@@ -34,6 +34,9 @@ class ReverseFakeClient:
             raise Exception("not found")
         return self._publisher
 
+    def get_role_by_id(self, role_id: str) -> dict[str, Any]:
+        return {"roleid": role_id, "name": "Test Role"}
+
 
 _SOL = {
     "uniquename": "new_Core",
@@ -82,6 +85,15 @@ def test_reverse_missing_publisher_is_tolerated():
     client = ReverseFakeClient(_SOL, [], publisher=None)
     sol = reverse_solution(client, "new_Core")
     assert sol.publisher is None  # no publisher, but no raise
+
+
+def test_reverse_role_component_becomes_name_ref():
+    # componenttype 20 = Security Role -> captured as a name ref in Solution.roles
+    comps = [{"componenttype": 20, "objectid": "role-guid-1"}]
+    client = ReverseFakeClient(_SOL, comps, publisher=_PUB)
+    sol = reverse_solution(client, "new_Core")
+    assert "Test Role" in sol.roles
+    assert sol.roles.count("Test Role") == 1
 
 
 def test_reverse_codegen_round_trip():

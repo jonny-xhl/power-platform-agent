@@ -701,6 +701,14 @@ class DataverseClient:
         values = response.json().get("value", [])
         return values[0] if values else None
 
+    def get_role_by_id(self, role_id: str) -> dict[str, Any]:
+        """Get a security role keyed by id (used by solution reverse)."""
+        response = self.session.get(
+            self.get_api_url(f"roles({role_id})?$select=roleid,name")
+        )
+        response.raise_for_status()
+        return response.json()
+
     def get_role_privileges(
         self, role_id: str, privilege_ids: Optional[list[str]] = None
     ) -> list[dict[str, Any]]:

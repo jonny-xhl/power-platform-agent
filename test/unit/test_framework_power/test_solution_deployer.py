@@ -194,6 +194,10 @@ class SolutionFakeClient:
         self.calls.setdefault("create_plugin_step", []).append(payload)
         return {"sdkmessageprocessingstepid": "step-1", "name": payload["name"]}
 
+    # roles (Phase 3b)
+    def get_role_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        return {"roleid": "role-1", "name": name}
+
 
 def _solution(**kwargs: Any) -> Solution:
     return Solution(unique_name="new_Core", friendly_name="Core", publisher_key="default", **kwargs)
@@ -379,6 +383,29 @@ def test_deploy_solution_plugin_multi_part_add():
     assert client.calls["create_plugin_step"]
     codes = {c[1] for c in client.calls["add_solution_component"]}
     assert 90 in codes and 92 in codes  # assembly + step multi-part add
+
+
+def test_deploy_solution_adds_roles_to_solution():
+    """Phase 3b: roles listed in a solution are added to it (existing roles, by name)."""
+    sol = _solution(roles=["Basic User", "System Customizer"])
+    client = SolutionFakeClient()
+    deploy_solution(client, sol, prefix="new", config=NO_DELAY)
+    # both roles added with the role solution-component code (20)
+    added_role_ids = {c[2] for c in client.calls["add_solution_component"] if c[1] == 20}
+    assert "role-1" in added_role_ids
+    assert client.calls["publish_all_xml"]
+
+
+def test_deploy_solution_role_not_found_recorded():
+    sol = _solution(roles=["Ghost Role"])
+    client = SolutionFakeClient()
+
+    class NoRoleClient(SolutionFakeClient):
+        def get_role_by_name(self, name):
+            return None
+
+    result = deploy_solution(NoRoleClient(), sol, prefix="new", config=NO_DELAY)
+    assert any(a.get("type") == "role" and a.get("action") == "failed" for a in result["added"])
 
 
 def test_deploy_solution_uses_deploy_result_id_not_relookup():

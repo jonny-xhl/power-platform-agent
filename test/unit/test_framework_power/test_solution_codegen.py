@@ -141,3 +141,17 @@ def test_round_trip_with_plugin():
     sol2 = _round_trip(sol)
     assert sol2 == sol
     assert sol2.plugins[0].steps[0].message == "Create"
+
+
+def test_round_trip_with_roles():
+    sol = Solution(
+        unique_name="new_Core",
+        friendly_name="Core",
+        tables=["new_budget"],
+        roles=["Basic User", "System Customizer"],
+    )
+    src = solution_to_python_source(sol)
+    assert "roles=['Basic User', 'System Customizer']" in src
+    sol2 = _round_trip(sol)
+    assert sol2 == sol
+    assert sol2.roles == ["Basic User", "System Customizer"]

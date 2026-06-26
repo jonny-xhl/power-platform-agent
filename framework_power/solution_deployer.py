@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
 
+# SolutionComponentType code for a Security Role (verify live; documented value).
+ROLE_SOLUTION_CODE = 20
+
 
 @dataclass
 class SolutionDeployConfig:
@@ -303,6 +306,28 @@ def deploy_solution(
             result["added"].append(
                 {"type": ref.type, "name": ref.name, "action": "skipped", "note": "unresolved ref"}
             )
+
+    # ---- STEP 4b: add referenced security ROLES to the solution ----
+    # Roles pre-exist (not created here); this only adds them to the solution.
+    # Privilege sync is the standalone ``role deploy`` flow.
+    for role_name in solution.roles:
+        try:
+            role = client.get_role_by_name(role_name)
+        except Exception as e:  # noqa: BLE001
+            result["added"].append(
+                {"type": "role", "name": role_name, "action": "failed", "error": str(e)}
+            )
+            continue
+        if role is None:
+            result["added"].append(
+                {"type": "role", "name": role_name, "action": "failed",
+                 "error": f"role '{role_name}' not found; create it in the environment first."}
+            )
+            continue
+        _add_one(
+            client, solution.unique_name, ROLE_SOLUTION_CODE,
+            str(role["roleid"]), role_name, result, cfg,
+        )
 
     # ---- STEP 5: publish ----
     try:
