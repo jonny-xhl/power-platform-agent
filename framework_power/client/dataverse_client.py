@@ -686,6 +686,93 @@ class DataverseClient:
             self._raise_with_detail(response, "publish all customizations")
         return {"published": True, "scope": "organization"}
 
+    # -------------------------------------------------------- roles / privileges
+    # Security-role privilege management. Roles PRE-EXIST (never created here); we
+    # only read a role and upsert its roleprivileges. The depth is the bitmask
+    # ``privilegedepthmask`` on the ``roleprivilegescollection`` link (NOT ``depth``).
+
+    def get_role_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        """Return the security role whose ``name == name``, or ``None``."""
+        encoded = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(f"roles?$filter=name eq '{encoded}'&$top=1")
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    def get_role_privileges(
+        self, role_id: str, privilege_ids: Optional[list[str]] = None
+    ) -> list[dict[str, Any]]:
+        """List a role's roleprivileges, optionally scoped to a set of privilege ids.
+
+        Scoping by ``privilegeid`` (server-side) is how reverse avoids pulling every
+        table's privilege — pass the requested tables' privilege ids. Each record
+        carries ``privilegedepthmask`` (the depth bitmask).
+        """
+        filt = f"roleid eq {role_id}"
+        if privilege_ids:
+            filt += " and (" + " or ".join(f"privilegeid eq {pid}" for pid in privilege_ids) + ")"
+        response = self.session.get(
+            self.get_api_url(
+                f"roleprivilegescollection?$filter={filt}"
+                f"&$select=roleprivilegeid,privilegeid,privilegedepthmask"
+            )
+        )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_privilege_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        """Return the privilege whose ``name == name`` (e.g. ``prvReadAccount``)."""
+        encoded = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(
+                f"privileges?$filter=name eq '{encoded}'&$top=1"
+                f"&$select=name,accessright,privilegeid"
+            )
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    def get_entity_schema_name(self, logical_name: str) -> str:
+        """The entity SchemaName (privilege names use it: ``prvRead<SchemaName>``)."""
+        meta = self.get_entity_metadata(logical_name)
+        return meta.get("SchemaName") or logical_name
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_role_privilege(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a roleprivilege (``roleid@odata.bind`` + ``privilegeid@odata.bind`` +
+        ``privilegedepthmask``)."""
+        response = self.session.post(
+            self.get_api_url("roleprivilegescollection"), json=payload
+        )
+        if not response.ok:
+            self._raise_with_detail(response, "create role privilege")
+        return {"roleprivilegeid": _entity_id(response)}
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def update_role_privilege(
+        self, roleprivilege_id: str, patch: dict[str, Any]
+    ) -> dict[str, Any]:
+        """PATCH a roleprivilege (e.g. replace ``privilegedepthmask``)."""
+        response = self.session.patch(
+            self.get_api_url(f"roleprivilegescollection({roleprivilege_id})"), json=patch
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"update role privilege '{roleprivilege_id}'")
+        return {"updated": True, "roleprivilegeid": roleprivilege_id}
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def delete_role_privilege(self, roleprivilege_id: str) -> dict[str, Any]:
+        """DELETE a roleprivilege (revokes that privilege from the role)."""
+        response = self.session.delete(
+            self.get_api_url(f"roleprivilegescollection({roleprivilege_id})")
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"delete role privilege '{roleprivilege_id}'")
+        return {"deleted": True, "roleprivilegeid": roleprivilege_id}
+
     # ---------------------------------------------------------------- helpers
 
     @staticmethod

@@ -135,3 +135,73 @@ def test_cli_solution_publish_calls_client(monkeypatch, capsys):
     rc = main(["solution", "publish", "--env", "dev"])
     assert rc == 0 and fake.published
 
+
+# ----------------------------------------------------------------- role (Phase 3)
+
+_ROLE_PY = (
+    "from framework_power import AccessRight, PrivilegeDepth, SecurityRole, TablePrivilege\n"
+    "ROLE: SecurityRole = SecurityRole(\n"
+    "    name='Test Role',\n"
+    "    table_privileges=[TablePrivilege(table='new_fpsmokea', rights={AccessRight.READ: PrivilegeDepth.USER})],\n"
+    ")\n"
+)
+
+
+def test_cli_role_list_show(tmp_path, capsys):
+    rdir = tmp_path / "roles"
+    rdir.mkdir()
+    (rdir / "test_role.py").write_text(_ROLE_PY, encoding="utf-8")
+    rc = main(["--roles-dir", str(rdir), "role", "list"])
+    assert rc == 0 and "test_role" in capsys.readouterr().out
+    rc = main(["--roles-dir", str(rdir), "role", "show", "test_role"])
+    assert rc == 0 and "Test Role" in capsys.readouterr().out
+
+
+def test_cli_role_reverse_requires_tables(tmp_path, monkeypatch, capsys):
+    rdir = tmp_path / "roles"
+    rdir.mkdir()
+    (rdir / "test_role.py").write_text(_ROLE_PY, encoding="utf-8")
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env: object())
+    rc = main(["--roles-dir", str(rdir), "role", "reverse", "test_role", "--env", "dev"])
+    out = capsys.readouterr().out
+    assert rc == 2 and "--tables" in out
+
+
+def test_cli_role_deploy_uses_client(tmp_path, monkeypatch, capsys):
+    rdir = tmp_path / "roles"
+    rdir.mkdir()
+    (rdir / "test_role.py").write_text(_ROLE_PY, encoding="utf-8")
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.created = []
+
+        def get_role_by_name(self, name):
+            return {"roleid": "role-1", "name": name}
+
+        def get_entity_schema_name(self, logical):
+            return "new_FpSmokeA"
+
+        def get_privilege_by_name(self, name):
+            return {"name": name, "privilegeid": "pid:" + name}
+
+        def get_role_privileges(self, role_id, privilege_ids=None):
+            return []
+
+        def create_role_privilege(self, payload):
+            self.created.append(payload)
+            return {"roleprivilegeid": "rp-1"}
+
+        def update_role_privilege(self, rpid, patch):
+            return {"updated": True}
+
+    fake = FakeClient()
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli._publisher_prefix", lambda *a, **k: "new")
+    rc = main(["--roles-dir", str(rdir), "role", "deploy", "test_role", "--env", "dev"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert fake.created and fake.created[0]["privilegedepthmask"] == 1
+    assert "Test Role" in out
+
+

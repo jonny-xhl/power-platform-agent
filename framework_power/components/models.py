@@ -208,6 +208,57 @@ class Plugin:
     custom_actions: list[CustomAction] = field(default_factory=list)
 
 
+# ============================================================ security role
+
+
+class AccessRight(IntEnum):
+    """The right a privilege grants (verified live from ``privilege.accessright``)."""
+
+    READ = 1
+    WRITE = 2
+    APPEND = 4
+    APPEND_TO = 16
+    CREATE = 32
+    DELETE = 65536
+    SHARE = 262144
+    ASSIGN = 524288
+
+
+class PrivilegeDepth(IntEnum):
+    """Privilege depth/scope — a bitmask stored as ``privilegedepthmask``.
+
+    Verified live (Basic User's account privileges carry mask 1 = User-level).
+    ``USER`` = Basic, ``BUSINESS_UNIT`` = Local, ``PARENT_CHILD`` = Deep, ``GLOBAL`` =
+    Organization. "No access" is represented by the absence of a roleprivilege record.
+    """
+
+    USER = 1
+    BUSINESS_UNIT = 2
+    PARENT_CHILD = 4
+    GLOBAL = 8
+
+
+@dataclass(frozen=True)
+class TablePrivilege:
+    """The rights (at depths) a role should hold on one table."""
+
+    table: str  # logical name, e.g. "new_fpsmokea"
+    rights: dict[AccessRight, PrivilegeDepth] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SecurityRole:
+    """A reference to an EXISTING Dataverse security role + its desired table privileges.
+
+    The role is NOT created here — it must already exist in the environment (looked up
+    by name). ``deploy_role`` upserts the listed privileges (non-destructive; unlisted
+    rights are left untouched).
+    """
+
+    name: str
+    table_privileges: list[TablePrivilege] = field(default_factory=list)
+
+
 # ============================================================ solution
 
 
@@ -228,6 +279,7 @@ class Solution:
     publisher: Optional[Publisher] = None
     publisher_key: Optional[str] = None  # config/publishers.yaml key
     tables: list[str] = field(default_factory=list)
+    roles: list[str] = field(default_factory=list)  # name refs -> metadata_py/roles/
     optionsets: list[GlobalOptionSet] = field(default_factory=list)
     webresources: list[WebResource] = field(default_factory=list)
     forms: list[Form] = field(default_factory=list)

@@ -82,6 +82,16 @@ from .solution_deployer import (
 )
 from .solution_reverse import reverse_solution
 from .solution_codegen import solution_to_python_source
+from .components.models import (
+    AccessRight,
+    PrivilegeDepth,
+    SecurityRole,
+    TablePrivilege,
+)
+from .role_deployer import deploy_role, plan_role
+from .role_reverse import reverse_role
+from .role_codegen import role_to_python_source
+from .role_registry import DEFAULT_ROLES_DIR, RoleDefinition, discover_role_definitions, get_role_definition
 
 __all__ = [
     # models
@@ -148,4 +158,17 @@ __all__ = [
     "resolve_publisher",
     "reverse_solution",
     "solution_to_python_source",
+    # security roles (Phase 3)
+    "AccessRight",
+    "PrivilegeDepth",
+    "SecurityRole",
+    "TablePrivilege",
+    "deploy_role",
+    "plan_role",
+    "reverse_role",
+    "role_to_python_source",
+    "DEFAULT_ROLES_DIR",
+    "RoleDefinition",
+    "discover_role_definitions",
+    "get_role_definition",
 ]

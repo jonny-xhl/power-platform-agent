@@ -36,6 +36,14 @@ from .solution_deployer import (
 )
 from .solution_codegen import solution_to_python_source
 from .solution_reverse import reverse_solution
+from .role_deployer import deploy_role, plan_role
+from .role_reverse import reverse_role
+from .role_codegen import role_to_python_source
+from .role_registry import (
+    DEFAULT_ROLES_DIR,
+    discover_role_definitions,
+    get_role_definition,
+)
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
 DEFAULT_SOLUTIONS_DIR = "metadata_py/solutions"
@@ -369,6 +377,116 @@ def cmd_solution_publish(args: argparse.Namespace) -> int:
         return 1
 
 
+# ----------------------------------------------------------------- roles (Phase 3)
+
+
+def cmd_role_list(args: argparse.Namespace) -> int:
+    defs = discover_role_definitions(args.roles_dir)
+    if not defs:
+        print(f"No role definitions found under '{args.roles_dir}'.")
+        return 0
+    print(f"{'name':32} {'role':28} tables  source")
+    for name, defn in defs.items():
+        r = defn.role
+        print(f"{name:32} {r.name:28} {len(r.table_privileges):7}  {defn.source}")
+    return 0
+
+
+def cmd_role_show(args: argparse.Namespace) -> int:
+    defn = get_role_definition(args.name, args.roles_dir)
+    _print_json(
+        {
+            "name": defn.role.name,
+            "tables": [
+                {"table": tp.table, "rights": {r.name: d.name for r, d in tp.rights.items()}}
+                for tp in defn.role.table_privileges
+            ],
+        }
+    )
+    return 0
+
+
+def cmd_role_lint(args: argparse.Namespace) -> int:
+    prefix = _publisher_prefix()
+    if args.name:
+        targets = {args.name: get_role_definition(args.name, args.roles_dir).role}
+    else:
+        targets = {n: d.role for n, d in discover_role_definitions(args.roles_dir).items()}
+    any_errors = False
+    for name, role in targets.items():
+        issues = [
+            i for i in _role_lint(role, prefix=prefix) if i.severity in (ERROR, WARNING)
+        ]
+        status = "FAIL" if any(i.severity == ERROR for i in issues) else "ok"
+        print(f"[{status}] {name}  ({len(issues)} issues)")
+        for i in issues:
+            print(f"    {i.severity}: {i.message}")
+        if any(i.severity == ERROR for i in issues):
+            any_errors = True
+    return 1 if any_errors else 0
+
+
+def cmd_role_plan(args: argparse.Namespace) -> int:
+    defn = get_role_definition(args.name, args.roles_dir)
+    client = get_client(args.env)
+    _print_json(plan_role(client, defn.role, prefix=_publisher_prefix()))
+    return 0
+
+
+def cmd_role_deploy(args: argparse.Namespace) -> int:
+    defn = get_role_definition(args.name, args.roles_dir)
+    client = get_client(args.env)
+    try:
+        _print_json(deploy_role(client, defn.role, prefix=_publisher_prefix()))
+        return 0
+    except ValueError as e:  # role not found
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_role_reverse(args: argparse.Namespace) -> int:
+    tables = [t.strip() for t in (args.tables or "").split(",") if t.strip()]
+    if not tables:
+        print("error: --tables is required (refusing to pull every table's privileges).")
+        return 2
+    client = get_client(args.env)
+    try:
+        role = reverse_role(client, args.name, tables=tables)
+    except ValueError as e:
+        _print_json({"error": str(e)})
+        return 1
+    out_path = Path(args.output) if args.output else Path(args.roles_dir) / f"{args.name}.py"
+    header = [
+        f'"""Reverse-exported role {args.name!r} by framework_power.',
+        "",
+        f"Privileges scoped to: {', '.join(tables)}",
+        "Regenerate: python -m framework_power role reverse "
+        + f"{args.name} --tables {','.join(tables)} --env <env>",
+        '"""',
+    ]
+    source = role_to_python_source(role, header=header)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(source, encoding="utf-8")
+    print(
+        f"[ok] reverse role {args.name} -> {out_path} "
+        f"({len(role.table_privileges)} tables)"
+    )
+    return 0
+
+
+def _role_lint(role, *, prefix="new"):
+    from .components._common import is_custom
+    from .lint import Issue
+
+    issues: list[Issue] = []
+    if not role.name:
+        issues.append(Issue(ERROR, "role.name is required."))
+    for tp in role.table_privileges:
+        if not is_custom(tp.table, prefix):
+            issues.append(Issue(WARNING, f"role table '{tp.table}' is not custom (no '{prefix}_' prefix)."))
+    return issues
+
+
 # ----------------------------------------------------------------- entry
 
 
@@ -386,6 +504,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--solutions-dir",
         default=DEFAULT_SOLUTIONS_DIR,
         help=f"Solutions directory (default: {DEFAULT_SOLUTIONS_DIR}).",
+    )
+    parser.add_argument(
+        "--roles-dir",
+        default=DEFAULT_ROLES_DIR,
+        help=f"Roles directory (default: {DEFAULT_ROLES_DIR}).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -481,6 +604,47 @@ def build_parser() -> argparse.ArgumentParser:
     p = sol_sub.add_parser("publish", help="Publish all customizations (PublishAllXml).")
     p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
     p.set_defaults(func=cmd_solution_publish)
+
+    # --- role group (Phase 3) ---
+    p_role = sub.add_parser("role", help="Manage security-role table privileges.")
+    role_sub = p_role.add_subparsers(dest="role_command", required=True)
+
+    role_sub.add_parser("list", help="List discovered role definitions.").set_defaults(
+        func=cmd_role_list
+    )
+
+    p = role_sub.add_parser("show", help="Print a role definition summary (no network).")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_role_show)
+
+    p = role_sub.add_parser("lint", help="Offline convention check on role definitions.")
+    p.add_argument("name", nargs="?")
+    p.set_defaults(func=cmd_role_lint)
+
+    p = role_sub.add_parser("plan", help="Read-only preview of a role's privilege sync.")
+    p.add_argument("name")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_role_plan)
+
+    p = role_sub.add_parser("deploy", help="Upsert a role's table privileges (non-destructive).")
+    p.add_argument("name")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_role_deploy)
+
+    p = role_sub.add_parser(
+        "reverse", help="Export a role's privileges FROM Dataverse (scoped to --tables)."
+    )
+    p.add_argument("name", help="Role name (must already exist).")
+    p.add_argument(
+        "--tables",
+        default=None,
+        help="REQUIRED comma-separated table logical names to capture privileges for.",
+    )
+    p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p.add_argument(
+        "-o", "--output", default=None, help="Output file (default: <roles-dir>/<name>.py)."
+    )
+    p.set_defaults(func=cmd_role_reverse)
 
     return parser
 
