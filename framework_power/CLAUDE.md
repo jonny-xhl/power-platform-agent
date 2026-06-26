@@ -167,6 +167,25 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 - **插件自定义 Action create-only**：新建 SDK-message 自定义 Action 需 Workflow，Web API
   单独建不了 → `manual_update_required`；只能加入已存在的。
 
+### 9.2 安全角色权限域（Phase 3，已 live 验证）
+
+- **角色不在本工具创建**：角色在环境中手动建好；本工具只为**已存在的角色**同步表权限。
+  `deploy_role` 遇到缺失角色会报错（不创建）。
+- **深度字段是 `privilegedepthmask`（位掩码），不是 `depth`**：`roleprivilegescollection`
+  上 `select depth` 会 404（无此属性）。位掩码：USER=1、BUSINESS_UNIT=2、PARENT_CHILD=4、
+  GLOBAL=8（"无权限"= 该 roleprivilege 记录不存在）。
+- **`roleprivileges` / `roleprivileges` 导航 404**：正确的实体集是
+  **`roleprivilegescollection`**；role→privileges 导航属性不可用。
+- **privilege 没有 `objecttypecode`、且 `objecttypecode` 不可过滤**：按**表范围**逆向 =
+  先解析每张表的 8 个 privilegeid（按名 `prv<Right><EntitySchemaName>`，如
+  `prvReadnew_FpSmokeA`，用实体 **SchemaName** 非小写 logical），再用 `privilegeid` 服务端
+  过滤 `roleprivilegescollection`。`role reverse --tables` 必填（拒绝拉全环境）。
+- **AccessRight**（`privilege.accessright`）：Read=1、Write=2、Append=4、AppendTo=16、
+  Create=32、Delete=65536、Share=262144、Assign=524288。
+- **`deploy_role` 非破坏 upsert**：只加/改定义中列出的权限；未列出的 right 不动。
+- **角色作为解决方案组件**：`ROLE_SOLUTION_CODE=20`（SolutionComponentType）；Solution 中
+  `roles` 为名称引用，`solution deploy` 把已存在角色加入解决方案（不在此同步权限）。
+
 ## 10. 如何扩展
 
 - **新增属性类型**：`models.AttributeType` + `serializer._ODATA_TYPE`/`_UPDATABLE_BY_TYPE`/per-type 分支

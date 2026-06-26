@@ -56,6 +56,23 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - Skill：`dv-solution-python`。
 - ZIP 导入导出（`ExportSolution`/`ImportSolution`）**本期暂缓** — 仅组件级管理。
 
+### Phase 3 — 安全角色权限同步（已完成，已 live 验证）
+
+为**已存在的安全角色**同步表级权限（right × depth），双向、按表范围逆向：
+
+- **角色不在本项目创建**（环境手动建好）；`deploy_role` 给已存在角色 upsert 表权限
+  （非破坏：只加/改定义中列出的权限）。缺失角色报错。
+- `SecurityRole`/`TablePrivilege`/`AccessRight`/`PrivilegeDepth` 模型；定义文件
+  `metadata_py/roles/<name>.py`（导出 `ROLE`），双向单文件。
+- 权限模型（已 live 验证，详见 `framework_power/CLAUDE.md §9.2`）：深度存于
+  `roleprivilegescollection.privilegedepthmask` 位掩码（USER=1/BU=2/PARENT_CHILD=4/GLOBAL=8，
+  **不是** `depth`）；privilege 按名 `prv<Right><SchemaName>` 寻址（无 `objecttypecode`），
+  故**按表范围逆向** = 先解析表的 8 个 privilegeid 再用 `privilegeid` 服务端过滤。
+- CLI：`python -m framework_power role list|show|lint|plan|deploy|reverse`（`reverse` 必填
+  `--tables`）。Skill：`dv-role-python`。
+- 角色也是**解决方案组件**：`Solution.roles` 为名称引用，`solution deploy` 把已存在角色
+  加入解决方案（`ROLE_SOLUTION_CODE=20`）；权限同步走独立的 `role deploy`。
+
 ### 关键约束
 
 - 与 `framework/`、`metadata/` 隔离；复用代码在 `framework_power/client/`；认证复用
@@ -278,6 +295,7 @@ Claude Code 技能位于 `.claude/skills/`：
 - `dv-model-to-python` — Excel 设计 → `framework_power` Python 表定义（Phase 1）
 - `dv-reverse-metadata` — 逆向导出表（环境 → Python，Phase 1）
 - `dv-solution-python` — `framework_power` 解决方案管理（Phase 2）
+- `dv-role-python` — `framework_power` 安全角色权限同步（Phase 3）
 
 ### CI
 
