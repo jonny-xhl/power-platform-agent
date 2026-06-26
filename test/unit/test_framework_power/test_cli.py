@@ -174,7 +174,7 @@ def test_cli_role_deploy_uses_client(tmp_path, monkeypatch, capsys):
 
     class FakeClient:
         def __init__(self) -> None:
-            self.created = []
+            self.added = []
 
         def get_role_by_name(self, name):
             return {"roleid": "role-1", "name": name}
@@ -188,12 +188,9 @@ def test_cli_role_deploy_uses_client(tmp_path, monkeypatch, capsys):
         def get_role_privileges(self, role_id, privilege_ids=None):
             return []
 
-        def create_role_privilege(self, payload):
-            self.created.append(payload)
-            return {"roleprivilegeid": "rp-1"}
-
-        def update_role_privilege(self, rpid, patch):
-            return {"updated": True}
+        def add_privileges_to_role(self, role_id, privileges):
+            self.added.append(privileges)
+            return {"synced": True, "count": len(privileges)}
 
     fake = FakeClient()
     monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
@@ -201,7 +198,7 @@ def test_cli_role_deploy_uses_client(tmp_path, monkeypatch, capsys):
     rc = main(["--roles-dir", str(rdir), "role", "deploy", "test_role", "--env", "dev"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert fake.created and fake.created[0]["privilegedepthmask"] == 1
+    assert fake.added and fake.added[0][0]["Depth"] == "Basic"
     assert "Test Role" in out
 
 

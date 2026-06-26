@@ -43,6 +43,16 @@ _DEPTH_BY_MASK: dict[int, PrivilegeDepth] = {
     int(PrivilegeDepth.GLOBAL): PrivilegeDepth.GLOBAL,
 }
 
+# PrivilegeDepth (bitmask) -> AddPrivilegesRole action enum member NAME (bare string).
+# Verified live: AddPrivilegesRole upserts and stores Basic/Local/Deep/Global as the
+# privilegedepthmask bitmask 1/2/4/8.
+_DEPTH_ENUM_NAME: dict[PrivilegeDepth, str] = {
+    PrivilegeDepth.USER: "Basic",
+    PrivilegeDepth.BUSINESS_UNIT: "Local",
+    PrivilegeDepth.PARENT_CHILD: "Deep",
+    PrivilegeDepth.GLOBAL: "Global",
+}
+
 
 def privilege_name(right: AccessRight, schema_name: str) -> str:
     """``prvReadnew_FpSmokeA`` — privilege names use the entity SchemaName."""
@@ -126,31 +136,24 @@ def deploy_role(
 
 def _sync_table(client: Any, role_id: str, table_priv: TablePrivilege) -> dict[str, Any]:
     desired, current = _resolve_table_rights(client, role_id, table_priv)
+    # Batch the create/update into ONE AddPrivilegesRole call (the action upserts).
+    to_upsert: list[dict[str, Any]] = []
     rights_out: list[dict[str, Any]] = []
     for pid, (right, depth) in desired.items():
-        mask = int(depth)
         rec = current.get(pid)
-        if rec is not None:
-            if rec.get("privilegedepthmask") == mask:
-                rights_out.append({"right": right.name, "action": "skipped"})
-            else:
-                client.update_role_privilege(
-                    rec["roleprivilegeid"], {"privilegedepthmask": mask}
-                )
-                rights_out.append(
-                    {"right": right.name, "action": "updated", "depth": depth.name}
-                )
+        if rec is not None and rec.get("privilegedepthmask") == int(depth):
+            rights_out.append({"right": right.name, "action": "skipped"})
         else:
-            client.create_role_privilege(
+            to_upsert.append({"PrivilegeId": pid, "Depth": _DEPTH_ENUM_NAME[depth]})
+            rights_out.append(
                 {
-                    "roleid@odata.bind": f"/roles({role_id})",
-                    "privilegeid@odata.bind": f"/privileges({pid})",
-                    "privilegedepthmask": mask,
+                    "right": right.name,
+                    "action": "updated" if rec is not None else "created",
+                    "depth": depth.name,
                 }
             )
-            rights_out.append(
-                {"right": right.name, "action": "created", "depth": depth.name}
-            )
+    if to_upsert:
+        client.add_privileges_to_role(role_id, to_upsert)
     return {"table": table_priv.table, "action": "synced", "rights": rights_out}
 
 

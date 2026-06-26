@@ -183,6 +183,17 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 - **AccessRight**（`privilege.accessright`）：Read=1、Write=2、Append=4、AppendTo=16、
   Create=32、Delete=65536、Share=262144、Assign=524288。
 - **`deploy_role` 非破坏 upsert**：只加/改定义中列出的权限；未列出的 right 不动。
+- **正向写入只能走 `AddPrivilegesRole` 绑定 Action（关键）**：`roleprivilegescollection`
+  实体 **不支持 Create**（`0x80040800 "Create method does not support entities of type
+  'roleprivileges'"`）；hand-crafted SOAP 也失败（known-type resolver 不认类型）。正确写法：
+  `POST roles(<roleid>)/Microsoft.Dynamics.CRM.AddPrivilegesRole`，body `{"Privileges":[
+  {"PrivilegeId":"<guid>","Depth":"<name>"}]}`。
+  - **Depth 必须是裸枚举成员名**：`"Basic"`/`"Local"`/`"Deep"`/`"Global"`（PrivilegeDepth 枚举：
+    Basic=0/Local=1/Deep=2/Global=3）。整数会 `0x80048d19`；带引号限定名会 500。
+  - **位掩码↔枚举映射**：Basic/Local/Deep/Global ↔ 存储的 `privilegedepthmask` 1/2/4/8。
+  - **AddPrivilegesRole 是 upsert**：对已存在的 privilege 会更新其 depth（live 验证）。
+  - **无单条移除**：`RemoveRolePrivilege` 未作为 Web API action 暴露；故 `deploy_role` 只加/改，
+    不回收（要清理某表的权限，删表会级联移除其 roleprivileges）。
 - **角色作为解决方案组件**：`ROLE_SOLUTION_CODE=20`（SolutionComponentType）；Solution 中
   `roles` 为名称引用，`solution deploy` 把已存在角色加入解决方案（不在此同步权限）。
 

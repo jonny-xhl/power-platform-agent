@@ -749,37 +749,24 @@ class DataverseClient:
         return meta.get("SchemaName") or logical_name
 
     @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
-    def create_role_privilege(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """POST a roleprivilege (``roleid@odata.bind`` + ``privilegeid@odata.bind`` +
-        ``privilegedepthmask``)."""
-        response = self.session.post(
-            self.get_api_url("roleprivilegescollection"), json=payload
-        )
-        if not response.ok:
-            self._raise_with_detail(response, "create role privilege")
-        return {"roleprivilegeid": _entity_id(response)}
-
-    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
-    def update_role_privilege(
-        self, roleprivilege_id: str, patch: dict[str, Any]
+    def add_privileges_to_role(
+        self, role_id: str, privileges: list[dict[str, Any]]
     ) -> dict[str, Any]:
-        """PATCH a roleprivilege (e.g. replace ``privilegedepthmask``)."""
-        response = self.session.patch(
-            self.get_api_url(f"roleprivilegescollection({roleprivilege_id})"), json=patch
-        )
-        if not response.ok:
-            self._raise_with_detail(response, f"update role privilege '{roleprivilege_id}'")
-        return {"updated": True, "roleprivilegeid": roleprivilege_id}
+        """Invoke the bound ``AddPrivilegesRole`` action (the ONLY Web API way to write
+        role privileges — the ``roleprivileges`` entity doesn't support Create).
 
-    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
-    def delete_role_privilege(self, roleprivilege_id: str) -> dict[str, Any]:
-        """DELETE a roleprivilege (revokes that privilege from the role)."""
-        response = self.session.delete(
-            self.get_api_url(f"roleprivilegescollection({roleprivilege_id})")
+        ``privileges`` is a list of ``{"PrivilegeId": <guid>, "Depth": "<name>"}`` where
+        Depth is the bare PrivilegeDepth member name (``Basic``/``Local``/``Deep``/
+        ``Global``). The action upserts: adding an already-present privilege updates its
+        depth.
+        """
+        response = self.session.post(
+            self.get_api_url(f"roles({role_id})/Microsoft.Dynamics.CRM.AddPrivilegesRole"),
+            json={"Privileges": privileges},
         )
         if not response.ok:
-            self._raise_with_detail(response, f"delete role privilege '{roleprivilege_id}'")
-        return {"deleted": True, "roleprivilegeid": roleprivilege_id}
+            self._raise_with_detail(response, "add privileges to role")
+        return {"synced": True, "count": len(privileges)}
 
     # ---------------------------------------------------------------- helpers
 
