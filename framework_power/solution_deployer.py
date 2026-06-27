@@ -37,7 +37,8 @@ logger = logging.getLogger(__name__)
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
 
-# SolutionComponentType code for a Security Role (verify live; documented value).
+# SolutionComponentType code for a Security Role (live-verified: AddSolutionComponent
+# code=20 succeeds and adds the role to the solution).
 ROLE_SOLUTION_CODE = 20
 
 

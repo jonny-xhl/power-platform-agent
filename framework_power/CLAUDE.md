@@ -194,8 +194,9 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
   - **AddPrivilegesRole 是 upsert**：对已存在的 privilege 会更新其 depth（live 验证）。
   - **无单条移除**：`RemoveRolePrivilege` 未作为 Web API action 暴露；故 `deploy_role` 只加/改，
     不回收（要清理某表的权限，删表会级联移除其 roleprivileges）。
-- **角色作为解决方案组件**：`ROLE_SOLUTION_CODE=20`（SolutionComponentType）；Solution 中
-  `roles` 为名称引用，`solution deploy` 把已存在角色加入解决方案（不在此同步权限）。
+- **角色作为解决方案组件**：`ROLE_SOLUTION_CODE=20`（SolutionComponentType，**已 live 验证**：
+  `AddSolutionComponent` code=20 成功把角色加入解决方案）；Solution 中 `roles` 为名称引用，
+  `solution deploy` 把已存在角色加入解决方案（不在此同步权限，权限走独立 `role deploy`）。
 
 ## 10. 如何扩展
 
