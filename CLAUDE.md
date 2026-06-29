@@ -73,6 +73,73 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - 角色也是**解决方案组件**：`Solution.roles` 为名称引用，`solution deploy` 把已存在角色
   加入解决方案（`ROLE_SOLUTION_CODE=20`）；权限同步走独立的 `role deploy`。
 
+### Phase 4 — Web 资源目录同步（已完成，已 live 验证）
+
+把**本地 web 资源目录**（尤其 JS）批量同步到 Dataverse + 精准发布 + 按前缀逆向，专为频繁更新设计：
+
+- 本地目录即事实来源；命名 **`{prefix}_/{relpath}`**（如 `js/order/test.js` → `new_/js/order/test.js`，
+  与环境现有资源布局一致）；`webresourcetype`（1-11）由扩展名推导（`.js`→3、`.css`→2、`.svg`→11…）。
+- `sync` 非破坏 create/update base64 `content`（复用 Phase 2 `components/webresource`），默认同步后
+  **精准 `PublishXml`**（只发布本次资源，秒级生效）—— 频繁改 JS 的关键；`--no-publish` 可关。
+- `--solution NAME` 把资源加入解决方案（code 61，幂等）；`publish <name>` 按名解析 id 再精准发布。
+- `reverse` env→本地：base64 解码写字节回 `<dir>/{relpath}`，默认只拉本发布商（`new_/`），
+  `--name-prefix` 可收窄。collection 查询需显式 `$select` 才返回 `content`。
+- CLI：`python -m framework_power webresource scan|plan|sync|reverse|publish`（根目录默认 `webresources/`）。
+- Skill：`dv-webresource-sync`。
+
+### Phase 5 — 窗体操作（已完成，已 live 验证）
+
+把窗体（SystemForm）从 Phase 2 的**不透明 formxml 字符串**升级为**结构化类型化模型**，
+覆盖两种实际场景：基于现有窗体改布局/绑事件、纯新建窗体：
+
+- `Form`/`FormTab`/`FormColumn`/`FormSection`/`FormRow`/`FormCell`/`FormControl`/`FormLabel`/
+  `FormLibrary`/`FormEvent`/`FormEventHandler` 模型；`form_xml.py` 用 stdlib `ElementTree` 做
+  `parse_formxml`(逆向)/`to_formxml`(正向)。**每个布局节点保留完整 `attrs` 字典** + 未建模
+  `<form>` 子元素按 `<tabs>` 前后分两段原样保留 → 逆向→正向**无损往返**（已在真实 account
+  主窗体 live 验证：含 7-tab 的复杂窗体字节级稳定）。
+- **builder 编辑器**（copy-on-write）：`new_form`/`add_tab`/`add_section`/`add_field`(按 P1
+  `Column` 类型选 classid)/`add_library`/`remove_library`/`add_event_handler`/`remove_event_handler`。
+  AI 直接用类型化 Python 改窗体，无需手写 XML。
+- **可编辑窗体类型**（环境 authoritative，已 live 钉死）：**Main=2、QuickView=6、QuickCreate=7、
+  Card=11**（早期枚举把 QuickCreate/QuickView 写反过，已纠正）。只创作/编辑 Main/QuickCreate/
+  QuickView；Dashboard/Mobile/Card 可逆向但 lint 告警。
+- **事件绑定（核心）**：FormXml 有 `<InternalHandlers>`(系统，只读) 与 `<Handlers>`(自定义)；
+  `add_event_handler` 只写 `<Handlers>`。`<Library name>`/`<Handler libraryName>` 都是 **web
+  资源名**（`new_/js/...`）→ **绑事件前 JS 资源必须先存在**（Phase 4 sync）。`libraryUniqueId`/
+  `handlerUniqueId` 是必填带括号 GUID（序列化时空值自动生成）；本环境**不用** `libraryUniqueIdRaw`。
+- **发布按实体范围**：formxml 改动需 `PublishXml`，且范围是**实体**（`<entities><entity>{logical}
+  </entity></entities>`），不是 form id、也不是 web 资源那种按 id。`form deploy` 默认对变更
+  实体精准发布；`--no-publish` 可关。`publish_entity` 客户端方法。
+- **非破坏 + 保真**：`plan`/`deploy` 在**结构化模型**上 diff（live 逆向成模型再比较）→ **逆向后
+  未改动的窗体重新 deploy = `would_skip`/`skipped_unchanged`**，绝不用重新生成的 formxml 覆盖真实
+  窗体。（细微差别：全新 builder 创作的窗体 attrs 为空、逆向的已填充，语义相同但模型不等 →
+  重 deploy 是幂等 `would_update`，cell GUID 重生成，不影响语义。）
+- CLI：`python -m framework_power form list|show|lint|plan|deploy|reverse`（`reverse <entity>` 写
+  `metadata_py/forms/{entity}__{name}.py`，每窗体一个文件导出 `FORM`）。Skill：`dv-form-python`。
+
+### Phase 6 — 视图操作（已完成，已 live 验证）
+
+把视图（SavedQuery）从 Phase 2 的**不透明 fetchxml/layoutxml 字符串**升级为**结构化类型化模型**，
+覆盖：新建 Public 视图、改现有/自动创建视图（加列/排序/过滤）：
+
+- `View`/`ViewColumn`/`ViewOrder`/`ViewCondition`/`ViewFilter`(递归 AND/OR)/`ViewLinkEntity` 模型；
+  `view_xml.py` 用 stdlib `ElementTree` 做 `parse_view`(逆向)/`to_fetchxml`+`to_layoutxml`(正向)。
+  视图有**两段配对 XML**（FetchXml 查询 + LayoutXml 网格），**1:1 配对**（列同时驱动 fetch `<attribute>`
+  + layout `<cell>`）；每个节点保留完整 `attrs` → 逆向→正向**无损往返**（真实 new_fpformsmoke 视图 live
+  验证：含 QuickFind 双过滤、`in` 多值 `<value>`、`eq-userid` 无值）。
+- **builder 编辑器**（copy-on-write）：`new_view`/`add_column`/`remove_column`/`reorder_columns`/
+  `add_order`/`set_filter`/`add_condition`(单值/多值)/`add_link_entity`。AI 用类型化 Python 改视图，不写 XML。
+- **关键字段**：`primary_id`（layout `<row id>`，始终也是 fetch `<attribute>`）；`object_type_code`（layout
+  `<grid object=>` 需要的**整数 ObjectTypeCode**，逆向捕获、新建用 `client.get_object_type_code` 查）。
+- **querytype（环境钉死）**：Public=0(可创建+更新)、AdvancedFind=1/Associated=2/QuickFind=4/Lookup=64
+  （每实体一个、仅更新）。`querytype` 是**同名视图消歧键**→查找带 querytype（同 form 的 type）。
+- **发布按实体范围**：改 fetchxml/layoutxml 需 `PublishXml`，范围实体（同 form）。`view deploy` 默认对变更
+  实体发布；`--no-publish` 关。
+- **非破坏 + 保真**：`plan`/`deploy` 在结构化模型上 diff → 逆向未改的视图重 deploy = `would_skip`/
+  `skipped_unchanged`，不重写真实视图。customness 按**实体**（自定义表的视图可编辑）。
+- CLI：`python -m framework_power view list|show|lint|plan|deploy|reverse`（`reverse <entity>` 写
+  `metadata_py/views/{entity}__{name}.py`，每视图一个文件导出 `VIEW`）。Skill：`dv-view-python`。
+
 ### 关键约束
 
 - 与 `framework/`、`metadata/` 隔离；复用代码在 `framework_power/client/`；认证复用
@@ -296,6 +363,9 @@ Claude Code 技能位于 `.claude/skills/`：
 - `dv-reverse-metadata` — 逆向导出表（环境 → Python，Phase 1）
 - `dv-solution-python` — `framework_power` 解决方案管理（Phase 2）
 - `dv-role-python` — `framework_power` 安全角色权限同步（Phase 3）
+- `dv-webresource-sync` — `framework_power` web 资源目录同步/发布/逆向（Phase 4）
+- `dv-form-python` — `framework_power` 窗体结构化建模（逆向/改布局/绑事件/新建，Phase 5）
+- `dv-view-python` — `framework_power` 视图结构化建模（逆向/加列/排序/过滤/新建，Phase 6）
 
 ### CI
 

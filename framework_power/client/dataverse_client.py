@@ -393,15 +393,52 @@ class DataverseClient:
             self._raise_with_detail(response, f"update webresource '{webresourceid}'")
         return {"updated": True, "webresourceid": webresourceid}
 
-    # ---- forms / SystemForm (Wave 3) ----
-    def get_form_by_name(self, entity: str, name: str) -> Optional[dict[str, Any]]:
-        """Return the system form for ``entity`` named ``name``, or ``None``."""
-        e = _odata_quote(entity)
-        n = _odata_quote(name)
+    def list_webresources_by_prefix(
+        self,
+        name_prefix: str,
+        *,
+        select: str = "name,webresourceid,webresourcetype,content",
+    ) -> list[dict[str, Any]]:
+        """List web resources whose ``name`` starts with ``name_prefix``.
+
+        Used by the scoped reverse flow (defaults to the publisher prefix, e.g.
+        ``new_/``). ``content`` is included via explicit ``$select`` (it is not returned
+        for collection queries unless selected).
+        """
+        encoded = _odata_quote(name_prefix)
         response = self.session.get(
             self.get_api_url(
-                f"systemforms?$filter=objecttypecode eq '{e}' and name eq '{n}'&$top=1"
+                f"webresourceset?$filter=startswith(name,'{encoded}')&$select={select}"
             )
+        )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def delete_webresource(self, webresourceid: str) -> dict[str, Any]:
+        """DELETE a web resource by id (teardown; not used by ``sync``)."""
+        url = self.get_api_url(f"webresourceset({webresourceid})")
+        response = self.session.delete(url)
+        if not response.ok:
+            self._raise_with_detail(response, f"delete webresource '{webresourceid}'")
+        return {"status": "deleted", "webresourceid": webresourceid}
+
+    # ---- forms / SystemForm (Wave 3) ----
+    def get_form_by_name(
+        self, entity: str, name: str, *, form_type: Optional[int] = None
+    ) -> Optional[dict[str, Any]]:
+        """Return the system form for ``entity`` named ``name``, or ``None``.
+
+        When ``form_type`` is given, also filter by ``type`` — needed because Dataverse
+        auto-creates several forms all named "Information" (Main/QuickView/Card), so a
+        name-only lookup is ambiguous and may target the wrong one.
+        """
+        e = _odata_quote(entity)
+        n = _odata_quote(name)
+        flt = f"objecttypecode eq '{e}' and name eq '{n}'"
+        if form_type is not None:
+            flt += f" and type eq {int(form_type)}"
+        response = self.session.get(
+            self.get_api_url(f"systemforms?$filter={flt}&$top=1")
         )
         response.raise_for_status()
         values = response.json().get("value", [])
@@ -429,19 +466,71 @@ class DataverseClient:
             self._raise_with_detail(response, f"update form '{form_id}'")
         return {"updated": True, "formid": form_id}
 
-    # ---- views / SavedQuery (Wave 3) ----
-    def get_view_by_name(self, entity: str, name: str) -> Optional[dict[str, Any]]:
-        """Return the saved query (view) for ``entity`` named ``name``, or ``None``."""
+    def list_forms_by_entity(
+        self,
+        entity: str,
+        *,
+        select: str = "formid,name,type,objecttypecode,formxml,description,iscustomizable",
+    ) -> list[dict[str, Any]]:
+        """List all system forms for ``entity``.
+
+        ``formxml`` is returned ONLY because it is in the explicit ``$select`` (collection
+        queries do not return it by default — verified live). Used by form reverse.
+        """
         e = _odata_quote(entity)
-        n = _odata_quote(name)
         response = self.session.get(
             self.get_api_url(
-                f"savedqueries?$filter=returnedtypecode eq '{e}' and name eq '{n}'&$top=1"
+                f"systemforms?$filter=objecttypecode eq '{e}'&$select={select}"
             )
         )
         response.raise_for_status()
+        return response.json().get("value", [])
+
+    # ---- views / SavedQuery (Wave 3) ----
+    def get_view_by_name(
+        self, entity: str, name: str, *, query_type: Optional[int] = None
+    ) -> Optional[dict[str, Any]]:
+        """Return the saved query (view) for ``entity`` named ``name``, or ``None``.
+
+        When ``query_type`` is given, also filter by ``querytype`` — needed because the auto-created
+        views share generic names and ``querytype`` is the disambiguator (mirrors form ``form_type``).
+        """
+        e = _odata_quote(entity)
+        n = _odata_quote(name)
+        flt = f"returnedtypecode eq '{e}' and name eq '{n}'"
+        if query_type is not None:
+            flt += f" and querytype eq {int(query_type)}"
+        response = self.session.get(self.get_api_url(f"savedqueries?$filter={flt}&$top=1"))
+        response.raise_for_status()
         values = response.json().get("value", [])
         return values[0] if values else None
+
+    def list_views_by_entity(
+        self,
+        entity: str,
+        *,
+        select: str = "savedqueryid,name,querytype,returnedtypecode,fetchxml,layoutxml,description,"
+        "isdefault,iscustomizable,statecode",
+    ) -> list[dict[str, Any]]:
+        """List all saved queries (views) for ``entity``.
+
+        ``fetchxml``/``layoutxml`` are returned only because they are in the explicit ``$select``
+        (collection queries don't return them by default — verified live). Used by view reverse.
+        """
+        e = _odata_quote(entity)
+        response = self.session.get(
+            self.get_api_url(f"savedqueries?$filter=returnedtypecode eq '{e}'&$select={select}")
+        )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_object_type_code(self, entity: str) -> int:
+        """Return the integer ObjectTypeCode for ``entity`` — needed for LayoutXml ``<grid object=>``."""
+        meta = self.get_entity_metadata(entity)
+        try:
+            return int(meta.get("ObjectTypeCode"))
+        except (TypeError, ValueError):
+            return 0
 
     def get_view_by_id(self, savedquery_id: str) -> dict[str, Any]:
         """Get a saved query keyed by id (used by reverse)."""
@@ -629,6 +718,25 @@ class DataverseClient:
             self._raise_with_detail(response, f"update solution '{unique_name}' version")
         return {"updated": True, "uniquename": unique_name, "version": version}
 
+    def delete_solution(self, unique_name: str) -> dict[str, Any]:
+        """DELETE an unmanaged solution by unique name.
+
+        Removes the solution container and its ``solutioncomponents`` associations;
+        the components themselves (tables, roles, ...) remain in the default
+        unmanaged layer (an unmanaged delete is a container-only teardown — it does
+        NOT delete the components). Destructive — not used by ``deploy_solution``;
+        exposed for explicit teardown (e.g. removing test solutions). Raises if the
+        solution is not found (caller verifies existence first, as for ``delete_entity``).
+        """
+        sol = self.get_solution_by_name(unique_name)
+        if not sol:
+            raise ValueError(f"Solution not found: {unique_name}")
+        solution_id = sol.get("solutionid")
+        response = self.session.delete(self.get_api_url(f"solutions({solution_id})"))
+        if not response.ok:
+            self._raise_with_detail(response, f"delete solution '{unique_name}'")
+        return {"status": "deleted", "uniquename": unique_name}
+
     def get_solution_components(self, unique_name: str) -> list[dict[str, Any]]:
         """List a solution's components (``componenttype`` + ``objectid``).
 
@@ -685,6 +793,46 @@ class DataverseClient:
         if not response.ok:
             self._raise_with_detail(response, "publish all customizations")
         return {"published": True, "scope": "organization"}
+
+    def publish_webresources(self, webresource_ids: list[str]) -> dict[str, Any]:
+        """POST ``PublishXml`` — targeted publish of the given web resources only.
+
+        Unlike ``publish_all_xml`` (org-wide), this publishes just the listed web
+        resources (and refreshes the form/ribbon bindings that reference them), which is
+        what makes frequent JS edits cheap. Empty input is a no-op.
+        """
+        ids = [i for i in (webresource_ids or []) if i]
+        if not ids:
+            return {"published": False, "count": 0, "ids": []}
+        nodes = "".join(f"<webresource>{i}</webresource>" for i in ids)
+        parameter_xml = (
+            "<importexportxml><webresources>" + nodes + "</webresources></importexportxml>"
+        )
+        response = self.session.post(
+            self.get_api_url("PublishXml"), json={"ParameterXml": parameter_xml}
+        )
+        if not response.ok:
+            self._raise_with_detail(response, "publish webresources")
+        return {"published": True, "count": len(ids), "ids": ids}
+
+    def publish_entity(self, logical_name: str) -> dict[str, Any]:
+        """POST ``PublishXml`` scoped to one entity — publishes that table's forms/views/ribbons.
+
+        Form formxml edits do NOT take effect until published, and the publish scope for
+        forms is the ENTITY (not a per-form id). Different inner tag from
+        ``publish_webresources`` (``<entities><entity>`` vs ``<webresources>``).
+        """
+        parameter_xml = (
+            "<importexportxml><entities><entity>"
+            + logical_name
+            + "</entity></entities></importexportxml>"
+        )
+        response = self.session.post(
+            self.get_api_url("PublishXml"), json={"ParameterXml": parameter_xml}
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"publish entity '{logical_name}'")
+        return {"published": True, "scope": "entity", "entity": logical_name}
 
     # -------------------------------------------------------- roles / privileges
     # Security-role privilege management. Roles PRE-EXIST (never created here); we

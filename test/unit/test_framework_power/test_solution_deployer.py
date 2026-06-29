@@ -150,7 +150,7 @@ class SolutionFakeClient:
         return {"updated": True, "webresourceid": webresourceid}
 
     # forms / views (Wave 3)
-    def get_form_by_name(self, entity: str, name: str) -> Optional[dict[str, Any]]:
+    def get_form_by_name(self, entity: str, name: str, *, form_type: Optional[int] = None) -> Optional[dict[str, Any]]:
         rec = self._forms.get((entity, name))
         return dict(rec) if rec else None
 
@@ -163,7 +163,7 @@ class SolutionFakeClient:
     def update_form(self, form_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         return {"updated": True, "formid": form_id}
 
-    def get_view_by_name(self, entity: str, name: str) -> Optional[dict[str, Any]]:
+    def get_view_by_name(self, entity: str, name: str, *, query_type: Optional[int] = None) -> Optional[dict[str, Any]]:
         rec = self._views.get((entity, name))
         return dict(rec) if rec else None
 
@@ -350,11 +350,11 @@ def test_deploy_solution_deploys_and_adds_form_and_view():
     from framework_power import Form, FormType, QueryType, View
 
     sol = _solution(
-        forms=[Form(name="new_Budget Main", entity="new_budget", form_xml="<forms/>", form_type=FormType.Main)],
+        forms=[Form(name="new_Budget Main", entity="new_budget", form_type=FormType.Main)],
         views=[
             View(
-                name="new_Active Budgets", entity="new_budget",
-                fetch_xml="<fetch/>", layout_xml="<grid/>", query_type=QueryType.Public,
+                name="new_Active Budgets", entity="new_budget", query_type=QueryType.Public,
+                primary_id="new_budgetid", object_type_code=10000,
             )
         ],
     )

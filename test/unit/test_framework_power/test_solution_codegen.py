@@ -106,19 +106,20 @@ def test_round_trip_with_forms_and_views():
         forms=[
             Form(
                 name="new_Budget Main", entity="new_budget",
-                form_xml="<forms><form/></forms>", form_type=FormType.Main,
+                form_type=FormType.Main,
             )
         ],
         views=[
             View(
-                name="new_Active", entity="new_budget", fetch_xml="<fetch/>",
-                layout_xml="<grid/>", query_type=QueryType.Public, is_default=True,
+                name="new_Active", entity="new_budget", query_type=QueryType.Public,
+                is_default=True, primary_id="new_budgetid", object_type_code=10000,
             )
         ],
     )
     sol2 = _round_trip(sol)
     assert sol2 == sol
-    assert sol2.forms[0].form_xml == "<forms><form/></forms>"
+    assert sol2.forms[0].name == "new_Budget Main"
+    assert sol2.forms[0].form_type == FormType.Main
     assert sol2.views[0].query_type == QueryType.Public
 
 

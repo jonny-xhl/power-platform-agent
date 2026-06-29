@@ -31,6 +31,23 @@ description: 用 framework_power（Python 优先）为已存在的 Dataverse 安
   按表范围逆向 = 先解析每张表的 8 个 privilegeid（按名），再用 `privilegeid` 服务端过滤
   `roleprivilegescollection`。
 
+## 正向写入路径（关键，已 live 验证）
+
+- **`roleprivilegescollection` 不支持 Create**（Web API 报
+  `0x80040800 "Create method does not support entities of type 'roleprivileges'"`）；
+  手搓 SOAP 与官方 Python SDK（本质是 Web API 薄封装）都不行。
+- **唯一可行的写法**：`AddPrivilegesRole` **绑定 Action** ——
+  `POST roles(<roleid>)/Microsoft.Dynamics.CRM.AddPrivilegesRole`，body
+  `{"Privileges":[{"PrivilegeId":"<guid>","Depth":"<name>"}]}`。一张表的多条 desired 权限
+  打包进**一次**调用（`role deploy` 已合并）。
+- **`Depth` 必须是裸枚举成员名**：`"Basic"`/`"Local"`/`"Deep"`/`"Global"`
+  （SDK 的 `PrivilegeDepth` 枚举）。整数会 `0x80048d19`；带引号限定名会 500。
+  位掩码↔枚举名映射（存进 `privilegedepthmask` 的值）：
+  USER(1)→"Basic"、BUSINESS_UNIT(2)→"Local"、PARENT_CHILD(4)→"Deep"、GLOBAL(8)→"Global"。
+- **`AddPrivilegesRole` 是 upsert**：已存在的 privilege 会被更新 depth（live 验证）。
+- **无单条移除**：`RemoveRolePrivilege` 未作为 Web API action 暴露 → `role deploy` 只加/改，
+  不回收。要清掉某张表的权限，**删表**会级联移除其全部 roleprivileges。
+
 ## 定义文件
 
 `metadata_py/roles/<name>.py`，导出 `ROLE: SecurityRole`：
@@ -76,10 +93,18 @@ python -m framework_power role reverse <name> --tables a,b,c --env dev  # 逆向
 逆向参考：framework_power role reverse <name> --tables a,b   （环境 → 本地，按表范围）
 ```
 
+## 角色作为解决方案组件（Phase 2 集成）
+
+- 角色也是解决方案组件（`SolutionComponentType` code = **20**，已 live 验证）。
+- `Solution.roles` 为**名称引用**（指向 `metadata_py/roles/`）；`solution deploy` 会把
+  **已存在的角色**加入解决方案（`AddSolutionComponent` code=20），**不**在此同步权限。
+- 权限同步始终走独立的 `role deploy` —— 即便角色已在解决方案里。
+
 ## 硬性约束
 
 - 角色必须已存在；`deploy` 遇到缺失角色会报错（不创建）。
-- `deploy` 非破坏：只加/改定义中列出的权限；未列出的 right 不动（要收回需另行显式处理）。
+- `deploy` 非破坏：只加/改定义中列出的权限；未列出的 right 不动（**无单条移除**，
+  要收回某表全部权限需删表，级联移除其 roleprivileges）。
 - `reverse --tables` 必填；省略则报错（拒绝拉取全环境）。
 - 标准（非 `new_` 前缀）表的权限在 `deploy` 时跳过（参考用）。
 - `True`/`False`（Python），不要 `true`/`false`。
@@ -89,4 +114,8 @@ python -m framework_power role reverse <name> --tables a,b,c --env dev  # 逆向
 - 不要在本工具内创建或删除角色实体（角色手动管理）。
 - 不要假设 `roleprivilegescollection` 有 `depth`/`objecttypecode` 字段（实际是
   `privilegedepthmask`；按 `privilegeid` 过滤）。
+- 不要尝试对 `roleprivilegescollection` 做 Create/PATCH/DELETE —— 只能走
+  `AddPrivilegesRole` action（Depth 用裸枚举名 "Basic"/"Local"/"Deep"/"Global"，**不是**
+  位掩码、**不是**整数）。
+- 不要假设能单条移除权限（`RemoveRolePrivilege` 不可用）；`deploy` 只加/改。
 - 不要在 `reverse` 不给 `--tables` 时拉取全部表。

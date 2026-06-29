@@ -44,9 +44,30 @@ from .role_registry import (
     discover_role_definitions,
     get_role_definition,
 )
+from .webresource_sync import (
+    plan_webresources,
+    reverse_webresources,
+    scan_webresources,
+    sync_webresources,
+)
+from .form_sync import (
+    load_form,
+    plan_forms,
+    reverse_forms,
+    sync_forms,
+)
+from .view_sync import (
+    load_view,
+    plan_views,
+    reverse_views,
+    sync_views,
+)
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
 DEFAULT_SOLUTIONS_DIR = "metadata_py/solutions"
+DEFAULT_WEBRESOURCES_ROOT = "webresources"
+DEFAULT_FORMS_DIR = "metadata_py/forms"
+DEFAULT_VIEWS_DIR = "metadata_py/views"
 
 
 def _publisher_prefix(config_path: str = PUBLISHERS_CONFIG) -> str:
@@ -377,6 +398,16 @@ def cmd_solution_publish(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_solution_delete(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        _print_json(client.delete_solution(args.solution))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
 # ----------------------------------------------------------------- roles (Phase 3)
 
 
@@ -487,6 +518,227 @@ def _role_lint(role, *, prefix="new"):
     return issues
 
 
+# ----------------------------------------------------------------- web resources (Phase 4)
+
+
+def cmd_webresource_scan(args: argparse.Namespace) -> int:
+    models, warnings = scan_webresources(Path(args.root), _publisher_prefix())
+    files = [{"name": m.name, "type": m.webresource_type.name} for m in models]
+    print(f"[scan] {len(files)} web resource(s) under '{args.root}'")
+    for f in files:
+        print(f"  {f['type']:11} {f['name']}")
+    for w in warnings:
+        print(f"  [warn] {w}")
+    return 0
+
+
+def cmd_webresource_plan(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    _print_json(plan_webresources(client, Path(args.root), prefix=_publisher_prefix()))
+    return 0
+
+
+def cmd_webresource_sync(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        _print_json(
+            sync_webresources(
+                client,
+                Path(args.root),
+                prefix=_publisher_prefix(),
+                solution=args.solution,
+                publish=not args.no_publish,
+            )
+        )
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_webresource_reverse(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        result = reverse_webresources(
+            client, Path(args.root), prefix=_publisher_prefix(), name_prefix=args.name_prefix
+        )
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+    _print_json(result)
+    return 0
+
+
+def cmd_webresource_publish(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    ids: list[str] = []
+    missing: list[str] = []
+    for name in args.names:
+        existing = client.get_webresource_by_name(name)
+        if existing is None:
+            missing.append(name)
+            continue
+        ids.append(str(existing["webresourceid"]))
+    if missing:
+        _print_json({"error": "web resource(s) not found", "missing": missing})
+        return 1
+    try:
+        _print_json(client.publish_webresources(ids))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+# ----------------------------------------------------------------- forms (Phase 5)
+
+
+def cmd_form_list(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    forms = client.list_forms_by_entity(args.entity)
+    print(f"[list] {len(forms)} form(s) on '{args.entity}'")
+    for f in forms:
+        name = f.get("name")
+        print(
+            f"  type={f.get('type')} active={f.get('formactivationstate')} "
+            f"name={name!r} id={f.get('formid')}"
+        )
+    return 0
+
+
+def cmd_form_show(args: argparse.Namespace) -> int:
+    form = load_form(args.file)
+    print(f"[show] {form.name!r} (entity={form.entity}, type={form.form_type.name})")
+    for tab in form.tabs:
+        print(f"  tab {tab.name!r}: {len(tab.sections)} section(s)")
+    if form.libraries:
+        print(f"  libraries: {[lib.name for lib in form.libraries]}")
+    for ev in form.events:
+        custom = [h for h in ev.handlers if not h.internal]
+        if custom:
+            print(f"  event {ev.name!r}: {[(h.function_name, h.library_name) for h in custom]}")
+    return 0
+
+
+def cmd_form_lint(args: argparse.Namespace) -> int:
+    from .components import form as form_component
+
+    form = load_form(args.file)
+    issues = form_component.lint(form, prefix=_publisher_prefix())
+    for issue in issues:
+        print(f"  [{issue.severity}] {issue.message}")
+    print(f"[lint] {form.name!r}: {len(issues)} issue(s), {sum(i.is_error for i in issues)} error(s)")
+    return 1 if any(i.is_error for i in issues) else 0
+
+
+def cmd_form_plan(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    form = load_form(args.file)
+    _print_json(plan_forms(client, [form], prefix=_publisher_prefix()))
+    return 0
+
+
+def cmd_form_deploy(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    form = load_form(args.file)
+    try:
+        _print_json(
+            sync_forms(
+                client,
+                [form],
+                prefix=_publisher_prefix(),
+                solution=args.solution,
+                publish=not args.no_publish,
+            )
+        )
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_form_reverse(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        result = reverse_forms(client, args.entity, out_dir=args.forms_dir, prefix=_publisher_prefix())
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+    _print_json(result)
+    return 0
+
+
+# ----------------------------------------------------------------- views (Phase 6)
+
+
+def cmd_view_list(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    views = client.list_views_by_entity(args.entity)
+    print(f"[list] {len(views)} view(s) on '{args.entity}'")
+    for v in views:
+        name = v.get("name")
+        print(f"  querytype={v.get('querytype')} default={v.get('isdefault')} name={name!r}")
+    return 0
+
+
+def cmd_view_show(args: argparse.Namespace) -> int:
+    view = load_view(args.file)
+    print(f"[show] {view.name!r} (entity={view.entity}, query_type={view.query_type.name})")
+    print(f"  primary_id={view.primary_id} object_type_code={view.object_type_code}")
+    print(f"  columns: {[c.name for c in view.columns]}")
+    print(f"  orders: {[(o.attribute, o.descending) for o in view.orders]}")
+    print(f"  filters: {len(view.filters)} link_entities: {[le.alias for le in view.link_entities]}")
+    return 0
+
+
+def cmd_view_lint(args: argparse.Namespace) -> int:
+    from .components import view as view_component
+
+    view = load_view(args.file)
+    issues = view_component.lint(view, prefix=_publisher_prefix())
+    for issue in issues:
+        print(f"  [{issue.severity}] {issue.message}")
+    print(f"[lint] {view.name!r}: {len(issues)} issue(s), {sum(i.is_error for i in issues)} error(s)")
+    return 1 if any(i.is_error for i in issues) else 0
+
+
+def cmd_view_plan(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    view = load_view(args.file)
+    _print_json(plan_views(client, [view], prefix=_publisher_prefix()))
+    return 0
+
+
+def cmd_view_deploy(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    view = load_view(args.file)
+    try:
+        _print_json(
+            sync_views(
+                client,
+                [view],
+                prefix=_publisher_prefix(),
+                solution=args.solution,
+                publish=not args.no_publish,
+            )
+        )
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_view_reverse(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        result = reverse_views(client, args.entity, out_dir=args.views_dir, prefix=_publisher_prefix())
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+    _print_json(result)
+    return 0
+
+
 # ----------------------------------------------------------------- entry
 
 
@@ -509,6 +761,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--roles-dir",
         default=DEFAULT_ROLES_DIR,
         help=f"Roles directory (default: {DEFAULT_ROLES_DIR}).",
+    )
+    parser.add_argument(
+        "--forms-dir",
+        default=DEFAULT_FORMS_DIR,
+        help=f"Forms directory (default: {DEFAULT_FORMS_DIR}).",
+    )
+    parser.add_argument(
+        "--views-dir",
+        default=DEFAULT_VIEWS_DIR,
+        help=f"Views directory (default: {DEFAULT_VIEWS_DIR}).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -605,6 +867,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
     p.set_defaults(func=cmd_solution_publish)
 
+    p = sol_sub.add_parser(
+        "delete", help="Delete an unmanaged solution (container teardown; components remain)."
+    )
+    p.add_argument("solution", help="Solution unique name.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_solution_delete)
+
     # --- role group (Phase 3) ---
     p_role = sub.add_parser("role", help="Manage security-role table privileges.")
     role_sub = p_role.add_subparsers(dest="role_command", required=True)
@@ -645,6 +914,129 @@ def build_parser() -> argparse.ArgumentParser:
         "-o", "--output", default=None, help="Output file (default: <roles-dir>/<name>.py)."
     )
     p.set_defaults(func=cmd_role_reverse)
+
+    # --- webresource group (Phase 4) ---
+    p_wr = sub.add_parser("webresource", help="Sync/publish a directory of web resources.")
+    wr_sub = p_wr.add_subparsers(dest="webresource_command", required=True)
+
+    p = wr_sub.add_parser("scan", help="List local files -> web resource names (offline).")
+    p.add_argument("root", nargs="?", default=DEFAULT_WEBRESOURCES_ROOT, help="Local root dir.")
+    p.set_defaults(func=cmd_webresource_scan)
+
+    p = wr_sub.add_parser("plan", help="Read-only dry run of a web resource directory.")
+    p.add_argument("root", nargs="?", default=DEFAULT_WEBRESOURCES_ROOT, help="Local root dir.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_webresource_plan)
+
+    p = wr_sub.add_parser("sync", help="Sync a web resource directory to Dataverse + publish.")
+    p.add_argument("root", nargs="?", default=DEFAULT_WEBRESOURCES_ROOT, help="Local root dir.")
+    p.add_argument("--solution", default=None, help="Add synced resources to this solution.")
+    p.add_argument(
+        "--no-publish", action="store_true", help="Skip the targeted PublishXml after sync."
+    )
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_webresource_sync)
+
+    p = wr_sub.add_parser(
+        "reverse", help="Pull web resources FROM Dataverse into a local directory (scoped)."
+    )
+    p.add_argument("root", nargs="?", default=DEFAULT_WEBRESOURCES_ROOT, help="Local root dir.")
+    p.add_argument(
+        "--name-prefix",
+        default=None,
+        help="Name prefix filter (default: '{prefix}_/' — only this publisher).",
+    )
+    p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p.set_defaults(func=cmd_webresource_reverse)
+
+    p = wr_sub.add_parser(
+        "publish", help="Targeted-publish existing web resources by name (PublishXml)."
+    )
+    p.add_argument("names", nargs="+", help="Web resource name(s).")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_webresource_publish)
+
+    # --- form group (Phase 5) ---
+    p_form = sub.add_parser("form", help="Author/sync/reverse structured model-driven forms.")
+    form_sub = p_form.add_subparsers(dest="form_command", required=True)
+
+    p = form_sub.add_parser("list", help="List forms for an entity (live).")
+    p.add_argument("entity", help="Entity logical name (objecttypecode).")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_form_list)
+
+    p = form_sub.add_parser("show", help="Print a form model summary from a file (offline).")
+    p.add_argument("file", help="Python form definition file exporting FORM.")
+    p.set_defaults(func=cmd_form_show)
+
+    p = form_sub.add_parser("lint", help="Offline convention check on a form file.")
+    p.add_argument("file", help="Python form definition file exporting FORM.")
+    p.set_defaults(func=cmd_form_lint)
+
+    p = form_sub.add_parser("plan", help="Read-only dry run of one authored form.")
+    p.add_argument("file", help="Python form definition file exporting FORM.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_form_plan)
+
+    p = form_sub.add_parser("deploy", help="Deploy one authored form to Dataverse + publish.")
+    p.add_argument("file", help="Python form definition file exporting FORM.")
+    p.add_argument("--solution", default=None, help="Add the form to this solution (code 60).")
+    p.add_argument(
+        "--no-publish", action="store_true", help="Skip the entity-scoped PublishXml after deploy."
+    )
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_form_deploy)
+
+    p = form_sub.add_parser(
+        "reverse", help="Pull every form for an entity FROM Dataverse into Python files."
+    )
+    p.add_argument("entity", help="Entity logical name (objecttypecode).")
+    p.add_argument(
+        "--forms-dir", default=DEFAULT_FORMS_DIR, help=f"Output dir (default: {DEFAULT_FORMS_DIR})."
+    )
+    p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p.set_defaults(func=cmd_form_reverse)
+
+    # --- view group (Phase 6) ---
+    p_view = sub.add_parser("view", help="Author/sync/reverse structured model-driven views.")
+    view_sub = p_view.add_subparsers(dest="view_command", required=True)
+
+    p = view_sub.add_parser("list", help="List views for an entity (live).")
+    p.add_argument("entity", help="Entity logical name (returnedtypecode).")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_view_list)
+
+    p = view_sub.add_parser("show", help="Print a view model summary from a file (offline).")
+    p.add_argument("file", help="Python view definition file exporting VIEW.")
+    p.set_defaults(func=cmd_view_show)
+
+    p = view_sub.add_parser("lint", help="Offline convention check on a view file.")
+    p.add_argument("file", help="Python view definition file exporting VIEW.")
+    p.set_defaults(func=cmd_view_lint)
+
+    p = view_sub.add_parser("plan", help="Read-only dry run of one authored view.")
+    p.add_argument("file", help="Python view definition file exporting VIEW.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_view_plan)
+
+    p = view_sub.add_parser("deploy", help="Deploy one authored view to Dataverse + publish.")
+    p.add_argument("file", help="Python view definition file exporting VIEW.")
+    p.add_argument("--solution", default=None, help="Add the view to this solution (code 26).")
+    p.add_argument(
+        "--no-publish", action="store_true", help="Skip the entity-scoped PublishXml after deploy."
+    )
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_view_deploy)
+
+    p = view_sub.add_parser(
+        "reverse", help="Pull every view for an entity FROM Dataverse into Python files."
+    )
+    p.add_argument("entity", help="Entity logical name (returnedtypecode).")
+    p.add_argument(
+        "--views-dir", default=DEFAULT_VIEWS_DIR, help=f"Output dir (default: {DEFAULT_VIEWS_DIR})."
+    )
+    p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p.set_defaults(func=cmd_view_reverse)
 
     return parser
 

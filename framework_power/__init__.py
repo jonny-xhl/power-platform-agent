@@ -60,6 +60,16 @@ from .components.models import (
     ComponentRef,
     CustomAction,
     Form,
+    FormCell,
+    FormControl,
+    FormColumn,
+    FormEvent,
+    FormEventHandler,
+    FormLabel,
+    FormLibrary,
+    FormRow,
+    FormSection,
+    FormTab,
     FormType,
     GlobalOptionSet,
     IsolationMode,
@@ -70,6 +80,11 @@ from .components.models import (
     Solution,
     SourceType,
     View,
+    ViewColumn,
+    ViewCondition,
+    ViewFilter,
+    ViewLinkEntity,
+    ViewOrder,
     WebResource,
     WebResourceType,
 )
@@ -92,6 +107,28 @@ from .role_deployer import deploy_role, plan_role
 from .role_reverse import reverse_role
 from .role_codegen import role_to_python_source
 from .role_registry import DEFAULT_ROLES_DIR, RoleDefinition, discover_role_definitions, get_role_definition
+from .webresource_sync import (
+    EXT_TO_TYPE,
+    WebResourceSyncConfig,
+    plan_webresources,
+    reverse_webresources,
+    scan_webresources,
+    sync_webresources,
+)
+from .form_sync import (
+    FormSyncConfig,
+    load_form,
+    plan_forms,
+    reverse_forms,
+    sync_forms,
+)
+from .view_sync import (
+    ViewSyncConfig,
+    load_view,
+    plan_views,
+    reverse_views,
+    sync_views,
+)
 
 __all__ = [
     # models
@@ -138,6 +175,16 @@ __all__ = [
     # solution management (Phase 2)
     "ComponentRef",
     "Form",
+    "FormCell",
+    "FormControl",
+    "FormColumn",
+    "FormEvent",
+    "FormEventHandler",
+    "FormLabel",
+    "FormLibrary",
+    "FormRow",
+    "FormSection",
+    "FormTab",
     "FormType",
     "GlobalOptionSet",
     "IsolationMode",
@@ -149,6 +196,11 @@ __all__ = [
     "Solution",
     "SourceType",
     "View",
+    "ViewColumn",
+    "ViewCondition",
+    "ViewFilter",
+    "ViewLinkEntity",
+    "ViewOrder",
     "WebResource",
     "WebResourceType",
     "SolutionDeployConfig",
@@ -171,4 +223,23 @@ __all__ = [
     "RoleDefinition",
     "discover_role_definitions",
     "get_role_definition",
+    # web resource directory sync (Phase 4)
+    "EXT_TO_TYPE",
+    "WebResourceSyncConfig",
+    "plan_webresources",
+    "reverse_webresources",
+    "scan_webresources",
+    "sync_webresources",
+    # form operations (Phase 5)
+    "FormSyncConfig",
+    "load_form",
+    "plan_forms",
+    "reverse_forms",
+    "sync_forms",
+    # view operations (Phase 6)
+    "ViewSyncConfig",
+    "load_view",
+    "plan_views",
+    "reverse_views",
+    "sync_views",
 ]
