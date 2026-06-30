@@ -19,7 +19,7 @@ Design notes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import Enum, IntEnum
 from typing import Any, Optional
 
 from ..models import Label, Option
@@ -423,6 +423,173 @@ class View:
     fetch_attrs: dict[str, str] = field(default_factory=dict)
     grid_attrs: dict[str, str] = field(default_factory=dict)
     row_attrs: dict[str, str] = field(default_factory=dict)
+
+
+# ============================================================ ribbon (Phase 7)
+#
+# Ribbon (command-bar) customization. Unlike forms/views, ribbon has NO direct Web API write path —
+# it is deployed by ExportSolution -> edit RibbonDiffXml in customizations.xml -> ImportSolution
+# (see ``framework_power.solution_zip`` + ``framework_power.ribbon_sync``). The model below is one
+# <RibbonDiffXml> fragment: either entity-scoped (one entity's Form/HomepageGrid/SubGrid ribbons) or
+# application-scoped (entity=None, the global Application Ribbon). Show/hide is UNIFORMLY via
+# <CustomRule> bound to JS (verified live); multi-language labels via <LocLabels>.
+
+
+class RibbonScope(str, Enum):
+    """Where a button is injected — drives the Location prefix ``Mscrm.{scope}.{entity}.<area>.Controls._children``."""
+
+    Form = "Form"
+    HomepageGrid = "HomepageGrid"
+    SubGrid = "SubGrid"
+    Application = "Application"
+
+
+# Common <CrmParameter Value="..."> values (passed through as strings; not an exhaustive enum).
+CRM_PARAMS = {
+    "PrimaryControl", "SelectedControl", "SelectedControlSelectedItemIds",
+    "SelectedControlSelectedItemReferences", "SelectedControlSelectedItemCount",
+    "SelectedControlAllItemIds", "SelectedControlUnselectedItemIds", "PrimaryEntityTypeName",
+    "FirstPrimaryItemId", "PrimaryItemIds", "SelectedEntityTypeName", "CommandProperties",
+    "OrgName", "OrgLcid", "UserLcid",
+}
+
+
+@dataclass
+class RibbonLocLabel:
+    """A ``<LocLabel>`` — multi-language text, referenced via ``$LocLabels:<id>``.
+
+    ``titles`` maps languagecode -> text (1033=en-US, 2052=zh-CN). Button LabelText/ToolTipTitle
+    reference ``$LocLabels:<this id>`` (conventionally suffixed ``.LabelText``/``.ToolTip``).
+    """
+
+    id: str
+    titles: dict[int, str] = field(default_factory=dict)
+
+
+@dataclass
+class RibbonCustomRule:
+    """A ``<CustomRule>`` inside a Display/Enable rule — calls a JS function returning bool.
+
+    Used UNIFORMLY for show/hide (DisplayRule) and enable/disable (EnableRule). ``library`` is the
+    webresource name (``$webresource:new_/js/...``); ``params`` are ``<CrmParameter Value>`` strings in
+    call order; ``default`` is the fail-closed value if the JS fails to load.
+    """
+
+    function_name: str
+    library: str
+    default: bool = False
+    params: list[str] = field(default_factory=list)
+    attrs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RibbonDisplayRule:
+    """A ``<DisplayRule>`` (show/hide). ``custom_rule`` drives it via JS (the project-wide convention)."""
+
+    id: str
+    custom_rule: Optional[RibbonCustomRule] = None
+    attrs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RibbonEnableRule:
+    """An ``<EnableRule>`` (enable/disable). ``custom_rule`` drives it via JS."""
+
+    id: str
+    custom_rule: Optional[RibbonCustomRule] = None
+    attrs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RibbonCommand:
+    """A ``<CommandDefinition>``: references EnableRule/DisplayRule ids and one JS ``<Actions>`` function."""
+
+    id: str
+    function_name: str = ""
+    library: str = ""  # $webresource:new_/js/...
+    params: list[str] = field(default_factory=list)
+    enable_rules: list[str] = field(default_factory=list)  # RibbonEnableRule ids
+    display_rules: list[str] = field(default_factory=list)  # RibbonDisplayRule ids
+    attrs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RibbonButton:
+    """A custom button (``<CustomAction><CommandUIDefinition><Button>``).
+
+    ``scope`` selects the ribbon (Form/HomepageGrid/SubGrid). ``command`` references a
+    :class:`RibbonCommand` id. ``label_loclabel_id``/``tooltip_loclabel_id`` reference :class:`RibbonLocLabel`
+    ids (rendered as ``$LocLabels:<id>``). ``area`` + ``scope`` form the Location.
+    """
+
+    id: str
+    scope: RibbonScope
+    command: str
+    sequence: int = 10
+    label_loclabel_id: str = ""
+    tooltip_loclabel_id: str = ""
+    area: str = "MainTab.Save"
+    image16: Optional[str] = None
+    image32: Optional[str] = None
+    template_alias: str = "o1"
+    attrs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RibbonHideOob:
+    """Hide/override an OOB button. ``oob_command_id`` e.g. ``Mscrm.Form.account.Deactivate``.
+
+    ``method="command_override"`` (default, reversible, MS-recommended) emits a ``<CommandDefinition>``
+    override whose DisplayRules are the mutually-exclusive ``Mscrm.HideOnModern`` + ``Mscrm.ShowOnlyOnModern``
+    (always false). ``method="hide_custom_action"`` emits a ``<HideCustomAction>`` (simpler but sticky).
+    """
+
+    oob_command_id: str
+    method: str = "command_override"
+    attrs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RibbonCommandOverride:
+    """A "Customise Command" override of an OOB command (Ribbon Workbench "Customise Command").
+
+    Unlike :class:`RibbonHideOob` (which force-hides by nuking the command's rules), this PRESERVES the OOB
+    command's original rules and ADDS a ``<CustomRule>`` (JS) so the button hides/disables CONDITIONALLY on
+    data state. ``oob_command_id`` e.g. ``Mscrm.Form.account.Deactivate``. ``preserve_display_rules`` /
+    ``preserve_enable_rules`` are the OOB rule ids to keep (the tool cannot read the compiled ribbon over the
+    Web API, so these are observed from RW/the SDK sample — confirm completeness). ``added_rule_ids`` are the
+    CustomRule **EnableRules** added by ``show_fn``/``enable_fn`` (per MS Learn, ``<CustomRule>`` is documented
+    ONLY under ``<EnableRule>``; in the command bar disabled==hidden, so an EnableRule controls visibility).
+    ``actions_xml`` is the OOB command's original ``<Actions>…</Actions>`` (paste from RW) so the click still
+    works; ``""`` omits it (emits empty ``<Actions/>`` — verify click still fires).
+    """
+
+    oob_command_id: str
+    preserve_display_rules: list[str] = field(default_factory=list)
+    preserve_enable_rules: list[str] = field(default_factory=list)
+    added_rule_ids: list[str] = field(default_factory=list)
+    actions_xml: str = ""
+    attrs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RibbonDefinition:
+    """One ``<RibbonDiffXml>`` fragment — entity-scoped (entity set) or application-scoped (entity=None).
+
+    Holds buttons, commands, display/enable rules, hide-OOB overrides, OOB-command "customise" overrides,
+    and localized labels. Serialized by ``framework_power.ribbon_xml.to_ribbondiff`` and deployed via solution
+    import (``ribbon_sync``).
+    """
+
+    entity: Optional[str] = None  # logical name; None = Application (global) ribbon
+    buttons: list[RibbonButton] = field(default_factory=list)
+    commands: list[RibbonCommand] = field(default_factory=list)
+    display_rules: list[RibbonDisplayRule] = field(default_factory=list)
+    enable_rules: list[RibbonEnableRule] = field(default_factory=list)
+    hide_oobs: list[RibbonHideOob] = field(default_factory=list)
+    command_overrides: list[RibbonCommandOverride] = field(default_factory=list)
+    loclabels: list[RibbonLocLabel] = field(default_factory=list)
+    attrs: dict[str, str] = field(default_factory=dict)
 
 
 # ============================================================ plugin

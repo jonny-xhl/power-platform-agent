@@ -140,6 +140,37 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - CLI：`python -m framework_power view list|show|lint|plan|deploy|reverse`（`reverse <entity>` 写
   `metadata_py/views/{entity}__{name}.py`，每视图一个文件导出 `VIEW`）。Skill：`dv-view-python`。
 
+### Phase 7 — Ribbon 定制（已完成，已 live 验证）
+
+给窗体/视图/子网格/全局 ribbon 加自定义按钮、绑 JS command、控制显隐、多语言标签、隐藏/覆盖 OOB 按钮。
+**Ribbon 与窗体/视图本质不同：没有 Web API 直写**，只能 `ExportSolution → 改 customizations.xml 的
+<RibbonDiffXml> → ImportSolution`（Web API 只能读：`RetrieveEntityRibbon`/`RetrieveApplicationRibbon`）。
+故 Phase 7 **解除 Phase 2 的 ZIP 导入导出暂缓**作为 ribbon 的部署基础。
+
+- `RibbonDefinition`/`RibbonButton`/`RibbonCommand`/`RibbonCommandOverride`/`RibbonDisplayRule`/`RibbonEnableRule`/
+  `RibbonCustomRule`/`RibbonHideOob`/`RibbonLocLabel`/`RibbonScope`(Form/HomepageGrid/SubGrid/Application) 模型；
+  `ribbon_xml.py` 做 `to_ribbondiff`(正向)/`parse_ribbondiff`(逆向)。builder `add_button`(自动接 show_fn/enable_fn
+  → `<CustomRule>` 显隐)/`hide_oob`(无条件隐藏,默认 command_override 可逆)/`customise_command`(OOB「Customise Command」,
+  保留原规则+加 CustomRule 做条件显隐,fail-OPEN)/`add_command`/`add_loclabel`。
+- **专用小型 ribbon 解决方案 + 定向发布**（默认 `new_RibbonSoln`）：避开 Ribbon Workbench 的整包重导入
+  （慢 + 提示备份）。`solution_zip.py` 做 customizations.xml 的 RibbonDiffXml 注入/提取（只替换该 region，
+  窗体/视图字节级保留）；client `export_solution`/`import_solution`/`publish_application_ribbon`。
+- **显隐统一用 `<CustomRule>`，且官方只归 `<EnableRule>`**（已按 MS Learn 修正）：`define-ribbon-display-rules`
+  列的 21 种 DisplayRule 类型不含 CustomRule，RW 严格按 schema → DisplayRule 里的 CustomRule 不显示成 step；
+  enable-rules 文档明说 "command bar 里 disabled 即 hidden" → `add_button`/`customise_command` 的 `show_fn`/`enable_fn`
+  **都生成 `<EnableRule>`+`<CustomRule>`**。Default 非对称：自定义按钮 `false`(fail-closed)、OOB customise `true`(fail-OPEN)；
+  **多语言** `<LocLabels>` (1033+2052)；**隐藏 OOB** 默认 `command_override`（覆盖 `<CommandDefinition>` + 互斥
+  `Mscrm.HideOnModern`/`Mscrm.ShowOnlyOnModern`，可逆）。
+- **已 live 踩坑**：customizations.xml 实体块 `<Name>` 是 **SchemaName**（如 `new_FpFormSmoke`）不是逻辑名
+  → 注入按 SchemaName 匹配（`get_entity_metadata` 查）；`<RibbonDiffXml>` 默认含
+  `<Templates><RibbonTemplates Id="Mscrm.Templates"/></Templates>`；**Location 必须是真实 group +
+  `.Controls._children`**（`Mscrm.{scope}.{entity}.{group}.Controls._children`，默认 group Form→`MainTab.Save`/
+  grid→`MainTab.Management`/app→`GlobalTab.New`；自造 group 会让按钮成孤儿不渲染——这是"按钮部署成功却看不到"的头号坑）；
+  **专用解决方案只含实体 shell**（`DoNotIncludeSubcomponents=true`，否则拖入全部窗体/视图 → Ribbon Workbench
+  拒绝加载 + 变慢）；**经典 ribbon 按钮不在 maker 门户"命令"设计器**（看运行时）。详见 `framework_power/CLAUDE.md §9.6`。
+- CLI：`python -m framework_power ribbon build|show|lint|plan|deploy|reverse`（全局 `--ribbon-solution
+  new_RibbonSoln`、`--ribbons-dir`）。Skill：`dv-ribbon-python`。
+
 ### 关键约束
 
 - 与 `framework/`、`metadata/` 隔离；复用代码在 `framework_power/client/`；认证复用
@@ -366,6 +397,7 @@ Claude Code 技能位于 `.claude/skills/`：
 - `dv-webresource-sync` — `framework_power` web 资源目录同步/发布/逆向（Phase 4）
 - `dv-form-python` — `framework_power` 窗体结构化建模（逆向/改布局/绑事件/新建，Phase 5）
 - `dv-view-python` — `framework_power` 视图结构化建模（逆向/加列/排序/过滤/新建，Phase 6）
+- `dv-ribbon-python` — `framework_power` ribbon 定制（加按钮/绑 JS/CustomRule 显隐/隐藏 OOB，Phase 7）
 
 ### CI
 

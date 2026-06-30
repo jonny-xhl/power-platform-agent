@@ -6,7 +6,9 @@ The create/update methods accept *already-serialized* Dataverse Web API JSON
 (built by ``framework_power.serializer``); there is NO YAML conversion layer here.
 """
 
+import base64
 import logging
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -764,14 +766,21 @@ class DataverseClient:
         component_type: int,
         object_id: str,
         add_required: bool = False,
+        do_not_include_subcomponents: bool = False,
     ) -> dict[str, Any]:
-        """POST the ``AddSolutionComponent`` action (solutioncomponent has no Create)."""
+        """POST the ``AddSolutionComponent`` action (solutioncomponent has no Create).
+
+        ``do_not_include_subcomponents=True`` adds the component SHELL only (e.g. an entity without its
+        forms/views/attributes) — required so Ribbon Workbench will load a ribbon-only solution (it refuses
+        solutions whose entities drag in all sub-components, for performance) and keeps the dedicated ribbon
+        solution tiny/fast to export+import.
+        """
         payload = {
             "SolutionUniqueName": unique_name,
             "ComponentType": component_type,
             "ComponentId": object_id,
             "AddRequiredComponents": bool(add_required),
-            "DoNotIncludeSubcomponents": False,
+            "DoNotIncludeSubcomponents": bool(do_not_include_subcomponents),
         }
         response = self.session.post(self.get_api_url("AddSolutionComponent"), json=payload)
         if not response.ok:
@@ -833,6 +842,67 @@ class DataverseClient:
         if not response.ok:
             self._raise_with_detail(response, f"publish entity '{logical_name}'")
         return {"published": True, "scope": "entity", "entity": logical_name}
+
+    def publish_application_ribbon(self) -> dict[str, Any]:
+        """POST ``PublishXml`` for the application (global) ribbon.
+
+        Uses ``<ribbons><ribbon></ribbon></ribbons>`` — an empty ``<ribbon>`` element publishes the
+        application ribbon (distinct from per-entity ribbon, which is published via ``publish_entity``).
+        """
+        parameter_xml = "<importexportxml><ribbons><ribbon></ribbon></ribbons></importexportxml>"
+        response = self.session.post(
+            self.get_api_url("PublishXml"), json={"ParameterXml": parameter_xml}
+        )
+        if not response.ok:
+            self._raise_with_detail(response, "publish application ribbon")
+        return {"published": True, "scope": "application_ribbon"}
+
+    # -------------------------------------------------------- solution ZIP (Phase 7)
+
+    def export_solution(self, solution_name: str, *, managed: bool = False) -> bytes:
+        """POST ``ExportSolution`` and return the solution ZIP bytes (base64-decoded).
+
+        Used by ribbon deploy/reverse: the ZIP's ``customizations.xml`` is edited
+        (RibbonDiffXml) then re-imported. ``managed`` defaults False (unmanaged, editable).
+        """
+        response = self.session.post(
+            self.get_api_url("ExportSolution"),
+            json={"SolutionName": solution_name, "Managed": bool(managed)},
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"export solution '{solution_name}'")
+        b64 = (response.json() or {}).get("ExportSolutionFile")
+        if not b64:
+            raise RuntimeError(f"ExportSolution('{solution_name}') returned no ExportSolutionFile")
+        return base64.b64decode(b64)
+
+    def import_solution(
+        self,
+        zip_bytes: bytes,
+        *,
+        overwrite_unmanaged: bool = True,
+        publish_workflows: bool = False,
+        import_job_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST ``ImportSolution`` with the (edited) solution ZIP and return the ImportJob result.
+
+        ``OverwriteUnmanagedCustomizations=true`` so the edited RibbonDiffXml replaces the existing one.
+        For a small dedicated solution this is fast and backup-free (unlike full-solution Ribbon Workbench
+        re-imports). Returns ``{ImportJobId, ...}``.
+        """
+        payload: dict[str, Any] = {
+            "CustomizationFile": base64.b64encode(zip_bytes).decode("ascii"),
+            "OverwriteUnmanagedCustomizations": bool(overwrite_unmanaged),
+            "PublishWorkflows": bool(publish_workflows),
+            "ImportJobId": import_job_id or str(uuid.uuid4()),
+        }
+        response = self.session.post(self.get_api_url("ImportSolution"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "import solution")
+        try:
+            return response.json() or {}
+        except ValueError:
+            return {"status": "imported"}
 
     # -------------------------------------------------------- roles / privileges
     # Security-role privilege management. Roles PRE-EXIST (never created here); we

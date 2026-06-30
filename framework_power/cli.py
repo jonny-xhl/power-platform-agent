@@ -62,12 +62,23 @@ from .view_sync import (
     reverse_views,
     sync_views,
 )
+from .ribbon_sync import (
+    codegen_ribbon,
+    lint_ribbon,
+    load_ribbon,
+    plan_ribbons,
+    reverse_ribbons,
+    sync_ribbons,
+)
+from .ribbon_xml import to_ribbondiff
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
 DEFAULT_SOLUTIONS_DIR = "metadata_py/solutions"
 DEFAULT_WEBRESOURCES_ROOT = "webresources"
 DEFAULT_FORMS_DIR = "metadata_py/forms"
 DEFAULT_VIEWS_DIR = "metadata_py/views"
+DEFAULT_RIBBONS_DIR = "metadata_py/ribbons"
+DEFAULT_RIBBON_SOLUTION = "new_RibbonSoln"
 
 
 def _publisher_prefix(config_path: str = PUBLISHERS_CONFIG) -> str:
@@ -739,6 +750,70 @@ def cmd_view_reverse(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------- ribbon (Phase 7)
+
+
+def cmd_ribbon_build(args: argparse.Namespace) -> int:
+    print(to_ribbondiff(load_ribbon(args.file)))
+    return 0
+
+
+def cmd_ribbon_show(args: argparse.Namespace) -> int:
+    ribbon = load_ribbon(args.file)
+    scope = "application" if ribbon.entity is None else ribbon.entity
+    print(f"[show] ribbon for {scope!r}: {len(ribbon.buttons)} button(s), "
+          f"{len(ribbon.commands)} command(s), {len(ribbon.hide_oobs)} hide-oob(s)")
+    for b in ribbon.buttons:
+        print(f"  button {b.id!r} scope={b.scope.value} command={b.command!r}")
+    for h in ribbon.hide_oobs:
+        print(f"  hide_oob {h.oob_command_id!r} method={h.method}")
+    return 0
+
+
+def cmd_ribbon_lint(args: argparse.Namespace) -> int:
+    issues = lint_ribbon(load_ribbon(args.file), prefix=_publisher_prefix())
+    for issue in issues:
+        print(f"  [{issue.severity}] {issue.message}")
+    print(f"[lint] {len(issues)} issue(s), {sum(i.is_error for i in issues)} error(s)")
+    return 1 if any(i.is_error for i in issues) else 0
+
+
+def cmd_ribbon_plan(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    _print_json(plan_ribbons(client, [load_ribbon(args.file)], prefix=_publisher_prefix(),
+                             solution=args.ribbon_solution))
+    return 0
+
+
+def cmd_ribbon_deploy(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        _print_json(sync_ribbons(client, [load_ribbon(args.file)], prefix=_publisher_prefix(),
+                                 solution=args.ribbon_solution, publish=not args.no_publish))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_ribbon_reverse(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    entity = None if args.application else args.entity
+    try:
+        ribbon = reverse_ribbons(client, entity, solution=args.ribbon_solution)
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+    out_dir = Path(args.ribbons_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    name = "application" if entity is None else entity
+    path = out_dir / f"{name}.py"
+    imports = "from framework_power import RibbonDefinition, RibbonScope\n"
+    path.write_text(imports + "\nRIBBON: RibbonDefinition = " + codegen_ribbon(ribbon) + "\n", encoding="utf-8")
+    _print_json({"entity": name, "buttons": len(ribbon.buttons), "path": str(path)})
+    return 0
+
+
 # ----------------------------------------------------------------- entry
 
 
@@ -771,6 +846,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--views-dir",
         default=DEFAULT_VIEWS_DIR,
         help=f"Views directory (default: {DEFAULT_VIEWS_DIR}).",
+    )
+    parser.add_argument(
+        "--ribbons-dir",
+        default=DEFAULT_RIBBONS_DIR,
+        help=f"Ribbons directory (default: {DEFAULT_RIBBONS_DIR}).",
+    )
+    parser.add_argument(
+        "--ribbon-solution",
+        default=DEFAULT_RIBBON_SOLUTION,
+        help=f"Dedicated ribbon solution (default: {DEFAULT_RIBBON_SOLUTION}).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1037,6 +1122,41 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
     p.set_defaults(func=cmd_view_reverse)
+
+    # --- ribbon group (Phase 7) ---
+    p_rib = sub.add_parser("ribbon", help="Author/deploy ribbon customizations (via dedicated solution).")
+    rib_sub = p_rib.add_subparsers(dest="ribbon_command", required=True)
+
+    p = rib_sub.add_parser("build", help="Print the RibbonDiffXml fragment from a file (offline).")
+    p.add_argument("file", help="Python ribbon definition file exporting RIBBON.")
+    p.set_defaults(func=cmd_ribbon_build)
+
+    p = rib_sub.add_parser("show", help="Print a ribbon model summary from a file (offline).")
+    p.add_argument("file", help="Python ribbon definition file exporting RIBBON.")
+    p.set_defaults(func=cmd_ribbon_show)
+
+    p = rib_sub.add_parser("lint", help="Offline convention check on a ribbon file.")
+    p.add_argument("file", help="Python ribbon definition file exporting RIBBON.")
+    p.set_defaults(func=cmd_ribbon_lint)
+
+    p = rib_sub.add_parser("plan", help="Read-only dry run of one authored ribbon.")
+    p.add_argument("file", help="Python ribbon definition file exporting RIBBON.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_ribbon_plan)
+
+    p = rib_sub.add_parser("deploy", help="Deploy a ribbon via the dedicated solution (export->import->publish).")
+    p.add_argument("file", help="Python ribbon definition file exporting RIBBON.")
+    p.add_argument(
+        "--no-publish", action="store_true", help="Skip the targeted PublishXml after import."
+    )
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_ribbon_deploy)
+
+    p = rib_sub.add_parser("reverse", help="Pull an entity's (or application) ribbon FROM the dedicated solution.")
+    p.add_argument("entity", nargs="?", help="Entity logical name (omit with --application for the global ribbon).")
+    p.add_argument("--application", action="store_true", help="Reverse the global Application Ribbon.")
+    p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p.set_defaults(func=cmd_ribbon_reverse)
 
     return parser
 

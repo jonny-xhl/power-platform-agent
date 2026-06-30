@@ -53,6 +53,17 @@ list|show|lint|plan|deploy|reverse`，详见 `dv-form-python` skill 与 §9.4。
 非破坏：diff 在结构化模型上做，逆向未改 → `would_skip`。CLI：`python -m framework_power view
 list|show|lint|plan|deploy|reverse`，详见 `dv-view-python` skill 与 §9.5。
 
+**Phase 7（Ribbon 定制）**——ribbon **没有 Web API 直写**（只能读 `RetrieveEntityRibbon`/
+`RetrieveApplicationRibbon`），必须 `ExportSolution → 改 customizations.xml 的 <RibbonDiffXml> → ImportSolution`
+（同 Ribbon Workbench 的传输，但用**专用小型解决方案 + 定向 PublishXml** → 秒级、免备份提示，避开整包
+重导入）。**解除 Phase 2 的 ZIP 导入导出暂缓**。`RibbonDefinition`(entity 或 Application) →
+`RibbonButton`/`RibbonCommand`/`RibbonDisplayRule`/`RibbonEnableRule`/`RibbonCustomRule`/`RibbonHideOob`/
+`RibbonLocLabel`/`RibbonScope`(Form/HomepageGrid/SubGrid/Application)；`ribbon_xml.py` 做 `to_ribbondiff`/
+`parse_ribbondiff`；`solution_zip.py` 做 customizations.xml 的 RibbonDiffXml 注入/提取。显隐**统一用
+`<CustomRule>`**（JS 返回 bool，fail-closed）；多语言 `<LocLabels>`；隐藏 OOB 默认 `command_override`
+（可逆）。CLI：`python -m framework_power ribbon build|show|lint|plan|deploy|reverse`（全局
+`--ribbon-solution new_RibbonSoln`），详见 `dv-ribbon-python` skill 与 §9.6。
+
 ## 2. 硬性约束（必须遵守）
 
 - **与 `framework/` 完全隔离**：本包**不得 import** `framework.*`，也**不得修改** `framework/` 或
@@ -350,6 +361,91 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 - **加入解决方案 code 26**（`components/view.SOLUTION_CODE`）：`view deploy --solution NAME` 调
   `add_solution_component(name,26,id)`，幂等。
 
+### 9.6 Ribbon 域（Phase 7，已 live 验证）
+
+- **Ribbon 没有 Web API 直写（核心）**：只有读函数 `RetrieveEntityRibbon(EntityName=)` /
+  `RetrieveApplicationRibbon()`（且本环境 `RetrieveEntityRibbon` 走 `GET …/RetrieveEntityRibbon(EntityName=@p)?@p='x'`
+  会 404 "Resource not found for the segment"——故**逆向走 solution 导出**而非该函数）。**写**只能
+  `ExportSolution(SolutionName, Managed:false) → ExportSolutionFile(base64 ZIP)` → 改 customizations.xml 的
+  `<RibbonDiffXml>` → `ImportSolution(CustomizationFile=base64, OverwriteUnmanagedCustomizations:true)`。
+  Ribbon Workbench 慢 + 提示备份是**整包重导入**所致；本工具用**专用小型解决方案**避开。
+- **专用 ribbon 解决方案**（默认 `new_RibbonSoln`，`cli._DEFAULT_RIBBON_SOLUTION`）：`ribbon_sync._ensure_solution`
+  自动建（用前缀匹配的 publisher）；`_ensure_entity_in_solution` 把目标实体（code 1）加进去（幂等）；
+  全局 ribbon 加 Application Ribbons 组件（`_ensure_application_ribbons_in_solution`，组件码待各环境确认）。
+- **customizations.xml 结构（已 live 钉死）**：`<ImportExportXml>` 根；每个 `<Entity><Name …>{SCHEMA name}
+  </Name><EntityInfo/><FormXml/><SavedQueries/><RibbonDiffXml>…</RibbonDiffXml></Entity>`。⚠️ **实体块
+  `<Name>` 是 SchemaName**（如 `new_FpFormSmoke`，且带 `LocalizedName`/`OriginalName` 属性），**不是逻辑名**
+  → `solution_zip.inject_entity_ribbondiff` / `extract_ribbondiff` 按 SchemaName 匹配（用
+  `client.get_entity_metadata(entity).SchemaName` 查）。注入只替换 `<RibbonDiffXml>` region（regex over
+  `<Entity>` 块），**窗体/视图字节级保留** → 导入对它们 no-op。全局 ribbon 是 `</Entities>` 后的**根级**
+  `<RibbonDiffXml>`（仅当专用解决方案含 Application Ribbons 组件时存在）。
+- **`<RibbonDiffXml>` 默认含 `<Templates><RibbonTemplates Id="Mscrm.Templates"/></Templates>`**（空结构）→
+  `ribbon_xml.to_ribbondiff` 必须含它。结构：`<CustomActions>`(CustomAction+Button / HideCustomAction) +
+  `<Templates>` + `<CommandDefinitions>`(CommandDefinition) + `<RuleDefinitions>`(DisplayRules/EnableRules) +
+  `<LocLabels>`。
+- **显隐统一 `<CustomRule>`（项目约定，已按官方文档修正）**：⚠️ **`<CustomRule>` 官方只归
+  `<EnableRule>`**——`define-ribbon-display-rules` 列的 21 种 DisplayRule 类型里**没有** CustomRule；RW 严格按
+  schema 解析，**DisplayRule 里的 CustomRule 不会显示成 step**（这正是早期"SmokeBtn.DisplayRule 没绑 step"的根因）。
+  且 enable-rules 文档明说 **"command bar 里 disabled 即 hidden"** → JS 控制显隐走 `<EnableRule>`+`<CustomRule>`
+  才是 docs-canonical 且 RW 可见。故 `add_button(show_fn=, enable_fn=)` 与 `customise_command(show_fn=, enable_fn=)`
+  **都生成 EnableRule+CustomRule**（`{button_id}.ShowRule` / `.EnableRule`），接到 command 的 `<EnableRules>`。
+  `<CustomRule FunctionName Library="$webresource:…" Default="false|true"><CrmParameter Value="PrimaryControl"/></CustomRule>`，
+  JS 返回 bool（true=显示/启用）。**Default 非对称**：自定义按钮 `false`（fail-closed，JS 没加载就藏）；
+  OOB customise `true`（fail-OPEN，别因 JS bug 误藏自带按钮）。`<CrmParameter Value>` 顺序=JS 参数顺序（窗体
+  `PrimaryControl`=formContext，网格 `SelectedControl`=gridControl）。
+- **隐藏/覆盖 OOB**：`hide_oob(oob_command_id, method="command_override")`（默认，可逆，微软推荐）= 覆盖
+  `<CommandDefinition Id=<OOB id>>` 的 DisplayRules 为互斥 `Mscrm.HideOnModern` + `Mscrm.ShowOnlyOnModern`
+  （永假→**永远隐藏**，丢掉原 command 的规则）。`method="hide_custom_action"` = `<HideCustomAction>`（粘滞难撤销）。
+  ⚠️ 这是「**无条件隐藏**」（nuke）语义——只在"彻底移除某 OOB 按钮"时用。
+- **「Customise Command」——OOB 按钮条件显隐（保留规则，已 live 验证）**：`ribbon_xml.customise_command(
+  ribbon, oob_command_id, library=, show_fn=, enable_fn=, preserve_display_rules=, preserve_enable_rules=,
+  actions_xml=)`。对应 Ribbon Workbench 右键 command → "Customise Command"：**保留** OOB 原 Display/Enable
+  规则 + **加一个 `<CustomRule>`**（JS 返回 bool）→ 按钮按数据状态**条件**显隐/启禁。与 `hide_oob`（无条件隐藏）
+  的区别：本方法不破坏原行为，只在你的 JS 说"隐藏/禁用"时才隐藏/禁用。`show_fn` true=显示/false=隐藏，
+  **OOB 用 fail-OPEN（`Default="true"`）**——JS 没加载时保持 OOB 默认（别因 JS bug 误藏一个本来该在的按钮）；
+  这与 `add_button` 的 fail-closed（`Default="false"`）刻意不同。`preserve_*` 默认按 command 后缀查
+  `ribbon_xml.OOB_COMMAND_RULES`（已 seed `Deactivate` 的 `Mscrm.CanWritePrimary`/`PrimaryIsActive`/
+  `PrimaryEntityHasStatecode`）；**未 seed 的 command 必须显式传**。
+  ⚠️ **`actions_xml` 坑（关键）**：override 会**整体替换** OOB `<CommandDefinition>`，故要保住点击必须把原
+  `<Actions>…</Actions>` 原样塞回（`actions_xml=`）。工具**读不到编译后 ribbon**（`RetrieveEntityRibbon` 仅 SOAP、
+  本环境 404/500）→ 拿不到 OOB Actions → **从 Ribbon Workbench 复制该 command 的 `<Actions>` 粘进来**。
+  空 `actions_xml` 会生成空 `<Actions/>`，**可能让点击失效**（`lint_ribbon` 会告警）。live smoke：Deactivate
+  override 保留 3 条 OOB DisplayRules + 加 EnableRule `new_fpformsmoke.Deactivate.ShowRule`(CustomRule)。
+- **CrmParameter → JS 形参（已沉淀，详见 `dv-ribbon-python` skill 表）**：ribbon 把 `<CrmParameter Value=…>`
+  **按声明顺序、位置地**传给 JS（无 `Name`；顺序=形参顺序）。`add_button`/`customise_command` 的 JS 参数默认
+  **按 scope 选**：窗体 `PrimaryControl`(=formContext)、网格 `SelectedControl`(=gridContext)；用 `params=`(点击)/
+  `rule_params=`(规则) 覆盖。CustomRule(显隐/启禁) 返回 bool 或 Promise；点击 `JavaScriptFunction` 无返回。
+  常用 Value：`PrimaryControl`/`SelectedControl`/`CommandProperties`/`SelectedControlSelectedItemIds`/
+  `SelectedControlSelectedItemCount`/`PrimaryEntityTypeName`/`FirstPrimaryItemId`/`OrgName`/`UserLcid`。
+  参考实例：`webresources/js/fpsmoke/ribbon.js`。
+- **多语言**：`add_button(label={1033:..,2052:..})` → `<LocLabels><LocLabel Id><Titles><Title languagecode
+  description/></Titles></LocLabel>`；按钮 `LabelText="$LocLabels:<id>"` 引用。
+- **Location 约定（已 live 钉死，这是按钮"不显示"的头号坑）**：注入位置必须是 **真实存在的 group +
+  `.Controls._children` 后缀**：`Mscrm.{Form|HomepageGrid|SubGrid}.{entity}.{area}.Controls._children`；
+  Application scope = `Mscrm.{area}.Controls._children`。`add_button(area=None)` 按 scope 选默认 group——
+  Form→`MainTab.Save`、HomepageGrid/SubGrid→`MainTab.Management`、Application→`GlobalTab.New`（见
+  `ribbon_xml.DEFAULT_AREA_BY_SCOPE`）。**area 必须是真实 group**（form 有 Save/Actions/Collaborate，grid 有
+  Management/Actions）；**自造 group（如曾经的 `MainTab.CustomAction`）会让按钮成为孤儿→永不渲染**。
+  ⚠️ 这是早期默认 `MainTab.CustomAction._children`（缺 `.Controls`、且 group 不存在）导致"按钮部署成功但
+  maker/运行时都看不到"的根因，已修正为 `MainTab.Save.Controls._children`（live 验证：reverse 回显该 Location）。
+  想换组就传 `area="MainTab.Actions"`。
+- **专用 ribbon 解决方案必须只含实体 SHELL（已 live 钉死）**：`_ensure_entity_in_solution` 调
+  `add_solution_component(..., do_not_include_subcomponents=True)`。**不传**会把实体的全部窗体/视图/字段拖进
+  解决方案（实体块 ~97KB，含 `<FormXml>`/`<SavedQueries>`），导致 **Ribbon Workbench 拒绝加载**（报"solution
+  contains Entities that have all their sub-components included"）且导出/导入变慢。Shell-only 实体块 ~7KB、
+  无 FormXml/SavedQueries，但**仍带 `<RibbonDiffXml>`**（本流程唯一编辑的东西）——Workbench 可加载、往返更快。
+  ⚠️ 实体若曾被以含子组件方式加过，`add_solution_component` 幂等跳过→必须先 `delete_solution` 再重建（unmanaged
+  删除只删容器、不删实体上的 ribbon diff）。
+- **经典 RibbonDiffXml 按钮不会出现在 maker 门户的"命令"(Power Fx) 设计器里**——那是另一套（modern commanding）
+  系统。**验证按钮要看运行时**：在 model-driven app 里打开该表的一条记录，看命令栏（Save 组附近）。
+- **发布**：实体 ribbon 走 `publish_entity`（`<entities><entity>X</entity></entities>`，重发该实体 ribbon+窗体+视图）；
+  全局走 `publish_application_ribbon`（`<ribbons><ribbon/></ribbons>`，空 `<ribbon>` 发应用 ribbon）。
+- **非破坏**：authored `RibbonDefinition` 是该实体 ribbon diff 的唯一事实来源——重导入只换该 region。
+  逆向（`reverse_ribbons`）= 导出专用解决方案 → 提取 `<RibbonDiffXml>` → `parse_ribbondiff`（**作者级 diff**，
+  非 RetrieveEntityRibbon 编译结果）。
+- **JS 库依赖**：command/rule 的 `Library` 是 webresource 名（`$webresource:new_/js/…`，Phase 4 命名）→
+  **ribbon 部署前 JS 必须已同步+发布**，否则显隐/click 回退到 `Default`。
+
 ## 10. 如何扩展
 
 - **新增属性类型**：`models.AttributeType` + `serializer._ODATA_TYPE`/`_UPDATABLE_BY_TYPE`/per-type 分支
@@ -362,7 +458,7 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 
 ## 11. 测试与质量
 
-- 测试：`test/unit/test_framework_power/`（`@pytest.mark.unit`，无网络，270 用例）。
+- 测试：`test/unit/test_framework_power/`（`@pytest.mark.unit`，无网络，289 用例）。
   运行：`cd test && python -m pytest unit/test_framework_power -o addopts="" -q`。
 - Lint：`python -m flake8 framework_power/ --max-line-length=120`。
 - 类型：`python -m mypy framework_power --ignore-missing-imports --explicit-package-bases`。
