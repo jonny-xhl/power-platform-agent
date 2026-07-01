@@ -446,6 +446,60 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 - **JS 库依赖**：command/rule 的 `Library` 是 webresource 名（`$webresource:new_/js/…`，Phase 4 命名）→
   **ribbon 部署前 JS 必须已同步+发布**，否则显隐/click 回退到 `Default`。
 
+### 9.7 Plugin 域（Phase 8，已 live 验证核心）
+
+Plugin = 程序集 + SDK message step + custom action。Phase 8 把 Phase 2 的「不透明 pluginassembly 上传」升级为
+**结构化 + NuGet 包优先**，并修掉 Phase 2 step 注册的多个潜在 bug（Phase 2 从未 live 测过）。
+
+**两条部署路径（已 live 钉死）：**
+- **PluginPackage（NuGet，首选，已 live 验证）**：`client.plugin_build.build_plugin_project` → `dotnet pack` 产
+  `.nupkg`（base64）→ `POST pluginpackages`。⚠️ **包名必须含发布商前缀**：`pluginpackage.name = {prefix}_{assembly}`
+  （如 `new_PP.Crm.Plugin.Smoke`），否则 `0x80040265 "does not contain a solution prefix"`。Dataverse **自动**
+  建 `pluginassembly`（用包内 assembly 名，如 `PP.Crm.Plugin.Smoke`），按名 resolve。**无需 ILMerge/签名**。
+  ⚠️ **TFM 强制限定（已 live 钉死 + build 时校验）**：本环境 plugin 包运行时**只收 .NET Framework
+  `net462`/`net471`**（net462 是**标准/默认**）；assembly 降级路径收 `net462`/`net471`/`net48`。**`net6`/`net8`/
+  `netstandard` 一律拒绝**（早 AccountPlugin 是 net8.0 无法部署）。`plugin_build` 在 build 时 `_resolve_deploy_mode`
+  + `_validate_tfm_for_mode` **直接抛清晰错误**（`PACKAGE_TFMS=(net462,net471)`、`ASSEMBLY_TFMS=(net462,net471,net48)`），
+  避免到 Dataverse 才报晦涩的 "No supported target framework folder"；`PluginProject.target_framework` 默认 `net462`；
+  `components/plugin.lint` 也对未支持 TFM 告警。net4xx 工程不能开 `<Nullable>`/`<ImplicitUsings>`（C# 7.3）。build 前要 **清 bin/obj**（TFM
+  改动会留 stale 输出让 pack 打错 `lib/<tfm>/`）。
+  **命名完全 config 驱动（已 live 验证动态）**：build 传 `-p:AssemblyName={assembly_name}` + `-p:PackageId={prefix}_{assembly_name}`
+  覆盖 .csproj 的 `<AssemblyName>`/`<PackageId>` → .csproj 这俩值**被忽略**；不同项目只改 `PluginProject`（company/project/module/kind/prefix），
+  DLL/包名/namespace 全跟着 config 走。验证：.csproj 写 `PP.Crm.Plugin.Smoke`、config company=`OtherCorp` → 产出 `OtherCorp.Crm.Plugin.Smoke.dll`。
+- **pluginassembly（降级，net48 + 签名 + ILMerge）**：`POST/PATCH pluginassemblies`（content=base64 DLL）。工程
+  自己负责 strong-name 签名 + ILRepack 合并分层依赖；工具只 build+上传。fallback 仅当 PluginPackage 不可用时。
+
+**Step 注册（已 live 钉死，Phase 2 的全是错的）：** step **引用 PluginType 不是 assembly**——
+`sdkmessageprocessingstep` 没有 `_pluginassemblyid_value` 字段！正确 payload：
+`name` + `sdkmessageid@odata.bind`(/sdkmessages) + **`eventhandler_plugintype@odata.bind`(/plugintypes)** + 实体
+限定 `sdkmessagefilterid@odata.bind`(/sdkmessagefilters) + stage/mode/rank/filteringattributes/supporteddeployment。
+`eventhandler`/`pluginassemblyid`/`plugintypeid` 作 nav prop 都 **404 undeclared**——只有 `eventhandler_plugintype` 行。
+流程：`get_plugintypes_by_assembly` → 选 PluginType（`PluginStep.plugin_type` 匹配 typename/name；空则取唯一）→
+`get_sdk_message_id`(message) → `get_sdk_message_filter`(message,entity)（自定义实体通常 OOB 已有；缺则 create）
+→ 建 step。
+
+**解决方案组件码（已 live 钉死）：** `90=PluginType`、`91=PluginAssembly`、`92=SdkMessageProcessingStep`、
+**`10030=PluginPackage`**（Phase 2 的 SOLUTION_CODE=90 是错的——90 是 PluginType）。
+**包插件加进命名解决方案：加 `PluginPackage(10030)`，不是 assembly(91)**——assembly 是 package 的一部分，
+`AddSolutionComponent(91, asm_id)` 报 **405 `0x8004023b` "Plugin Assembly ... is part of a Plugin Package.
+Please export the Package directly."**；加 10030 才行（package 封装 assembly+plugintypes+steps）。故 `add_targets`：
+包路径 = `[(10030, package_id), (92, step_id)…]`；assembly 路径 = `[(91, assembly_id), (92, step_id)…]`。
+**step 注册幂等**：deploy 先 `get_steps_by_assembly` 拿已有 step 名，同名 skip（`action:"exists"`）→ 重 deploy 不产重复 step。
+
+**Custom action（best-effort）：** `POST workflows`(category=3 Action) 尝试自动建定义 + 注册引用其 SDK message 的
+step；Web API 单独建可调用 Action 不可靠（可能要 clientdata/激活）→ 失败回退 `manual_update_required`（maker 门户建）。
+
+**命名（动态 per-project，已 live）：** `{company}.{project}.{Plugin|Action}.{Module}`（`PluginProject.assembly_name`，
+`_pascal(module)`）；`company`/`project` 默认 `PP`/`Crm` 但**每项目可覆盖**。assembly/namespace/package-id 用它；
+**pluginpackage.name 再加发布商前缀** `{prefix}_{assembly}`。publisher 前缀 `new_` 不变。
+
+**反向：** assembly sourcetype 可能是 4（包派生，不在 `SourceType` 枚举）→ reverse 容错回退 `Database`。step 按
+plugintype 反查（`_eventhandler_value`），不是按 assembly。
+
+**CLI：** `python -m framework_power plugin build <dir> <def.py>`（离线打包预览）/ `deploy <dir> <def.py> --env dev
+[--plugin-solution NAME]` / `list [--include-system]` / `reverse <name>`。定义文件 `<dir>/plugin_def.py` 导出
+`PROJECT = PluginProject(...)`。Skill `dv-plugin-python`。
+
 ## 10. 如何扩展
 
 - **新增属性类型**：`models.AttributeType` + `serializer._ODATA_TYPE`/`_UPDATABLE_BY_TYPE`/per-type 分支

@@ -190,6 +190,18 @@ class SolutionFakeClient:
     def get_sdk_message_id(self, message: str) -> Optional[str]:
         return "msg-1"
 
+    def get_plugintypes_by_assembly(self, pluginassemblyid: str) -> list[dict[str, Any]]:
+        return [{"plugintypeid": "pt-1", "name": "MyPlugin", "typename": "new_MyPlugin.MyPlugin"}]
+
+    def get_sdk_message_filter(self, sdkmessageid: str, entity: str) -> Optional[str]:
+        return "filter-1"
+
+    def create_sdk_message_filter(self, sdkmessageid: str, entity: str) -> str:
+        return "filter-new"
+
+    def get_steps_by_assembly(self, pluginassemblyid: str) -> list[dict[str, Any]]:
+        return []
+
     def create_plugin_step(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls.setdefault("create_plugin_step", []).append(payload)
         return {"sdkmessageprocessingstepid": "step-1", "name": payload["name"]}
@@ -382,7 +394,7 @@ def test_deploy_solution_plugin_multi_part_add():
     assert client.calls["create_plugin_assembly"]
     assert client.calls["create_plugin_step"]
     codes = {c[1] for c in client.calls["add_solution_component"]}
-    assert 90 in codes and 92 in codes  # assembly + step multi-part add
+    assert 91 in codes and 92 in codes  # PluginAssembly(91) + Step(92) multi-part add
 
 
 def test_deploy_solution_adds_roles_to_solution():

@@ -610,6 +610,26 @@ class SourceType(IntEnum):
     FileContent = 1
 
 
+class DeployMode(str, Enum):
+    """How a plugin project is built+deployed (Phase 8).
+
+    ``Package`` (preferred) uploads a NuGet ``.nupkg`` via the ``pluginpackage`` entity — .NET 6+, no
+    ILMerge, no strong-name signing, dependencies bundled. ``Assembly`` is the classic ``pluginassemblies``
+    path (net48 + ILMerge + strong-name sign). ``Auto`` picks by target framework (net6+⇒Package, else Assembly).
+    """
+
+    Auto = "auto"
+    Package = "package"
+    Assembly = "assembly"
+
+
+class ContentKind(str, Enum):
+    """What ``Plugin.content`` holds — set by the build step, drives the deploy path."""
+
+    Package = "package"  # base64 .nupkg → pluginpackages
+    Assembly = "assembly"  # base64 .dll → pluginassemblies
+
+
 @dataclass(frozen=True)
 class PluginStep:
     """A SDK message processing step."""
@@ -623,6 +643,7 @@ class PluginStep:
     filtering_attributes: str = ""
     description: str = ""
     rank: int = 1
+    plugin_type: str = ""  # the IPlugin class name (typename); "" = use the assembly's single plugintype
 
 
 @dataclass(frozen=True)
@@ -639,15 +660,62 @@ class CustomAction:
 
 @dataclass(frozen=True)
 class Plugin:
-    """A plugin assembly + its steps + custom actions. ``content`` is base64 DLL."""
+    """A plugin assembly/package + its steps + custom actions.
+
+    ``content`` is base64 — a ``.nupkg`` (``content_kind=Package``, deployed via ``pluginpackages``) or a
+    ``.dll`` (``content_kind=Assembly``, deployed via ``pluginassemblies``). Built by
+    :func:`framework_power.client.plugin_build.build_plugin_project` from a :class:`PluginProject`.
+    """
 
     name: str
-    content: str  # base64 DLL
+    content: str  # base64 .nupkg (Package) or .dll (Assembly)
     version: str = "1.0.0.0"
     isolation_mode: IsolationMode = IsolationMode.Sandbox
     source_type: SourceType = SourceType.Database
+    content_kind: ContentKind = ContentKind.Assembly
+    target_framework: str = ""  # net6.0 / net48 / …
+    prefix: str = "new"  # publisher customization prefix (pluginpackage name must contain it)
     steps: list[PluginStep] = field(default_factory=list)
     custom_actions: list[CustomAction] = field(default_factory=list)
+
+    @property
+    def package_name(self) -> str:
+        """The ``pluginpackage.name`` for the Package path — Dataverse requires it to contain the publisher
+        prefix, so it is ``{prefix}_{name}``. (The assembly name inside the package stays ``name``.)"""
+        return f"{self.prefix}_{self.name}"
+
+
+@dataclass(frozen=True)
+class PluginProject:
+    """Authoring config for a .NET plugin project — the **dynamic per-project naming** source.
+
+    Assembly name / namespace / package id = ``{company}.{project}.{kind}.{module}`` (the project-wide rule;
+    ``company``/``project`` default to ``Ninebot``/``Crm`` but are overridable per project). ``build_plugin_project``
+    consumes this to build+pack and emit a :class:`Plugin`.
+    """
+
+    module: str = ""
+    company: str = "PP"
+    project: str = "Crm"
+    kind: str = "Plugin"  # "Plugin" or "Action"
+    target_framework: str = "net462"  # env plugin runtime: net462/net471 (package) or net48 (assembly)
+    deploy_mode: DeployMode = DeployMode.Auto
+    version: str = "1.0.0.0"
+    prefix: str = "new"  # publisher customization prefix (pluginpackage name must contain it)
+    steps: list[PluginStep] = field(default_factory=list)
+    custom_actions: list[CustomAction] = field(default_factory=list)
+
+    @property
+    def assembly_name(self) -> str:
+        """``{company}.{project}.{kind}.{Module}`` (module PascalCased)."""
+        return f"{self.company}.{self.project}.{self.kind}.{_pascal(self.module)}"
+
+
+def _pascal(s: str) -> str:
+    """``"smoke"``/``"smoke_order"`` → ``"Smoke"``/``"SmokeOrder"``."""
+    if not s:
+        return s
+    return "".join(part[:1].upper() + part[1:] for part in s.replace("-", "_").split("_") if part)
 
 
 # ============================================================ security role

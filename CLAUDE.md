@@ -171,6 +171,23 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - CLI：`python -m framework_power ribbon build|show|lint|plan|deploy|reverse`（全局 `--ribbon-solution
   new_RibbonSoln`、`--ribbons-dir`）。Skill：`dv-ribbon-python`。
 
+### Phase 8 — Plugin 操作（已完成，核心已 live 验证）
+
+构建 .NET plugin（**NuGet `PluginPackage` 优先**，net48+ILMerge+签名降级）+ 自动注册 assembly/step + best-effort
+custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly 上传」（step 注册从未 live 测，全是错的）。
+
+- `Plugin`/`PluginProject`/`PluginStep`/`CustomAction`/`DeployMode`/`ContentKind` 模型；`client/plugin_build.py`
+  `build_plugin_project`（`dotnet build`+`pack`→base64 .nupkg，按 TFM 选 Package/Assembly，build 前清 bin/obj）；
+  `plugin_sync.py`（`deploy_plugin`/`list_plugins`/`reverse_plugin`）。
+- **已 live 踩坑**（详见 `framework_power/CLAUDE.md §9.7`）：pluginpackage 包名**必须含发布商前缀** `new_<assembly>`
+  （`0x80040265`）；本环境 TFM**强制 net462 标准**（net471 也收；net6/net8/netstandard build 时直接拒），免 ILMerge/签名；step **引用 PluginType 不是
+  assembly**——nav prop 只认 `eventhandler_plugintype@odata.bind`（`pluginassemblyid`/`eventhandler`/`plugintypeid` 全 404），
+  实体限定走 `sdkmessagefilterid`；组件码 `90=PluginType`/`91=PluginAssembly`/`92=Step`/`10030=PluginPackage`；
+  **包插件加进命名解决方案要加 `PluginPackage(10030)`（assembly 91 报 405 "export the Package directly"），不是 assembly**；
+  step 注册幂等（按名 skip existing）；命名 `{company}.{project}.{Plugin|Action}.{Module}` 动态 per-project
+  （默认 `PP.Crm`）；custom action 自动建 best-effort（失败回退 manual）。
+- CLI：`python -m framework_power plugin build|deploy|list|reverse`（`--plugin-solution new_PluginSoln`）。Skill：`dv-plugin-python`。
+
 ### 关键约束
 
 - 与 `framework/`、`metadata/` 隔离；复用代码在 `framework_power/client/`；认证复用

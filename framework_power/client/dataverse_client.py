@@ -609,6 +609,45 @@ class DataverseClient:
         values = response.json().get("value", [])
         return values[0].get("sdkmessageid") if values else None
 
+    def get_plugintypes_by_assembly(self, pluginassemblyid: str) -> list[dict[str, Any]]:
+        """List the PluginType records (one per IPlugin class) owned by an assembly.
+
+        A ``sdkmessageprocessingstep`` references a PluginType (via ``eventhandler``), NOT the assembly —
+        so step registration needs the plugintype id resolved from the assembly.
+        """
+        response = self.session.get(
+            self.get_api_url(
+                f"plugintypes?$filter=_pluginassemblyid_value eq {pluginassemblyid}"
+                "&$select=plugintypeid,name,typename,assemblyname&$top=100"
+            )
+        )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_sdk_message_filter(self, sdkmessageid: str, entity: str) -> Optional[str]:
+        """Resolve the sdkmessagefilter that scopes a message to an entity (e.g. Update+account)."""
+        response = self.session.get(
+            self.get_api_url(
+                f"sdkmessagefilters?$filter=_sdkmessageid_value eq {sdkmessageid} "
+                f"and primaryobjecttypecode eq '{_odata_quote(entity)}'&$top=1"
+            )
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0].get("sdkmessagefilterid") if values else None
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_sdk_message_filter(self, sdkmessageid: str, entity: str) -> str:
+        """Create an sdkmessagefilter scoping a message to an entity (for custom entities that lack one)."""
+        payload = {
+            "sdkmessageid@odata.bind": f"/sdkmessages({sdkmessageid})",
+            "primaryobjecttypecode": entity,
+        }
+        response = self.session.post(self.get_api_url("sdkmessagefilters"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, f"create sdkmessagefilter ({sdkmessageid}, {entity})")
+        return _entity_id(response) or ""
+
     @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
     def create_plugin_step(self, payload: dict[str, Any]) -> dict[str, Any]:
         """POST a serialized SDK message processing step."""
@@ -618,14 +657,99 @@ class DataverseClient:
         return {"sdkmessageprocessingstepid": _entity_id(response), "name": payload.get("name")}
 
     def get_steps_by_assembly(self, pluginassemblyid: str) -> list[dict[str, Any]]:
-        """List the SDK message processing steps owned by an assembly."""
+        """List the SDK message processing steps owned by an assembly.
+
+        A step references a PluginType (via ``eventhandler``), not the assembly directly (sdkmessageprocessingstep
+        has no ``_pluginassemblyid_value``), so resolve the assembly's plugintypes first, then the steps whose
+        ``eventhandler`` is one of them.
+        """
+        ptids = [p.get("plugintypeid") for p in self.get_plugintypes_by_assembly(pluginassemblyid)
+                 if p.get("plugintypeid")]
+        if not ptids:
+            return []
+        filt = " or ".join(f"_eventhandler_value eq {pid}" for pid in ptids)
         response = self.session.get(
-            self.get_api_url(
-                f"sdkmessageprocessingsteps?$filter=_pluginassemblyid_value eq {pluginassemblyid}"
-            )
+            self.get_api_url(f"sdkmessageprocessingsteps?$filter={filt}")
         )
         response.raise_for_status()
         return response.json().get("value", [])
+
+    def list_sdk_messages(self, *, filter_name: Optional[str] = None) -> list[dict[str, Any]]:
+        """List SDK messages (optionally filtered by name). Custom-action messages are auto-created
+        alongside their workflow (category=3)."""
+        q = "sdkmessages?$select=name,sdkmessageid&$top=1000"
+        if filter_name:
+            q = f"sdkmessages?$filter=name eq '{_odata_quote(filter_name)}'&$select=name,sdkmessageid&$top=1"
+        response = self.session.get(self.get_api_url(q))
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def update_plugin_step(self, step_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH an existing SDK message processing step."""
+        response = self.session.patch(
+            self.get_api_url(f"sdkmessageprocessingsteps({step_id})"), json=patch
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"update plugin step '{step_id}'")
+        return {"updated": True, "sdkmessageprocessingstepid": step_id}
+
+    def delete_plugin_step(self, step_id: str) -> dict[str, Any]:
+        """DELETE a SDK message processing step (teardown; not used by deploy)."""
+        response = self.session.delete(self.get_api_url(f"sdkmessageprocessingsteps({step_id})"))
+        if not response.ok:
+            self._raise_with_detail(response, f"delete plugin step '{step_id}'")
+        return {"deleted": True, "sdkmessageprocessingstepid": step_id}
+
+    # ---- plugin packages (Phase 8; NuGet path) ----
+
+    def list_plugin_packages(self) -> list[dict[str, Any]]:
+        """List all plugin packages (NuGet)."""
+        response = self.session.get(self.get_api_url("pluginpackages?$select=name,version&$top=100"))
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_plugin_package_by_name(self, name: str) -> Optional[dict[str, Any]]:
+        """Return the plugin package whose ``name == name``, or ``None``."""
+        encoded = _odata_quote(name)
+        response = self.session.get(
+            self.get_api_url(f"pluginpackages?$filter=name eq '{encoded}'&$top=1")
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        return values[0] if values else None
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_plugin_package(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a plugin package (NuGet ``.nupkg``); ``content`` is base64. Dataverse discovers the IPlugin
+        types in the package and auto-creates the ``pluginassembly``."""
+        response = self.session.post(self.get_api_url("pluginpackages"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create plugin package")
+        return {"pluginpackageid": _entity_id(response), "name": payload.get("name")}
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def update_plugin_package(self, pluginpackageid: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH an existing plugin package (e.g. replace base64 ``content`` / version)."""
+        response = self.session.patch(
+            self.get_api_url(f"pluginpackages({pluginpackageid})"), json=patch
+        )
+        if not response.ok:
+            self._raise_with_detail(response, f"update plugin package '{pluginpackageid}'")
+        return {"updated": True, "pluginpackageid": pluginpackageid}
+
+    # ---- custom actions (Phase 8; best-effort) ----
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_custom_action(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Best-effort: POST a ``workflows`` record with ``category=3`` (Action) to create a custom-action
+        definition. A functional/invokable Action typically also needs a definition (clientdata/XAML) +
+        activation, which the Web API alone may not provision reliably — callers should treat this as
+        best-effort and fall back to the manual flag (maker portal) on failure."""
+        response = self.session.post(self.get_api_url("workflows"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create custom action (workflow)")
+        return {"workflowid": _entity_id(response), "uniquename": payload.get("uniquename")}
 
     # ----------------------------------------------------- solution / publisher
     # Thin transport methods over the Web API. Create payloads are built by

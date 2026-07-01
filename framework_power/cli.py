@@ -71,6 +71,7 @@ from .ribbon_sync import (
     sync_ribbons,
 )
 from .ribbon_xml import to_ribbondiff
+from .plugin_sync import deploy_plugin, list_plugins, reverse_plugin
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
 DEFAULT_SOLUTIONS_DIR = "metadata_py/solutions"
@@ -79,6 +80,7 @@ DEFAULT_FORMS_DIR = "metadata_py/forms"
 DEFAULT_VIEWS_DIR = "metadata_py/views"
 DEFAULT_RIBBONS_DIR = "metadata_py/ribbons"
 DEFAULT_RIBBON_SOLUTION = "new_RibbonSoln"
+DEFAULT_PLUGIN_SOLUTION = "new_PluginSoln"
 
 
 def _publisher_prefix(config_path: str = PUBLISHERS_CONFIG) -> str:
@@ -814,6 +816,58 @@ def cmd_ribbon_reverse(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------- plugin (Phase 8)
+
+
+def cmd_plugin_build(args: argparse.Namespace) -> int:
+    from .client.plugin_build import build_plugin_project, load_plugin_project
+    try:
+        cfg = load_plugin_project(args.def_file)
+        plugin = build_plugin_project(args.project_dir, config=cfg)
+        _print_json({"name": plugin.name, "package_name": plugin.package_name,
+                     "content_kind": plugin.content_kind.value, "target_framework": plugin.target_framework,
+                     "version": plugin.version, "content_len": len(plugin.content),
+                     "steps": len(plugin.steps), "custom_actions": len(plugin.custom_actions)})
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_plugin_deploy(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        _print_json(deploy_plugin(
+            client, args.project_dir, def_path=args.def_file, prefix=_publisher_prefix(),
+            solution=args.plugin_solution))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_plugin_list(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        _print_json(list_plugins(client, include_system=args.include_system))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_plugin_reverse(args: argparse.Namespace) -> int:
+    client = get_client(args.env)
+    try:
+        plugin = reverse_plugin(client, args.name)
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+    _print_json({"name": plugin.name, "version": plugin.version,
+                 "steps": [s.name for s in plugin.steps]})
+    return 0
+
+
 # ----------------------------------------------------------------- entry
 
 
@@ -1157,6 +1211,33 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--application", action="store_true", help="Reverse the global Application Ribbon.")
     p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
     p.set_defaults(func=cmd_ribbon_reverse)
+
+    # --- plugin group (Phase 8) ---
+    p_plg = sub.add_parser("plugin", help="Build + deploy .NET plugins (NuGet package preferred).")
+    plg_sub = p_plg.add_subparsers(dest="plugin_command", required=True)
+
+    p = plg_sub.add_parser("build", help="Build a plugin project (offline; no deploy).")
+    p.add_argument("project_dir", help=".NET plugin project directory (contains the .csproj).")
+    p.add_argument("def_file", help="Python plugin definition file exporting PROJECT (e.g. plugin_def.py).")
+    p.set_defaults(func=cmd_plugin_build)
+
+    p = plg_sub.add_parser("deploy", help="Build + deploy a plugin (register assembly + steps).")
+    p.add_argument("project_dir", help=".NET plugin project directory (contains the .csproj).")
+    p.add_argument("def_file", help="Python plugin definition file exporting PROJECT (e.g. plugin_def.py).")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.add_argument("--plugin-solution", default=DEFAULT_PLUGIN_SOLUTION,
+                   help=f"Solution to add the plugin to (default: {DEFAULT_PLUGIN_SOLUTION}).")
+    p.set_defaults(func=cmd_plugin_deploy)
+
+    p = plg_sub.add_parser("list", help="List plugin assemblies + packages in the environment.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.add_argument("--include-system", action="store_true", help="Include Microsoft.* system assemblies.")
+    p.set_defaults(func=cmd_plugin_list)
+
+    p = plg_sub.add_parser("reverse", help="Reverse a plugin assembly (+ its steps) into a model summary.")
+    p.add_argument("name", help="Plugin assembly name.")
+    p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p.set_defaults(func=cmd_plugin_reverse)
 
     return parser
 
