@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 from .components._common import is_custom
 from .components.models import AccessRight, PrivilegeDepth, SecurityRole, TablePrivilege
+from .deployer import _is_already_exists
 
 logger = logging.getLogger(__name__)
 
@@ -111,10 +112,16 @@ def deploy_role(
     *,
     prefix: str = "new",
     config: Any = None,
+    solution: str | None = None,
 ) -> dict[str, Any]:
     """Upsert a role's table privileges (non-destructive). Raises if the role is missing.
 
-    Returns ``{id, role, tables: [{table, action, rights: [{right, action, depth?}]}]}``.
+    When ``solution`` is given, the (pre-existing) role is also added to that solution (code 20,
+    idempotent) — mirrors ``deploy_plugin(solution=…)``. Default ``None`` preserves the legacy
+    privilege-sync-only behavior.
+
+    Returns ``{id, role, tables: [{table, action, rights: [{right, action, depth?}]}]}``, plus an
+    optional ``solution`` key when ``solution`` was given.
     """
     existing = client.get_role_by_name(role.name)
     if existing is None:
@@ -131,7 +138,21 @@ def deploy_role(
             )
             continue
         result["tables"].append(_sync_table(client, role_id, table_priv))
+
+    if solution:
+        result["solution"] = _add_role_to_solution(client, solution, role_id, role.name)
     return result
+
+
+def _add_role_to_solution(client: Any, solution: str, role_id: str, role_name: str) -> dict[str, Any]:
+    """Add the role (code 20) to ``solution`` (idempotent). Assumes the solution already exists."""
+    try:
+        client.add_solution_component(solution, 20, role_id)
+        return {"name": solution, "object_id": role_id, "role": role_name, "action": "added"}
+    except Exception as e:  # noqa: BLE001
+        if _is_already_exists(e):
+            return {"name": solution, "object_id": role_id, "role": role_name, "action": "already_in_solution"}
+        return {"name": solution, "object_id": role_id, "role": role_name, "action": "failed", "error": str(e)}
 
 
 def _sync_table(client: Any, role_id: str, table_priv: TablePrivilege) -> dict[str, Any]:

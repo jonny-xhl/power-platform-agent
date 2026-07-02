@@ -31,6 +31,7 @@ class RoleFakeClient:
         self.role_id = "role-1"
         self._masks: dict[str, int] = dict(current or {})
         self.added: list[list[dict[str, Any]]] = []  # add_privileges_to_role calls
+        self.solution_adds: list[tuple[str, int, str]] = []  # add_solution_component calls
 
     def get_role_by_name(self, name: str) -> Optional[dict[str, Any]]:
         return {"roleid": self.role_id, "name": name} if self.role_exists else None
@@ -53,6 +54,10 @@ class RoleFakeClient:
         for p in privileges:
             self._masks[p["PrivilegeId"]] = _DEPTH_MASK[p["Depth"]]
         return {"synced": True, "count": len(privileges)}
+
+    def add_solution_component(self, solution: str, code: int, oid: str) -> dict[str, Any]:
+        self.solution_adds.append((solution, code, oid))
+        return {"status": "added"}
 
 
 def test_privilege_name_uses_schema_name():
@@ -127,3 +132,22 @@ def test_plan_is_read_only():
 def test_plan_missing_role_reports_missing():
     res = plan_role(RoleFakeClient(role_exists=False), _role(new_fpsmokea={AccessRight.READ: PrivilegeDepth.USER}), prefix="new")
     assert res["action"] == "missing"
+
+
+def test_deploy_role_adds_to_solution_when_given():
+    """deploy_role(solution=...) self-adds the role (code 20) — Phase 9 uniformity."""
+    client = RoleFakeClient(current={"pid:prvReadnew_FpSmokeA": 1})
+    role = _role(new_fpsmokea={AccessRight.READ: PrivilegeDepth.USER})
+    result = deploy_role(client, role, solution="new_MainSoln")
+    assert result["id"] == "role-1"
+    assert result["solution"]["name"] == "new_MainSoln"
+    assert client.solution_adds == [("new_MainSoln", 20, "role-1")]
+
+
+def test_deploy_role_no_solution_unchanged():
+    """Without solution=, deploy_role behaves exactly as before (no solution key, no add)."""
+    client = RoleFakeClient(current={"pid:prvReadnew_FpSmokeA": 1})
+    role = _role(new_fpsmokea={AccessRight.READ: PrivilegeDepth.USER})
+    result = deploy_role(client, role)
+    assert "solution" not in result
+    assert client.solution_adds == []

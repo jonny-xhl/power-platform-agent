@@ -55,6 +55,9 @@ step **引用 PluginType（`eventhandler_plugintype@odata.bind`），不是 asse
 + 实体限定 `sdkmessagefilterid@odata.bind` + stage/mode/rank/filteringattributes。工具自动：resolve PluginType（按
 assembly）→ sdkmessage（按 message 名）→ sdkmessagefilter（按 message+entity，缺则 create）→ 建 step。
 `PluginStep.plugin_type` 指定类名（多插件工程必填；单插件留空）。
+⚠️ **目标实体必须先存在**：注册实体级 step 前，工具先 `client.entity_exists(step.entity)` 预检——实体不在环境里就
+**直接 fail**（清晰报错 "target entity '...' not found; deploy the table first"），而不是让 Dataverse 在
+`sdkmessagefilters` 查询里抛晦涩的 `0x80041102 "entity not found in MetadataCache"` 400。故 step 的目标表得先 deploy。
 
 ## 解决方案
 

@@ -104,12 +104,24 @@ def _register_step(client: Any, step: PluginStep, assembly_id: str) -> dict[str,
         return {"name": step.name, "action": "failed", "error": f"SDK message '{step.message}' not found"}
     filter_id: Optional[str] = None
     if step.entity and step.entity != "none":  # entity-scoped step → needs an sdkmessagefilter
+        # The step's target entity must exist before a filter/step can be registered on it. Without
+        # this check Dataverse returns an opaque 400 (0x80041102 "entity not found in MetadataCache")
+        # from the sdkmessagefilters query, so fail fast with a clear root-cause message instead.
+        if not client.entity_exists(step.entity):
+            return {
+                "name": step.name,
+                "action": "failed",
+                "error": (
+                    f"target entity '{step.entity}' not found in env; "
+                    f"deploy the table before registering steps on it."
+                ),
+            }
         filter_id = client.get_sdk_message_filter(sdkmessage_id, step.entity)
         if not filter_id:
             try:
                 filter_id = client.create_sdk_message_filter(sdkmessage_id, step.entity)
             except Exception as e:  # noqa: BLE001
-                return {"name": step.name, "action": "failed", "error": f"sdkmessagefilter: {str(e)[:120]}"}
+                return {"name": step.name, "action": "failed", "error": f"sdkmessagefilter: {str(e)[:160]}"}
     res = client.create_plugin_step(
         _step_payload(step, sdkmessage_id=sdkmessage_id, plugintype_id=pt["plugintypeid"], filter_id=filter_id))
     return {"name": step.name, "action": "created", "id": res["sdkmessageprocessingstepid"]}

@@ -55,6 +55,9 @@ class FakeClient:
     def create_sdk_message_filter(self, mid, entity):
         return "filter-new"
 
+    def entity_exists(self, name):
+        return True
+
     def get_steps_by_assembly(self, aid):
         return [
             {
@@ -149,12 +152,18 @@ def test_lint_step_needs_message_and_entity():
 class FakePackageClient:
     """Fake client for the NuGet package path: uploading a package auto-creates the assembly."""
 
-    def __init__(self):
+    def __init__(self, existing_entities=None):
         self.packages = {}
         self.assemblies = {}
         self.steps = []
         self.actions_created = []
+        self._existing_entities = (
+            set(existing_entities) if existing_entities is not None else {"new_fpformsmoke"}
+        )
         self._sdk = {"Update": "msg-Update", "new_SmokeAction": "msg-SmokeAction"}
+
+    def entity_exists(self, name):
+        return name in self._existing_entities
 
     def get_plugin_package_by_name(self, name):
         return self.packages.get(name)
@@ -237,3 +246,14 @@ def test_deploy_custom_action_auto_creates_when_workflow_succeeds():
     assert r["custom_actions"][0]["action"] == "created"
     assert c.actions_created and c.actions_created[0]["category"] == 3  # Action
 
+
+def test_deploy_step_fails_clearly_when_target_entity_missing():
+    """When a step's target entity doesn't exist, fail fast with a clear root-cause message
+    (not the opaque 0x80041102 400 Dataverse returns from the sdkmessagefilters query)."""
+    c = FakePackageClient(existing_entities=set())  # new_fpformsmoke absent
+    r = plugin_mod.deploy(c, _package_model(), prefix="new")
+    step = r["steps"][0]
+    assert step["action"] == "failed"
+    assert "target entity 'new_fpformsmoke' not found" in step["error"]
+    # the entity-scoped step was NOT registered (the custom-action step is separate + unaffected)
+    assert all(s["name"] != "smoke.Update" for s in c.steps)

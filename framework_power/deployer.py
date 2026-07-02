@@ -61,6 +61,7 @@ def deploy_table(
     *,
     config: DeployConfig | None = None,
     prefix: str = "new",
+    solution: str | None = None,
 ) -> dict[str, Any]:
     """Deploy (create or sync) a ``Table`` to Dataverse.
 
@@ -74,9 +75,13 @@ def deploy_table(
         config: Optional :class:`DeployConfig` for delay/sleep tuning (tests inject
             zero-delay configs).
         prefix: Publisher prefix used to identify custom (deployable) components.
+        solution: Optional solution unique name; when set, the entity is added to it (code 1,
+            idempotent) after deploy — mirrors ``deploy_plugin(solution=…)``. Default ``None``
+            preserves the legacy no-membership behavior.
 
     Returns:
-        A result dict with ``entity``/``attributes``/``relationships`` action summaries.
+        A result dict with ``entity``/``attributes``/``relationships`` action summaries, plus an
+        optional ``solution`` key when ``solution`` was given.
     """
     cfg = config or DeployConfig()
     logical = table.logical_name
@@ -92,7 +97,27 @@ def deploy_table(
     _deploy_attributes(client, table, logical, entity_created, result, prefix)
     _deploy_relationships(client, table, logical, cfg, result, prefix)
 
+    if solution:
+        result["solution"] = _add_entity_to_solution(client, solution, logical)
+
     return result
+
+
+def _add_entity_to_solution(client: Any, solution: str, logical: str) -> dict[str, Any]:
+    """Add the entity (code 1) to ``solution`` (idempotent). Assumes the solution already exists."""
+    try:
+        mid = client.get_entity_metadata(logical).get("MetadataId")
+    except Exception as e:  # noqa: BLE001
+        return {"name": solution, "action": "failed", "error": f"resolve MetadataId: {e}"}
+    if not mid:
+        return {"name": solution, "action": "skipped", "note": "no MetadataId (standard entity?)"}
+    try:
+        client.add_solution_component(solution, 1, mid)
+        return {"name": solution, "object_id": mid, "action": "added"}
+    except Exception as e:  # noqa: BLE001
+        if _is_already_exists(e):
+            return {"name": solution, "object_id": mid, "action": "already_in_solution"}
+        return {"name": solution, "object_id": mid, "action": "failed", "error": str(e)}
 
 
 def plan_table(

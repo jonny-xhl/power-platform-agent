@@ -54,6 +54,7 @@ class FakeClient:
             "create_attribute": [],
             "update_attribute_by_logical_name": [],
             "create_relationship_from_json": [],
+            "add_solution_component": [],
         }
 
     def entity_exists(self, name: str) -> bool:
@@ -89,6 +90,10 @@ class FakeClient:
     def create_relationship_from_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls["create_relationship_from_json"].append(payload)
         return {"status": "created"}
+
+    def add_solution_component(self, solution: str, code: int, oid: str) -> dict[str, Any]:
+        self.calls["add_solution_component"].append((solution, code, oid))
+        return {"status": "added"}
 
 
 def _str_existing(name: str, *, max_length: int = 200, display: Label | None = None) -> dict[str, Any]:
@@ -279,3 +284,20 @@ def test_deploy_skips_standard_columns_and_relationships():
     rel_actions = {r["relationship"]: r["action"] for r in result["relationships"]}
     assert rel_actions["new_X_Account"] == "created"
     assert rel_actions["standard_rel"] == "skipped_standard"
+
+
+def test_deploy_table_adds_to_solution_when_given():
+    """deploy_table(solution=...) self-adds the entity (code 1) — Phase 9 uniformity."""
+    client = FakeClient(table_exists=False)
+    result = deploy_table(client, _basic_table(), config=NO_DELAY, solution="new_MainSoln")
+    assert result["entity"]["action"] == "created"
+    assert result["solution"]["name"] == "new_MainSoln"
+    assert client.calls["add_solution_component"] == [("new_MainSoln", 1, "fake-id")]
+
+
+def test_deploy_table_no_solution_unchanged():
+    """Without solution=, deploy_table behaves exactly as before (no solution key, no add)."""
+    client = FakeClient(table_exists=False)
+    result = deploy_table(client, _basic_table(), config=NO_DELAY)
+    assert "solution" not in result
+    assert client.calls["add_solution_component"] == []

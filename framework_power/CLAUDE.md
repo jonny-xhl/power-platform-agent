@@ -485,6 +485,10 @@ Plugin = 程序集 + SDK message step + custom action。Phase 8 把 Phase 2 的�
 Please export the Package directly."**；加 10030 才行（package 封装 assembly+plugintypes+steps）。故 `add_targets`：
 包路径 = `[(10030, package_id), (92, step_id)…]`；assembly 路径 = `[(91, assembly_id), (92, step_id)…]`。
 **step 注册幂等**：deploy 先 `get_steps_by_assembly` 拿已有 step 名，同名 skip（`action:"exists"`）→ 重 deploy 不产重复 step。
+**step 目标实体预检**：注册实体级 step 前 `_register_step` 先 `client.entity_exists(step.entity)`——实体不在环境就**直接 fail**
+（清晰报错 "target entity '...' not found; deploy the table first"），否则 Dataverse 在 `sdkmessagefilters` 查询抛晦涩的
+`0x80041102 "entity ... not found in MetadataCache"` 400（Phase 9 workflow smoke 踩到——`new_fpformsmoke` 被 env 清掉后）。
+故 step 的目标表必须先 deploy。
 
 **Custom action（best-effort）：** `POST workflows`(category=3 Action) 尝试自动建定义 + 注册引用其 SDK message 的
 step；Web API 单独建可调用 Action 不可靠（可能要 clientdata/激活）→ 失败回退 `manual_update_required`（maker 门户建）。
@@ -499,6 +503,34 @@ plugintype 反查（`_eventhandler_value`），不是按 assembly。
 **CLI：** `python -m framework_power plugin build <dir> <def.py>`（离线打包预览）/ `deploy <dir> <def.py> --env dev
 [--plugin-solution NAME]` / `list [--include-system]` / `reverse <name>`。定义文件 `<dir>/plugin_def.py` 导出
 `PROJECT = PluginProject(...)`。Skill `dv-plugin-python`。
+
+### 9.8 开发工作流编排域（Phase 9，离线验证 + 待 live）
+
+跨阶段编排层（`workflow.py`）：一个 `metadata_py/project.py` 清单（导出 `PROJECT = Project(...)`）驱动
+整条开发链，跨**两个解决方案**：
+
+- **链路**：`optionsets → tables → webresources → plugins → forms → views → roles(opt-in) → ribbon`。
+  **ribbon 专用解决方案**（`ribbon_solution`，无 Web API 直写）；**其它进主解决方案**（`main_solution`）。
+  两者**必须不同名**（`lint_workflow` 强制）。`WORKFLOW_STAGE_ORDER` 钉死顺序。
+- **编排器零手动加组件（核心契约）**：每个 deploy/sync 函数收 `solution=` **自管归属**——编排器**绝不**调用
+  `add_solution_component`；只做 ① `_ensure_solutions`（publisher + 两个 solution 外壳，用清单里的 publisher
+  而非 phase 的 prefix-lookup hack）② 按链序跑 `_run_stage` ③ 最终 `publish_all_xml`（optionset/table 元数据靠它
+  生效；webresource 按 id、form/view 按实体、ribbon 随 import 已各自精准发布）。
+  - **三处加法式改动**（默认 None/新增=旧行为不变，168+307 测试不受影响）：`deployer.deploy_table` +
+    `solution=None`（自加 code 1）、`role_deployer.deploy_role` + `solution=None`（自加 code 20）、
+    新增 `optionset_sync.py`（`sync_optionsets`/`plan_optionsets`/`load_optionset`，镜像 `form_sync`）。
+- **清单列表是 stems**（`<dir>/<stem>.py` 解析）；`tables`/`roles` 走各自 registry（`get_definition`/
+  `get_role_definition`）；`plugins` 是工程目录（含 `plugin_def.py`，`deploy_plugin` 内 dotnet 构建）；
+  `webresources` 是 bool（同步整个 `webresources/`）。某阶段无内容 → `_content_stages` 自动剔除 → 结果里不出现。
+- **阶段过滤**：`--only`/`--skip`（取值见 `WORKFLOW_STAGE_ORDER`）；`--include-roles`（roles 默认关，正交的安全
+  配置）；`--no-publish`。`plan_workflow` 全 `would_*`、不 ensure solution、不 publish（只读）。
+- **optionset 独立文件是新约定**：`metadata_py/optionsets/<stem>.py` 导出 `OPTIONSET`（此前 optionset 只能
+  内联进 Solution）。optionset create-only，选项变 → `manual_update_required`。
+- **loaders**：`load_project`（importlib + uuid 模块名，镜像 `_load_solution_module`）；其余复用各 phase 的
+  `load_form`/`load_view`/`load_ribbon`/`load_optionset`/`get_definition`/`get_role_definition`。
+- **CLI：** `python -m framework_power workflow show|lint|plan|deploy`（`--project` 默认
+  `metadata_py/project.py`）。Skill `dv-workflow-python`。测试 `test_workflow.py`（13）+ `test_optionset_sync.py`（4）
+  + deployer/role_deployer 各 +2（solution 形参），离线全绿。
 
 ## 10. 如何扩展
 

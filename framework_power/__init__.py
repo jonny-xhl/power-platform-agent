@@ -150,6 +150,21 @@ from .ribbon_sync import (
     reverse_ribbons,
     sync_ribbons,
 )
+from .optionset_sync import (
+    OptionSetSyncConfig,
+    load_optionset,
+    plan_optionsets,
+    sync_optionsets,
+)
+from .workflow import (
+    DEFAULT_PROJECT_PATH,
+    WORKFLOW_STAGE_ORDER,
+    Project,
+    deploy_workflow,
+    lint_workflow,
+    load_project,
+    plan_workflow,
+)
 
 __all__ = [
     # models
@@ -283,4 +298,17 @@ __all__ = [
     "plan_ribbons",
     "reverse_ribbons",
     "sync_ribbons",
+    # global optionset sync wrapper (Phase 9)
+    "OptionSetSyncConfig",
+    "load_optionset",
+    "plan_optionsets",
+    "sync_optionsets",
+    # cross-phase development workflow (Phase 9)
+    "DEFAULT_PROJECT_PATH",
+    "WORKFLOW_STAGE_ORDER",
+    "Project",
+    "deploy_workflow",
+    "lint_workflow",
+    "load_project",
+    "plan_workflow",
 ]

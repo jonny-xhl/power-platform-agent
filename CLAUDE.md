@@ -188,6 +188,26 @@ custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly �
   （默认 `PP.Crm`）；custom action 自动建 best-effort（失败回退 manual）。
 - CLI：`python -m framework_power plugin build|deploy|list|reverse`（`--plugin-solution new_PluginSoln`）。Skill：`dv-plugin-python`。
 
+### Phase 9 — 开发工作流编排（已完成，离线验证 + 待 live）
+
+把 Phase 1–8 的孤立 deploy 命令串成**一条按依赖顺序的开发链**，由**一个显式清单**驱动，跨
+**两个解决方案**（一条命令部署全部）：
+
+- **链路（用户确认的最长链路）**：`Global Optionset → Entity(+Relationship) → webresource → plugin →
+  form → view → [roles] → ribbon`。**ribbon 单独专用解决方案**（无 Web API 直写，走 export/import）；
+  **其它全部装进主解决方案**。两者必须不同名（lint 强制）。
+- **编排器零手动加组件**：每个 deploy/sync 函数都收 `solution=` **自管归属**——编排器只负责
+  ① ensure 两个 solution 外壳（含 publisher）② 按链序跑各阶段 ③ 最终 `PublishAllXml`（optionset/table
+  元数据靠它生效）。为此 Phase 9 做了三处**加法式**改动：`deploy_table`/`deploy_role` 加 `solution=None`
+  形参（默认 None=旧行为不变）；新增 `optionset_sync.py`（optionset 此前是唯一没有 `*_sync.py` 的组件类型）。
+- **显式清单 `metadata_py/project.py`**（导出 `PROJECT = Project(...)`）：`main_solution`/`ribbon_solution`/
+  `publisher`/`version` + 各阶段组件列表。列表是 **stems**（按 `<dir>/<stem>.py` 解析）；`tables`/`roles`
+  是名称引用（走 registry）；`plugins` 是工程目录；`webresources` 是 bool。**某阶段没配内容则自动跳过**。
+- **阶段过滤**：`--only a,b` / `--skip a,b`（取值：optionsets/tables/webresources/plugins/forms/views/roles/
+  ribbon）；`--include-roles`（角色阶段默认关，opt-in）；`--no-publish`。
+- CLI：`python -m framework_power workflow show|lint|plan|deploy`（`--project metadata_py/project.py`）。
+  Skill：`dv-workflow-python`。
+
 ### 关键约束
 
 - 与 `framework/`、`metadata/` 隔离；复用代码在 `framework_power/client/`；认证复用
@@ -415,6 +435,8 @@ Claude Code 技能位于 `.claude/skills/`：
 - `dv-form-python` — `framework_power` 窗体结构化建模（逆向/改布局/绑事件/新建，Phase 5）
 - `dv-view-python` — `framework_power` 视图结构化建模（逆向/加列/排序/过滤/新建，Phase 6）
 - `dv-ribbon-python` — `framework_power` ribbon 定制（加按钮/绑 JS/CustomRule 显隐/隐藏 OOB，Phase 7）
+- `dv-plugin-python` — `framework_power` plugin 构建/注册（NuGet PluginPackage 优先，net462/net471，Phase 8）
+- `dv-workflow-python` — `framework_power` 跨阶段开发工作流编排（project.py 清单驱动整条链，主 + ribbon 两个解决方案，Phase 9）
 
 ### CI
 

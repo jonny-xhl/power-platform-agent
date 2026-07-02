@@ -72,6 +72,13 @@ from .ribbon_sync import (
 )
 from .ribbon_xml import to_ribbondiff
 from .plugin_sync import deploy_plugin, list_plugins, reverse_plugin
+from .workflow import (
+    DEFAULT_PROJECT_PATH,
+    deploy_workflow,
+    lint_workflow,
+    load_project,
+    plan_workflow,
+)
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
 DEFAULT_SOLUTIONS_DIR = "metadata_py/solutions"
@@ -871,6 +878,91 @@ def cmd_plugin_reverse(args: argparse.Namespace) -> int:
 # ----------------------------------------------------------------- entry
 
 
+# ----------------------------------------------------------------- workflow (Phase 9)
+
+
+def _stage_set(value: Optional[str]) -> Optional[set[str]]:
+    """Parse a comma-separated ``--only``/``--skip`` value into a set (or None)."""
+    if not value:
+        return None
+    return {s.strip() for s in value.split(",") if s.strip()}
+
+
+def cmd_workflow_show(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    _print_json(
+        {
+            "main_solution": project.main_solution,
+            "ribbon_solution": project.ribbon_solution,
+            "version": project.version,
+            "publisher": project.publisher.name if project.publisher else None,
+            "webresources": project.webresources,
+            "counts": {
+                "optionsets": len(project.optionsets),
+                "tables": len(project.tables),
+                "plugins": len(project.plugins),
+                "forms": len(project.forms),
+                "views": len(project.views),
+                "ribbons": len(project.ribbons),
+                "roles": len(project.roles),
+            },
+            "optionsets": project.optionsets,
+            "tables": project.tables,
+            "plugins": project.plugins,
+            "forms": project.forms,
+            "views": project.views,
+            "ribbons": project.ribbons,
+            "roles": project.roles,
+        }
+    )
+    return 0
+
+
+def cmd_workflow_lint(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    issues = lint_workflow(project, prefix=_publisher_prefix())
+    errors = [i for i in issues if i.severity == ERROR]
+    warnings = [i for i in issues if i.severity == WARNING]
+    status = "FAIL" if errors else "ok"
+    print(f"[{status}] {args.project}  ({len(errors)} err, {len(warnings)} warn)")
+    for i in issues:
+        print(f"    {i.severity}: {i.message}")
+    return 1 if has_errors(issues) else 0
+
+
+def cmd_workflow_plan(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    client = get_client(args.env)
+    _print_json(
+        plan_workflow(
+            client,
+            project,
+            prefix=_publisher_prefix(),
+            include_roles=args.include_roles,
+            skip=_stage_set(args.skip),
+            only=_stage_set(args.only),
+        )
+    )
+    return 0
+
+
+def cmd_workflow_deploy(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    client = get_client(args.env)
+    _print_json(
+        deploy_workflow(
+            client,
+            project,
+            prefix=_publisher_prefix(),
+            include_roles=args.include_roles,
+            skip=_stage_set(args.skip),
+            only=_stage_set(args.only),
+            publish=not args.no_publish,
+        )
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="framework_power",
@@ -1238,6 +1330,54 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name", help="Plugin assembly name.")
     p.add_argument("--env", default=None, help="Source environment (default: config 'current').")
     p.set_defaults(func=cmd_plugin_reverse)
+
+    # --- workflow group (Phase 9) ---
+    p_wf = sub.add_parser(
+        "workflow",
+        help="Run the full dev chain across two solutions (main + dedicated ribbon).",
+    )
+    wf_sub = p_wf.add_subparsers(dest="workflow_command", required=True)
+
+    p = wf_sub.add_parser("show", help="Print the resolved project manifest (no network).")
+    p.add_argument(
+        "--project", default=DEFAULT_PROJECT_PATH, help=f"Project manifest (default: {DEFAULT_PROJECT_PATH})."
+    )
+    p.set_defaults(func=cmd_workflow_show)
+
+    p = wf_sub.add_parser("lint", help="Offline manifest checks (no network).")
+    p.add_argument(
+        "--project", default=DEFAULT_PROJECT_PATH, help=f"Project manifest (default: {DEFAULT_PROJECT_PATH})."
+    )
+    p.set_defaults(func=cmd_workflow_lint)
+
+    p = wf_sub.add_parser("plan", help="Read-only dry run of the whole chain.")
+    p.add_argument(
+        "--project", default=DEFAULT_PROJECT_PATH, help=f"Project manifest (default: {DEFAULT_PROJECT_PATH})."
+    )
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.add_argument("--only", default=None, help="Comma-separated stages to run (default: all content stages).")
+    p.add_argument("--skip", default=None, help="Comma-separated stages to skip.")
+    p.add_argument(
+        "--include-roles", action="store_true", help="Include the role-privilege-sync stage (default off)."
+    )
+    p.set_defaults(func=cmd_workflow_plan)
+
+    p = wf_sub.add_parser("deploy", help="Run the full chain (ensure solutions -> stages -> publish).")
+    p.add_argument(
+        "--project", default=DEFAULT_PROJECT_PATH, help=f"Project manifest (default: {DEFAULT_PROJECT_PATH})."
+    )
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.add_argument("--only", default=None, help="Comma-separated stages to run (default: all content stages).")
+    p.add_argument(
+        "--skip",
+        default=None,
+        help="Comma-separated stages to skip (e.g. 'plugins' to skip the .NET build).",
+    )
+    p.add_argument(
+        "--include-roles", action="store_true", help="Include the role-privilege-sync stage (default off)."
+    )
+    p.add_argument("--no-publish", action="store_true", help="Skip the final PublishAllXml.")
+    p.set_defaults(func=cmd_workflow_deploy)
 
     return parser
 
