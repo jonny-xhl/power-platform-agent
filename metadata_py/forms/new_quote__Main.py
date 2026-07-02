@@ -1,4 +1,4 @@
-"""CPQ Main form (refined from auto-created) — framework_power."""
+"""CPQ Main form (refined) + JS libraries + OnLoad handler — framework_power."""
 
 from framework_power import Form, FormType, FormTab, FormColumn, FormSection, FormRow, FormCell, FormControl, FormLabel, FormLibrary, FormEvent, FormEventHandler
 
@@ -385,8 +385,41 @@ FORM: Form = Form(
             attrs={}
         )
     ],
-    libraries=[],
-    events=[],
+    libraries=[
+        FormLibrary(
+            name='new_/shared/js/XRM.Common.js',
+            library_unique_id=''
+        ),
+        FormLibrary(
+            name='new_/js/new_quote/new_quote.optionset.js',
+            library_unique_id=''
+        ),
+        FormLibrary(
+            name='new_/js/new_quote/new_quote.form.js',
+            library_unique_id=''
+        )
+    ],
+    events=[
+        FormEvent(
+            name='onload',
+            active=True,
+            application=False,
+            handlers=[
+                FormEventHandler(
+                    function_name='QuoteForm.handleFormLoad',
+                    library_name='new_/js/new_quote/new_quote.form.js',
+                    handler_unique_id='',
+                    enabled=True,
+                    parameters='',
+                    pass_execution_context=True,
+                    internal=False,
+                    attrs={}
+                )
+            ],
+            control_id=None,
+            attrs={}
+        )
+    ],
     root_attrs={},
     extras_pre_xml='',
     extras_post_xml=''
