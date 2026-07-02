@@ -1,24 +1,226 @@
-# Metadata Deploy (`framework_power`)
+# 元数据部署
 
-A self-contained, **Python-first** library for deploying Dataverse tables. Instead of
-authoring YAML and converting it to Web API JSON, you define a table as **typed Python
-models** — the model definition *is* the single source of truth — and reconcile it
-against an environment with `deploy_table()`.
+项目提供**两套**元数据部署方式，按需选用：
 
-This package is intentionally **isolated** from the legacy `framework/` YAML toolchain:
-it does not import from or modify `framework/`. Reused transport/auth/config/retry code
-lives as copies under `framework_power/client/`.
+| 方式 | 定义格式 | 部署入口 | 适用场景 |
+|------|----------|----------|----------|
+| **Legacy YAML + MCP** | `metadata/*.yaml` | MCP 工具 (`framework/mcp_serve.py`) | 已有 YAML 资产；需要 AI 通过 MCP 工具交互式部署 |
+| **Python API (`framework_power`)** | `metadata_py/*.py` / Python 代码 | CLI (`python -m framework_power`) 或代码调用 | 新项目；追求类型安全与 IDE 支持 |
 
-## Why
+两套方式共享相同的认证和 `config/environments.yaml` 配置，但代码层面**互相隔离**，
+`framework_power` 不导入也不修改 `framework/`。
 
-- One executable source of truth per table (no separate YAML + converter).
-- Full attribute-type coverage (String, Integer, BigInt, Money, Decimal, Double,
-  Picklist, Boolean, Memo, DateTime, File) with MaxLength / Precision / ranges.
-- Multi-language labels (zh-CN `2052` + en-US `1033`, or any languages).
-- Create **and** update (PATCH sync of updatable properties) **and** relationships.
-- No new dependencies (`requests` + `msal` already in the project).
+---
 
-## Quick start
+## Legacy 方式：YAML + MCP 工具链部署
+
+### 整体流程
+
+```
+需求设计 → YAML 编写 → 离线验证 → 命名转换 → MCP 工具部署 → Dataverse
+```
+
+### 1. YAML 元数据编写
+
+在 `metadata/` 目录下编写声明式 YAML 文件：
+
+```
+metadata/
+├── _schema/              # JSON Schema 定义（验证用）
+│   ├── table_schema.yaml
+│   ├── form_schema.yaml
+│   └── view_schema.yaml
+├── tables/               # 表定义
+│   ├── account.yaml
+│   └── contact.yaml
+├── forms/                # 表单定义
+├── views/                # 视图定义
+├── optionsets/           # 全局选项集
+├── webresources/         # Web Resource 配置
+├── ribbon/               # 命令栏定义
+├── sitemap/              # 应用导航定义
+├── solutions/            # 解决方案定义
+└── plugins/              # 插件元数据
+```
+
+**表 YAML 示例：**
+
+```yaml
+$schema: "../_schema/table_schema.yaml"
+
+schema:
+  schema_name: account
+  display_name: 客户
+  ownership_type: UserOwned
+  has_notes: true
+
+attributes:
+  - name: account_name
+    type: String
+    display_name: 客户名称
+    required: true
+    max_length: 200
+    is_primary_name: true
+
+  - name: customer_status
+    type: Picklist
+    display_name: 客户状态
+    option_set_ref: new_customer_status
+
+lookup_attributes:
+  - name: primary_contact
+    type: Lookup
+    display_name: 主要联系人
+    entity: contact
+
+relationships:
+  - schema_name: account_primary_contact
+    referencing_entity: account
+    referenced_entity: contact
+    referencing_attribute: primary_contact
+    cascade:
+      assign: NoCascade
+      delete: RemoveLink
+```
+
+### 2. 离线验证
+
+**`build_and_validate.py`** — CI/CD 构建验证脚本，在代码提交前运行：
+
+| 验证阶段 | 检查内容 |
+|----------|----------|
+| Python 语法 | `ast.parse()` 遍历所有 `*.py` 文件 |
+| 项目结构 | 检查 `framework/agents/`、`framework/utils/`、`config/`、`metadata/_schema/` 等必需目录 |
+| 依赖完整性 | 检查 `requirements.txt` 中的必需依赖 (mcp, PyYAML, jsonschema, msal, requests) |
+| YAML 结构 | 遍历所有 `*.yaml`，检查制表符、冒号空格等基础语法 |
+
+成功退出码 0，失败退出码 1，并生成 `BUILD_REPORT.md`。
+
+**Schema 验证** — 通过 MCP 工具 `metadata_validate` 在线执行，`SchemaValidator`
+加载 `metadata/_schema/` 中的 JSON Schema 定义，验证 YAML 数据是否合法。
+
+### 3. 命名转换
+
+`NamingConverter` 从 `config/naming_rules.yaml` 和 `config/publishers.yaml`
+读取规则，自动：
+
+- 将 display_name 转换为 schema_name（如 "AccountNumber" → `new_account_number`）
+- 添加发布商前缀（默认 `new_`）
+- 保护标准实体（`account`、`contact`、`systemuser` 等），不做转换
+
+### 4. MCP 工具部署
+
+MCP 服务器入口为 `framework/mcp_serve.py`，按工具名前缀路由到不同 Agent：
+
+**认证与环境：**
+
+| MCP 工具 | 说明 |
+|----------|------|
+| `auth_login` | 使用 OAuth 2.0 Client Credentials 连接到 Dataverse 环境 |
+| `auth_status` | 查看当前认证状态 |
+| `environment_switch` | 切换部署目标环境 |
+| `environment_list` | 列出所有可用环境 |
+
+**元数据操作（由 `MetadataAgent` 处理）：**
+
+| MCP 工具 | 说明 |
+|----------|------|
+| `metadata_parse` | 解析 YAML 文件，自动检测类型并标准化为字典 |
+| `metadata_validate` | 根据 Schema 验证 YAML 定义的合法性 |
+| `metadata_list` | 列出本地 YAML 元数据文件 |
+| `metadata_apply` | 高层工具：根据 metadata_type 自动查找到对应 YAML 并调用创建方法 |
+| `metadata_create_table` | 创建/更新 Dataverse 表（含字段和关系 Deep Insert） |
+| `metadata_create_attribute` | 单独创建表字段 |
+| `metadata_create_form` | 创建/更新表单（FormXml 自动生成） |
+| `metadata_create_view` | 创建/更新视图（FetchXml + LayoutXml 自动生成） |
+| `metadata_sync_webresource` | 同步单个 Web Resource 文件 |
+| `metadata_sync_webresource_batch` | 批量同步 Web Resources |
+| `metadata_export` | 从 Dataverse 反向导出为 YAML |
+| `metadata_diff` | 对比本地 YAML 与云端实体差异（属性级别） |
+| `metadata_export_dictionary` | 导出数据字典 |
+| `metadata_generate_optionset_constants` | 生成选项集常量代码 |
+
+**解决方案操作（由 `SolutionAgent` 处理）：**
+
+| MCP 工具 | 说明 |
+|----------|------|
+| `solution_sync_from_yaml` | **完整 5 步部署流程**（详见下文） |
+| `solution_plan` | 干运行预览同步计划 |
+| `solution_validate` | 验证解决方案 YAML 完整性和组件文件存在性 |
+| `solution_scan` | 扫描并列出解决方案引用的所有组件 |
+| `solution_export` | 导出完整解决方案为 .zip |
+| `solution_import` | 导入解决方案 |
+| `solution_diff` | 对比本地元数据与解决方案差异 |
+| `solution_list` | 列出解决方案 |
+| `solution_add_component` | 将组件添加到解决方案 |
+
+**命名工具（由 `CoreToolHandler` 处理）：**
+
+| MCP 工具 | 说明 |
+|----------|------|
+| `naming_convert` | 将 display_name 转为 schema_name |
+| `naming_validate` | 验证 schema_name 规范（长度、禁用字符等） |
+| `naming_bulk_convert` | 批量命名转换 |
+
+**插件工具（由 `PluginAgent` 处理）：**
+
+| MCP 工具 | 说明 |
+|----------|------|
+| `plugin_build` | 构建 .NET 插件程序集 |
+| `plugin_deploy` | 部署插件到 Dataverse |
+| `plugin_step_register` | 注册插件步骤 |
+
+### 5. 解决方案级完整部署流程
+
+通过 `solution_sync_from_yaml` 触发，按依赖顺序执行 5 步：
+
+```
+1. 确保发布商存在     (_ensure_publisher_exists)
+       ↓
+2. 创建/更新解决方案   (_ensure_solution_exists)
+       ↓
+3. 按顺序同步组件      (_sync_component)
+   optionset → table → form → view → webresource → plugin
+       ↓
+4. 添加组件到解决方案  (_add_component_to_solution)
+       ↓
+5. 发布解决方案        (_publish_solution_wrapper)
+```
+
+### 6. YAML 到 Dataverse Web API 的映射
+
+```
+YAML 定义                               → Dataverse Web API 端点
+─────────────────────────────────────────────────────────────────────
+metadata/tables/*.yaml (schema)         → EntityDefinitions (POST/PATCH)
+metadata/tables/*.yaml (attributes)     → EntityDefinitions({id})/Attributes (POST)
+metadata/tables/*.yaml (relationships)  → RelationshipDefinitions (Deep Insert POST)
+metadata/forms/*.yaml (FormXml 自动生成) → systemforms (POST/PATCH)
+metadata/views/*.yaml (FetchXml 自动生成) → savedqueries (POST/PATCH)
+metadata/webresources/ (Base64 编码)     → webresourceset (POST/PATCH)
+metadata/solutions/*.yaml               → solutions + AddSolutionComponent (POST)
+metadata/plugins/*.yaml                 → pluginassemblies + sdkmessageprocessingsteps
+```
+
+---
+
+## 新方式：Python API (`framework_power`)
+
+一个自包含的 **Python-first** 库。无需编写 YAML 再转换为 Web API JSON，
+直接用**类型化 Python 模型**定义表 —— 模型定义本身*就是*唯一真实来源 —— 然后通过
+`deploy_table()` 同步到目标环境。
+
+### 优势
+
+- 每张表一个可执行的真实来源（无需单独的 YAML + 转换器）。
+- 完整覆盖字段类型（String、Integer、BigInt、Money、Decimal、Double、
+  Picklist、Boolean、Memo、DateTime、File），支持 MaxLength / Precision / 范围约束。
+- 多语言标签（zh-CN + en-US，或任意语言）。
+- 支持**创建**与**更新**（PATCH 同步可更新属性）以及**关系**。
+- 命名采用**校验而非自动改写**（与 YAML 路径不同），保证定义的可预期性。
+- 无需额外依赖（项目已使用 `requests` + `msal`）。
+
+### 快速开始
 
 ```python
 from framework_power import Table, Column, deploy_table, get_client
@@ -36,87 +238,115 @@ table = Table(
 print(deploy_table(get_client("dev"), table))
 ```
 
-A complete reference script covering every column type + a 1:N relationship lives at
-`framework_power/examples/setup_projectbudget.py`:
+完整参考脚本（覆盖所有字段类型 + 1:N 关系）位于 `framework_power/examples/setup_projectbudget.py`：
 
 ```bash
 python -m framework_power.examples.setup_projectbudget --env dev
 ```
 
-## Defining & deploying tables (the CLI workflow)
+### CLI 工作流
 
-The intended pipeline is **需求 → definition → sync**, with definitions living in
-`metadata_py/tables/` (one `<schema>.py` per table, each exposing `TABLE`). Drive it
-through one CLI:
+推荐流水线为 **需求 → 定义 → 同步**，定义文件存放在 `metadata_py/tables/` 下
+（每表一个 `<schema>.py`，各暴露 `TABLE`）。通过统一的 CLI 驱动：
 
 ```bash
-python -m framework_power list                           # discover metadata_py/tables/*.py
-python -m framework_power show new_projectbudget         # print the serialized payload (offline)
-python -m framework_power lint new_projectbudget         # offline convention gate (0 errors required)
-python -m framework_power lint                           # lint ALL definitions
-python -m framework_power plan new_projectbudget --env dev   # read-only dry run
-python -m framework_power deploy new_projectbudget --env dev # sync to Dataverse
-python -m framework_power deploy-all --env dev           # deploy all, referenced entities first
+python -m framework_power list                           # 发现 metadata_py/tables/*.py
+python -m framework_power show new_projectbudget         # 打印序列化后的请求体（离线模式）
+python -m framework_power lint new_projectbudget         # 离线约定检查（要求 0 错误）
+python -m framework_power lint                           # 检查所有定义
+python -m framework_power plan new_projectbudget --env dev   # 只读干运行
+python -m framework_power deploy new_projectbudget --env dev # 同步到 Dataverse
+python -m framework_power deploy-all --env dev           # 全量部署，按引用顺序处理
 ```
 
-- **Requirement → definition**: the `dv-model-to-python` skill converts an Excel design
-  (from `design-dv-model`) into `metadata_py/tables/<schema>.py`, constrained by
-  [`docs/metadata-py-conventions.md`](metadata-py-conventions.md) and the typed models.
-- **Triggering**: `framework_power` is a plain library (not MCP tools), so the AI runs
-  the CLI above via Bash — no MCP round-trip.
-- **`lint` is the constraint gate**: it enforces the authoring contract offline (prefix,
-  PascalCase, single primary-name, duplicate checks) so generation is bounded before any
-  environment access. Unlike the YAML path, names are **validated, not auto-rewritten**.
+- **需求 → 定义**：`dv-model-to-python` skill 将 Excel 设计（来自 `design-dv-model`）
+  转换为 `metadata_py/tables/<schema>.py`。
+- **触发方式**：`framework_power` 是普通库（非 MCP 工具），AI 通过终端执行上述 CLI
+  —— 无需 MCP 来回。
+- **`lint` 为约束门禁**：离线强制编写合约（前缀、PascalCase、单主名称、重复检查），
+  确保在访问环境前生成结果已被约束。
 
-A canonical definition lives at `metadata_py/tables/new_projectbudget.py`; a thin
-programmatic runner is at `framework_power/examples/setup_projectbudget.py`.
+### 部署语义
 
-## Deploy semantics
+`deploy_table(client, table)` **幂等且无破坏性**：
 
-`deploy_table(client, table)` is **idempotent and never destructive**:
-
-| Object | Behavior |
+| 对象 | 行为 |
 | --- | --- |
-| Entity | Create if missing; otherwise PATCH updatable props (DisplayName, Description, HasNotes, IsAuditEnabled, IsQuickCreateEnabled). |
-| Attribute | On first entity create, columns ride along inline. On an existing entity: POST if missing; otherwise PATCH only the updatable, differing properties. No-op when nothing differs. |
-| Relationship | Create-only (Dataverse cannot PATCH relationship definitions). Skipped if present. |
+| 实体 | 缺失则创建；否则 PATCH 可更新属性（DisplayName、Description、HasNotes、IsAuditEnabled、IsQuickCreateEnabled）。 |
+| 字段 | 实体首次创建时内联携带。实体已存在时：缺失则 POST；否则仅 PATCH 有差异的可更新属性。无差异时无操作。 |
+| 关系 | 仅创建（Dataverse 不支持 PATCH 关系定义）。已存在则跳过。 |
 
-**Picklist/Boolean option sets are create-only** via the attribute endpoint. If a script
-changes options on an existing column, the deploy reports `manual_update_required`
-(update via the maker portal or `InsertOptionValue`/`UpdateOptionValue` actions).
+**Picklist/Boolean 选项集仅支持创建**（通过字段端点）。如果脚本修改了已有字段的选项，
+部署结果会报告 `manual_update_required`（需通过 Maker Portal 或
+`InsertOptionValue`/`UpdateOptionValue` 操作手动更新）。
 
-## Metadata propagation & retries
+### 元数据传播与重试
 
-Dataverse needs 3–30s after each create for index build / cache propagation. The
-deployer waits between phases and retries transient signals from the `dv-metadata`
-skill (`0x80040216`, `0x80060891`, "another customization operation is running",
-MetadataCache misses) with backoff. Tune delays via `DeployConfig`:
+Dataverse 每次创建后需要 3–30 秒完成索引构建 / 缓存传播。部署器会在各阶段之间等待，
+并对瞬时信号（`0x80040216`、`0x80060891`、
+"another customization operation is running"、MetadataCache 未命中）进行退避重试。
+可通过 `DeployConfig` 调整等待时间：
 
 ```python
 from framework_power import deploy_table, DeployConfig
 deploy_table(client, table, config=DeployConfig(after_entity_create_delay=8.0))
 ```
 
-## Labels
+### 标签
 
-`Label` carries one or more `(text, language_code)` pairs. Helpers:
+`Label` 承载一个或多个 `(text, language_code)` 对。便捷方法：
 
 ```python
-Label.zh("名称")                 # zh-CN only (legacy default)
-Label.en("Name")                 # en-US only
+Label.zh("名称")                 # 仅 zh-CN
+Label.en("Name")                 # 仅 en-US
 Label.bilingual("名称", "Name")   # zh-CN + en-US
-Label.parse("名称")               # str -> zh-only; accepts Label/LocalizedLabel/(zh,en)
+Label.parse("名称")               # str -> 仅中文；接受 Label/LocalizedLabel/(zh, en)
 ```
 
-## Auth
+### 认证
 
-`get_client(environment)` reads `config/environments.yaml` (expanding `${DEV_*}` from
-`.env`) and acquires a token via the client-credentials flow (cache-first, refresh on
-expiry). Tokens are persisted under `.pp-local/state/tokens.json`.
+`get_client(environment)` 读取 `config/environments.yaml`（展开 `.env` 中的 `${DEV_*}`
+变量），通过客户端凭据流获取令牌（缓存优先，过期则刷新）。令牌持久化存储在
+`.pp-local/state/tokens.json`。与 legacy MCP 方式共享相同的环境配置文件。
 
-## Type reference
+### 类型参考
 
-See `framework_power/models.py` for the full dataclass surface (`Table`, `Column`,
-`LookupColumn`, `Relationship`, `CascadeConfig`, `Option`, `BooleanLabels`, `Label`,
-enums). For Dataverse Web API type/format details, consult the `dataverse:dv-metadata`
-skill.
+完整数据类定义参见 `framework_power/models.py`（`Table`、`Column`、
+`LookupColumn`、`Relationship`、`CascadeConfig`、`Option`、`BooleanLabels`、`Label`
+及枚举）。Dataverse Web API 类型/格式详情请参考 `dataverse:dv-metadata` skill。
+
+---
+
+## 两种方式对比
+
+| 维度 | Legacy YAML + MCP | Python API (`framework_power`) |
+|------|-------------------|-------------------------------|
+| **定义格式** | `metadata/*.yaml` | `metadata_py/*.py`（Python 类型化模型） |
+| **部署入口** | MCP 工具（AI 通过 MCP 协议调用） | CLI / 代码直接调用 |
+| **验证方式** | Schema 验证 + 命名自动转换 | `lint` 命令离线校验约定 |
+| **组件覆盖** | Table + Form + View + WebResource + Plugin + Ribbon + Sitemap + Solution | Table + Relationship + Solution + WebResource + Form + View + Ribbon + OptionSet |
+| **更新策略** | 部分 PATCH 更新 | PATCH 仅差异属性 |
+| **隔离性** | 与 framework_power 互不依赖 | 独立库，不依赖 framework/ |
+| **IDE 支持** | YAML Schema 提示 | 完整 Python 类型补全和推导 |
+| **适用阶段** | 原有 YAML 资产、交互式部署 | 新项目、追求类型安全 |
+
+---
+
+## 迁移路径
+
+项目提供 `scripts/yaml_to_python_metadata.py` 脚本，可将 legacy YAML 表定义
+（`metadata/tables/*.yaml`）转换为 `framework_power` Python 定义
+（`metadata_py/tables/*.py`）。
+
+```bash
+python scripts/yaml_to_python_metadata.py
+```
+
+---
+
+## 相关文档
+
+- [元数据规范](spec/metadata-spec.md) - 元数据定义规范（YAML + Python API 完整参考）
+- [架构文档](spec/architecture.md) - 系统架构设计
+- [快速开始](guides/getting-started.md) - 详细入门指南
+- [元数据规范](spec/metadata-spec.md) - 元数据定义规范（含 Python API 编写约定）

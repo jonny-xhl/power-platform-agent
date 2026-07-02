@@ -1,6 +1,6 @@
 # 数据字典索引
 
-*自动生成于: 2026-04-30 15:19:51*
+*自动生成于: 2026-06-11 18:22:55*
 
 ---
 
@@ -8,24 +8,14 @@
 
 | 表名 | Schema Name | 字段数 | 最后更新 | 说明 |
 |------|-------------|--------|----------|------|
-| [客户账户](tables/account.md) | `account` | 7 | 2026-04-30 | 存储客户账户信息，包括账户编号、余额和状态 |
-| [联系人](tables/contact.md) | `contact` | 3 | 2026-04-30 | 存储联系人信息 |
-| [客户地址](tables/new_customer_address.md) | `new_customer_address` | 12 | 2026-04-30 | 记录客户的地址信息，支持审批流程和多级区域管理 |
-| [认款单](tables/new_payment_recognition.md) | `new_payment_recognition` | 16 | 2026-04-30 | 记录客户认款信息，关联订单、发票和客户，支持审批流程 |
+| [account](tables/account.md) | `account` | 340 | 2026-05-28 | 代表客户或潜在客户的企业，也是在商业交易中向其出具帐单的公司。 |
 
 ## 选项集 (Option Sets)
 
 | 选项集 | Schema Name | 类型 | 选项数量 |
 |--------|-------------|------|----------|
-| [客户状态](optionsets/unknown.md) | `unknown` | 全局 | 4 |
-| [付款条件](optionsets/unknown.md) | `unknown` | 全局 | 4 |
-| [订单状态](optionsets/unknown.md) | `unknown` | 全局 | 5 |
-| [优先级](optionsets/unknown.md) | `unknown` | 全局 | 4 |
-| [是否](optionsets/unknown.md) | `unknown` | 全局 | 2 |
+| [客户状态](optionsets/new_customer_status.md) | `new_customer_status` | 全局 | 4 |
+| [优先级](optionsets/new_priority.md) | `new_priority` | 全局 | 4 |
+| [是否](optionsets/new_yes_no.md) | `new_yes_no` | 全局 | 2 |
 
 ---
-
-## 快速导航
-
-- [所有表结构](all_tables.md) - 完整的表结构列表
-- [所有选项集](all_optionsets.md) - 完整的选项集定义

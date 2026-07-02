@@ -121,7 +121,7 @@ schema:
 ### 创建插件项目
 
 ```bash
-dotnet new classlib -n MyPlugin -f net8.0
+dotnet new classlib -n MyPlugin -f net462
 cd MyPlugin
 dotnet add package Microsoft.CrmSdk.CoreAssemblies
 ```
@@ -146,8 +146,8 @@ public class MyPlugin : IPlugin
 ### 构建和部署
 
 ```plaintext
-/plugin_build --project_path plugins/MyPlugin/MyPlugin.csproj
-/plugin_deploy --assembly_path plugins/MyPlugin/bin/Release/net8.0/MyPlugin.dll
+/plugin_build --project_path src/MyPlugin/MyPlugin.csproj
+/plugin_deploy --assembly_path src/MyPlugin/bin/Release/net462/MyPlugin.dll
 /plugin_step_register --plugin_name MyPlugin --entity account --message Create --stage post-operation
 ```
 

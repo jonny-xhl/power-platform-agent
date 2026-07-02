@@ -4,6 +4,10 @@
 
 Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform 开发辅助工具。它通过 MCP (Model Context Protocol) 服务器为 Claude Code 和 Cursor 提供工具访问，实现 Power Platform 元数据的代码优先开发。
 
+系统采用**双框架架构**：
+- **framework/** - 遗留框架，基于 YAML 元数据定义的传统工具链
+- **framework_power/** - 现代化 Python-first 框架，独立部署 Dataverse 表和组件的库
+
 ## 设计原则
 
 ### 内容驱动，框架服务
@@ -19,7 +23,14 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
   sources/  transformers/ metadata/  Dataverse
 ```
 
-## 架构图
+### framework_power 设计原则
+
+1. **Python-First**: 使用类型化 Python 数据模型替代 YAML，提升类型安全和 IDE 支持
+2. **幂等性**: 所有操作支持 create-or-update，不会产生破坏性变更
+3. **自包含**: 独立于 legacy framework/，可单独导入使用
+4. **组件化**: 通过 ComponentType 注册表支持可扩展的组件类型
+
+## 双框架架构图
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -28,7 +39,7 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
 └─────────────────────────────┬───────────────────────────────────┘
                               │ MCP Protocol
 ┌─────────────────────────────▼───────────────────────────────────┐
-│                    MCP Server (mcp_serve.py)                   │
+│                    MCP Server (mcp_serve.py)                    │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │                    Tool Router                          │   │
 │  └─────────────────────────────────────────────────────────┘   │
@@ -49,24 +60,81 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
 │  └──────────────┘                      └──────────────────┘     │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
-┌─────────────────────────────▼───────────────────────────────────┐
-│                    Data Dictionary Layer                        │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │         generate_data_dictionary.py                      │   │
-│  │  - YAML Parser  - Virtual Field Filter  - MD Generator  │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │
-┌─────────────────────────────▼───────────────────────────────────┐
-│              Power Platform API Client Layer                    │
+          ┌───────────────────┴───────────────────┐
+          ▼                                       ▼
+┌─────────────────────────┐         ┌─────────────────────────┐
+│    Data Dictionary      │         │   framework_power        │
+│    Layer (legacy)       │         │   (Python-first)        │
+│                         │         │                         │
+│ - YAML Parser           │         │ - Typed Models API       │
+│ - Virtual Field Filter  │         │ - Deployer              │
+│ - MD Generator          │         │ - Component Registry    │
+└─────────────────────────┘         │ - Workflow Orchestrator  │
+                                    └─────────────────────────┘
+                                              │
+┌─────────────────────────────────────────────▼───────────────────┐
+│                    Power Platform API Client Layer              │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────────────┐        │
 │  │ Web API    │ │ PAC CLI    │ │ Dataverse SDK        │        │
 │  │ Wrapper    │ │ Wrapper    │ │ (for .NET plugins)   │        │
 │  └────────────┘ └────────────┘ └──────────────────────┘        │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │ OAuth 2.0
-┌─────────────────────────────▼───────────────────────────────────┐
-│                    Dataverse Online                             │
+└─────────────────────────────────────────────────────────────────┘
+                                              │
+                              ┌───────────────┴───────────────┐
+                              │         OAuth 2.0             │
+                              ▼                               ▼
+                    ┌─────────────────┐           ┌─────────────────┐
+                    │  Dataverse      │           │  Power Platform │
+                    │  Online         │           │  Environments   │
+                    └─────────────────┘           └─────────────────┘
+```
+
+## framework_power 模块架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    framework_power (独立库)                      │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                    Public API (__init__.py)              │  │
+│  │  Table, Column, Relationship, Label, AttributeType...  │  │
+│  │  deploy_table, plan_table, reverse_table, lint_table... │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              │                                │
+│  ┌───────────────┬───────────┴───────────┬────────────────┐   │
+│  ▼               ▼                       ▼                ▼    │
+│ models.py    serializer.py           deployer.py      runtime.py │
+│ 类型模型        模型序列化              部署逻辑          运行时引导 │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                     client/ (API 客户端)                  │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐  │  │
+│  │  │ dataverse_  │  │   auth.py   │  │ env_config.py │  │  │
+│  │  │ client.py   │  │  (MSAL)     │  │               │  │  │
+│  │  └─────────────┘  └─────────────┘  └───────────────┘  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              │                                │
+│  ┌───────────────────────────┴───────────────────────────────┐  │
+│  │                    components/ (组件注册表)                │  │
+│  │  models.py | optionset | webresource | form | view | plugin  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              │                                │
+│  ┌─────────────┬─────────────┬─────────────┬────────────────┐ │
+│  ▼             ▼             ▼             ▼                ▼  │
+│ optionset_  webresource_  form_       view_           plugin_ │
+│ sync.py     sync.py       sync.py     sync.py         sync.py │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              solution_deployer.py / solution_*.py         │  │
+│  │              解决方案管理 (Publisher → Solution → Components) │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                      workflow.py                          │  │
+│  │              跨阶段开发工作流编排 (Phase 9)                │  │
+│  │  Global Optionset → Entity → WebResource → Plugin        │  │
+│  │  → Form → View → [Roles] → Ribbon                        │  │
+│  └──────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -74,7 +142,7 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
 
 ```
 power-platform-agent/
-├── framework/             # 框架层 (可复用核心组件)
+├── framework/             # 遗留框架层 (YAML-based)
 │   ├── agents/            # 代理实现
 │   │   ├── core_agent.py
 │   │   ├── metadata_agent.py
@@ -87,70 +155,113 @@ power-platform-agent/
 │   │   └── naming_converter.py
 │   └── mcp_serve.py       # MCP服务入口
 │
-├── sources/               # 源文件层
-│   ├── templates/         # Excel/Word/PPT模板
-│   ├── features/          # 按功能迭代组织
-│   │   └── feature-xxx/
-│   │       ├── 01-requirements/    # BRD/PRD/流程图
-│   │       └── 02-designs/         # Excel + Markdown
-│   └── library/           # 可复用YAML片段
-│       ├── table_fragments/
-│       ├── form_patterns/
-│       └── view_patterns/
+├── framework_power/       # 现代化 Python-first 框架
+│   ├── __init__.py       # 公共 API 导出
+│   ├── __main__.py       # python -m framework_power 入口
+│   ├── cli.py            # CLI 入口
+│   ├── models.py         # 类型化数据模型 (Table, Column, Label...)
+│   ├── serializer.py     # 模型序列化器
+│   ├── deployer.py       # 表部署器 (幂等 create-or-update)
+│   ├── runtime.py         # 运行时引导 (get_client, argparse_env)
+│   ├── registry.py        # 表定义注册表
+│   ├── lint.py           # 离线验证
+│   ├── codegen.py        # Python 源码生成
+│   ├── reverse.py        # 反向工程 (环境 → 模型)
+│   │
+│   ├── client/            # API 客户端
+│   │   ├── __init__.py
+│   │   ├── dataverse_client.py  # Dataverse Web API 客户端
+│   │   ├── auth.py       # MSAL 认证
+│   │   ├── env_config.py # 环境配置加载
+│   │   ├── plugin_build.py  # .NET 插件构建
+│   │   └── retry_helper.py  # 重试帮助器
+│   │
+│   ├── components/        # 组件类型注册表
+│   │   ├── __init__.py   # ComponentType 注册表
+│   │   ├── models.py     # 组件模型 (Solution, Publisher, Form, View, Plugin, Ribbon...)
+│   │   ├── optionset.py  # 选项集组件处理器
+│   │   ├── webresource.py  # Web Resource 组件处理器
+│   │   ├── form.py       # 表单组件处理器
+│   │   ├── view.py       # 视图组件处理器
+│   │   └── plugin.py     # 插件组件处理器
+│   │
+│   ├── optionset_sync.py # 全局选项集同步
+│   ├── webresource_sync.py  # Web Resource 同步
+│   ├── form_sync.py     # 表单同步
+│   ├── form_xml.py      # 表单 XML 工具
+│   ├── view_sync.py     # 视图同步
+│   ├── view_xml.py      # 视图 XML 工具
+│   ├── ribbon_sync.py   # Ribbon 命令同步
+│   ├── ribbon_xml.py    # Ribbon XML 工具
+│   ├── plugin_sync.py   # 插件部署
+│   │
+│   ├── solution_*.py     # 解决方案管理
+│   │   ├── solution_deployer.py   # 解决方案部署
+│   │   ├── solution_reverse.py    # 解决方案反向
+│   │   ├── solution_codegen.py    # 解决方案代码生成
+│   │   └── solution_zip.py       # 解决方案 ZIP 导出/导入
+│   │
+│   ├── role_*.py         # 安全角色管理
+│   │   ├── role_deployer.py
+│   │   ├── role_reverse.py
+│   │   ├── role_codegen.py
+│   │   └── role_registry.py
+│   │
+│   ├── workflow.py       # 跨阶段开发工作流编排
+│   └── examples/         # 示例代码
 │
-├── transformers/          # 转换器层 (架构保留，暂不实现)
+├── metadata_py/          # Python 元数据定义 (framework_power)
+│   ├── project.py       # 项目清单
+│   ├── tables/           # 表定义 Python 文件
+│   ├── forms/            # 表单定义
+│   ├── views/            # 视图定义
+│   ├── ribbons/         # Ribbon 定义
+│   └── optionsets/       # 选项集定义
 │
-├── metadata/              # 元数据层
-│   ├── _schema/           # Schema定义
-│   ├── tables/            # 表定义YAML
-│   ├── forms/             # 表单定义
-│   ├── views/             # 视图定义
-│   ├── webresources/      # Web Resource配置
-│   ├── ribbon/            # 命令栏定义
-│   ├── sitemap/           # 应用导航定义
-│   └── optionsets/        # 全局选项集
+├── sources/              # 源文件层 (legacy)
+│   ├── templates/        # Excel/Word/PPT模板
+│   ├── features/         # 按功能迭代组织
+│   └── library/          # 可复用YAML片段
 │
-├── docs/                  # 文档层
-│   ├── spec/              # 规范文档
-│   ├── guides/            # 使用指南
-│   └── data_dictionary/   # Git hook自动生成
-│       ├── index.md
-│       ├── all_tables.md
-│       ├── all_optionsets.md
-│       ├── tables/
-│       └── optionsets/
+├── transformers/         # 转换器层 (架构保留，暂不实现)
 │
-├── scripts/               # 脚本层
+├── metadata/             # 元数据层 (legacy YAML)
+│   ├── _schema/          # Schema定义
+│   ├── tables/          # 表定义YAML
+│   ├── forms/           # 表单定义
+│   └── ...
+│
+├── docs/                 # 文档层
+│   ├── spec/             # 规范文档
+│   ├── guides/           # 使用指南
+│   └── data_dictionary/  # Git hook自动生成
+│
+├── scripts/              # 脚本层
 │   ├── generate_data_dictionary.py
-│   ├── hooks/             # Git hooks
-│   │   └── pre-commit.sh
-│   └── install_hooks.sh
+│   └── hooks/           # Git hooks
 │
-├── webresources/          # Web Resource源文件
+├── webresources/         # Web Resource源文件
 │   ├── css/
 │   ├── js/
 │   ├── html/
 │   └── img/
 │
-├── plugins/               # .NET插件源码
+├── plugins/              # .NET插件源码
 │
-├── config/                # 配置文件
-│
-├── .claude/               # Claude Code配置
-│   └── context_config.yaml
+├── config/               # 配置文件
 │
 ├── build_and_validate.py  # 构建验证脚本
-├── setup.py               # 包安装配置
-├── test_imports.py        # 导入测试
-├── install.sh / install.bat
+├── setup.py              # 包安装配置
 └── requirements.txt
 ```
 
 **说明**：
-- **framework/** - 框架代码统一管理，便于复用和迁移
+- **framework/** - 遗留框架代码，便于迁移参考
+- **framework_power/** - 现代化 Python-first 框架，独立部署库
+- **metadata_py/** - framework_power 的元数据定义（Python 而非 YAML）
 - **sources/** - 按内容生命周期分层 (源文件 → 转换 → 元数据 → 文档)
-- **metadata/** - YAML元数据定义，按类型组织
-- **docs/data_dictionary/** - Git hook自动生成，无需手动维护
+- **metadata/** - 遗留 YAML 元数据定义，按类型组织
+- **docs/data_dictionary/** - Git hook 自动生成，无需手动维护
 
 ## 核心组件
 
@@ -215,25 +326,168 @@ MCP 服务器是整个系统的入口点，负责：
 - 处理范围：仅变更的文件
 - 自动更新：docs/data_dictionary/
 
+## framework_power 核心模块
+
+### 1. 类型化数据模型 (models.py)
+
+```python
+from framework_power import Table, Column, Relationship, Label, AttributeType
+
+table = Table(
+    schema_name="new_ProjectBudget",
+    display_name=Label.bilingual("项目预算", "Project Budget"),
+    columns=[
+        Column("new_Name", AttributeType.String,
+               display_name=Label.bilingual("名称", "Name"),
+               is_primary_name=True, required=RequiredLevel.ApplicationRequired, max_length=200),
+    ],
+)
+```
+
+**核心模型**：
+- `Label` / `LocalizedLabel` - 多语言标签 (zh-CN 2052, en-US 1033)
+- `Table` - 表定义
+- `Column` - 非查找属性
+- `LookupColumn` - 查找属性
+- `Relationship` - 关系 (1:N, N:N)
+- `AttributeType` - 属性类型枚举
+- `RequiredLevel` - 必填级别枚举
+
+### 2. 部署器 (deployer.py)
+
+幂等表部署器，实现 create-or-update 策略：
+
+```python
+from framework_power import deploy_table, plan_table, get_client
+
+client = get_client("dev")
+result = deploy_table(client, table, prefix="new", solution="MySolution")
+```
+
+**核心函数**：
+- `deploy_table()` - 创建或同步表到 Dataverse
+- `plan_table()` - 只读预演，返回将执行的操作
+
+### 3. Dataverse API 客户端 (client/dataverse_client.py)
+
+轻量级 Web API 客户端：
+- 请求会话管理（含重试策略）
+- OAuth 2.0 Bearer Token 管理
+- 元数据操作 (EntityDefinitions, Attributes, Relationships)
+- 组件操作 (WebResources, SystemForms, SavedQueries, PluginAssemblies...)
+- 解决方案操作 (Publishers, Solutions, AddSolutionComponent)
+- 发布操作 (PublishAllXml, PublishXml)
+
+### 4. 组件注册表 (components/)
+
+可扩展的组件类型系统：
+
+```python
+COMPONENT_DEPLOY_ORDER = (
+    "optionset",    # 依赖顺序
+    "table",
+    "webresource",
+    "form",
+    "view",
+    "plugin",
+)
+```
+
+**支持的组件类型**：
+| 类型 | SolutionComponentCode | 说明 |
+|------|---------------------|------|
+| table | 1 | 表/实体 |
+| optionset | 2 | 全局选项集 |
+| webresource | 61 | Web 资源 |
+| form | 60 | 系统表单 |
+| view | 4230 | 保存的查询 |
+| plugin | 10030 | 插件程序集 |
+
+### 5. 解决方案管理 (solution_*.py)
+
+解决方案部署 5 步流程：
+
+```
+1. 确保 Publisher 存在
+2. 创建/更新 Solution 对象
+3. 按依赖顺序部署组件
+4. 添加自定义组件到解决方案
+5. 发布所有自定义
+```
+
+### 6. 工作流编排 (workflow.py)
+
+跨阶段开发工作流，支持两个解决方案：
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  Main Solution              │  Ribbon Solution                │
+├─────────────────────────────┼─────────────────────────────────┤
+│ Global Optionset            │                                  │
+│     ↓                       │                                  │
+│ Table (+ Relationships)     │                                  │
+│     ↓                       │                                  │
+│ WebResource                 │                                  │
+│     ↓                       │                                  │
+│ Plugin                      │                                  │
+│     ↓                       │                                  │
+│ Form                        │                                  │
+│     ↓                       │                                  │
+│ View                        │                                  │
+│     ↓                       │                                  │
+│ [Roles]                     │                                  │
+│     ↓                       │                                  │
+│ Ribbon                      │ ← Ribbon (专用解决方案)           │
+└─────────────────────────────┴─────────────────────────────────┘
+                    ↓
+              PublishAllXml
+```
+
 ## 数据流
 
-### 元数据创建流程
+### framework_power 元数据创建流程
 
-1. 用户在 Claude Code 中输入需求
-2. MCP Server 接收请求
-3. Metadata Agent 解析/验证 YAML 元数据
-4. Core Agent 应用命名转换
-5. Metadata Agent 调用 Dataverse API 创建元数据
-6. 返回结果给用户
+```
+1. 开发者编写 Python 定义
+   ↓
+2. from framework_power import Table, deploy_table
+   ↓
+3. deploy_table(client, table) 幂等部署
+   ↓
+4. plan_table(client, table) 预览变更
+   ↓
+5. 或 deploy_workflow(client, project) 全流程编排
+```
 
 ### 插件部署流程
 
+```
 1. 开发者修改 .NET 插件代码
-2. Plugin Agent 监测到变更
-3. 调用 dotnet build 构建程序集
-4. 读取生成的 DLL 文件
-5. 通过 Dataverse API 部署程序集
-6. 注册/更新 Plugin Steps
+   ↓
+2. plugin_build.py 构建 DLL
+   ↓
+3. plugin_sync.py 部署程序集
+   ↓
+4. 注册/更新 Plugin Steps
+   ↓
+5. 添加到解决方案
+   ↓
+6. PublishAllXml
+```
+
+### 解决方案部署流程
+
+```
+1. resolve_publisher() 确保发布商存在
+   ↓
+2. create/update Solution 对象
+   ↓
+3. 按 COMPONENT_DEPLOY_ORDER 部署组件
+   ↓
+4. add_solution_component() 添加组件到解决方案
+   ↓
+5. publish_all_xml() 发布所有自定义
+```
 
 ## 命名规则
 
@@ -258,7 +512,31 @@ MCP 服务器是整个系统的入口点，负责：
 
 ## 扩展性
 
-### 自定义处理器
+### framework_power 组件扩展
+
+在 `components/` 目录下注册新组件类型：
+
+```python
+# components/my_component.py
+from framework_power.components import ComponentType
+
+KEY = "my_component"
+SOLUTION_CODE = 9999
+MODEL_CLS = MyModel
+
+def serialize(model): ...
+def deploy(client, model, *, prefix): ...
+def plan(client, model, *, prefix): ...
+def reverse(client, ident): ...
+def codegen(model): ...
+def exists(client, model): ...
+def resolve_id(client, model): ...
+def lint(model, *, prefix): ...
+
+# 自动注册
+```
+
+### 自定义处理器 (legacy framework)
 
 在 `config/extensions.yaml` 中注册自定义处理器：
 
@@ -281,16 +559,38 @@ custom_handlers:
 ## 配置文件
 
 - `config/hermes_profile.yaml` - Hermes Agent 配置
-- `config/environments.yaml` - 环境配置
+- `config/environments.yaml` - 环境配置 (dev/test/prod)
 - `config/naming_rules.yaml` - 命名规则
 - `config/extensions.yaml` - 扩展配置
 - `config/settings.yaml` - 工具设置
+- `config/publishers.yaml` - 发布商配置
 - `.claude/context_config.yaml` - LLM 上下文配置
 - `metadata/optionsets/global_optionsets.yaml` - 全局选项集定义
 
 ## 元数据工作流
 
-### 完整开发流程
+### framework_power 开发流程
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Python 定义     │ → │  幂等部署        │ → │   Dataverse     │
+│  (metadata_py/)  │    │  deploy_table() │    │   (云环境)       │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                    │
+         ▼                    ▼
+┌─────────────────┐    ┌─────────────────┐
+│  plan_table()   │    │  metadata_py/    │
+│  (预演)         │    │  project.py     │
+└─────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                     ┌─────────────────┐
+                     │  deploy_workflow │
+                     │  (全流程编排)     │
+                     └─────────────────┘
+```
+
+### 完整开发流程 (legacy)
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
@@ -308,9 +608,9 @@ custom_handlers:
 ### 选项集复用流程
 
 ```
-1. 在 global_optionsets.yaml 中定义全局选项集
+1. 在 metadata_py/optionsets/ 中定义全局选项集
    ↓
-2. 表定义中使用 option_set_ref 引用
+2. 表定义中使用 OptionSet 引用
    ↓
 3. 数据字典自动生成选项集文档
    ↓
@@ -320,7 +620,7 @@ custom_handlers:
 ### Git Hook 触发流程
 
 ```
-1. 开发者修改 metadata/tables/*.yaml
+1. 开发者修改 metadata/tables/*.yaml 或 metadata_py/tables/*.py
    ↓
 2. git add 添加文件到暂存区
    ↓
@@ -335,20 +635,13 @@ custom_handlers:
 7. 提交完成
 ```
 
-- `config/hermes_profile.yaml` - Hermes Agent 配置
-- `config/environments.yaml` - 环境配置
-- `config/naming_rules.yaml` - 命名规则
-- `config/extensions.yaml` - 扩展配置
-- `config/settings.yaml` - 工具设置
-- `.claude/context_config.yaml` - LLM 上下文配置
-- `metadata/optionsets/global_optionsets.yaml` - 全局选项集定义
-
 ## 安全考虑
 
 1. **敏感信息存储**: 使用环境变量存储凭据
 2. **Token 管理**: MSAL 自动处理 token 刷新
 3. **标准表保护**: 禁止修改标准表元数据
 4. **操作审计**: 记录所有重要操作
+5. **幂等性保证**: 所有操作不会产生意外破坏
 
 ## 性能优化
 
@@ -356,3 +649,28 @@ custom_handlers:
 2. **缓存**: 元数据和 token 缓存
 3. **并发控制**: 限制并发请求数避免限流
 4. **重试机制**: 指数退避重试策略
+5. **延迟配置**: 可调延迟避免元数据传播锁竞争
+
+## 开发阶段 (Phase)
+
+| Phase | 功能 | 状态 |
+|-------|------|------|
+| 1 | 表部署 (Table, Column, Relationship) | ✅ |
+| 2 | 解决方案管理 (Solution, Publisher, 组件注册表) | ✅ |
+| 3 | 表单/视图同步 | ✅ |
+| 4 | 插件部署 | ✅ |
+| 5 | Web Resource 同步 | ✅ |
+| 6 | 安全角色管理 | ✅ |
+| 7 | Ribbon 命令同步 | ✅ |
+| 8 | 插件包 (NuGet) / 自定义 Action | ✅ |
+| 9 | 跨阶段工作流编排 | ✅ |
+
+## 后续扩展方向
+
+| 方向 | 说明 |
+|------|------|
+| 表单和视图管理 | 创建/修改表单和视图的完整 CRUD 支持 |
+| 全局选项集管理 | 创建全局选项集、更新选项集选项 |
+| 解决方案管理 | 添加到解决方案、解决方案导入/导出 |
+| 批量操作 | 批量应用多个 YAML、增量同步 |
+| 回滚功能 | 记录变更历史，支持回滚到之前版本 |
