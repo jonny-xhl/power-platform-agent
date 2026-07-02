@@ -278,14 +278,20 @@ def to_formxml(form: Form) -> str:
     tabs_el = ET.SubElement(root, "tabs")
     for tab in form.tabs:
         tabs_el.append(_serialize_tab(tab))
-    libs_el = ET.SubElement(root, "formLibraries")
-    for lib in form.libraries:
-        lib_el = ET.SubElement(libs_el, "Library")
-        lib_el.set("name", lib.name)
-        lib_el.set("libraryUniqueId", _guid(lib.library_unique_id))
-    events_el = ET.SubElement(root, "events")
-    for ev in form.events:
-        events_el.append(_serialize_event(ev))
+    # formLibraries/events are only emitted when non-empty — Dataverse rejects an empty
+    # <formLibraries> (0x80048425 "incomplete content, expected 'Library'"). A valid form
+    # has either >=1 Library or no <formLibraries> element at all, so omitting when empty
+    # is correct and preserves the lossless round-trip.
+    if form.libraries:
+        libs_el = ET.SubElement(root, "formLibraries")
+        for lib in form.libraries:
+            lib_el = ET.SubElement(libs_el, "Library")
+            lib_el.set("name", lib.name)
+            lib_el.set("libraryUniqueId", _guid(lib.library_unique_id))
+    if form.events:
+        events_el = ET.SubElement(root, "events")
+        for ev in form.events:
+            events_el.append(_serialize_event(ev))
     _serialize_children(form.extras_post_xml, root)
     return ET.tostring(root, encoding="unicode")
 
