@@ -87,6 +87,30 @@ def test_scan_requires_dir(tmp_path):
         scan_webresources(f, "new")
 
 
+def test_scan_include_filters_to_matching_relpaths(tmp_path):
+    _write(tmp_path, "js/order/a.js", b"a")
+    _write(tmp_path, "js/order/b.js", b"b")
+    _write(tmp_path, "css/c.css", b"c")
+    # exact relpath
+    models, _ = scan_webresources(tmp_path, "new", include=["js/order/a.js"])
+    assert [m.name for m in models] == ["new_/js/order/a.js"]
+    # glob within a subtree
+    models, _ = scan_webresources(tmp_path, "new", include=["js/order/*.js"])
+    assert sorted(m.name for m in models) == ["new_/js/order/a.js", "new_/js/order/b.js"]
+    # multiple globs
+    models, _ = scan_webresources(tmp_path, "new", include=["js/order/a.js", "css/*.css"])
+    assert sorted(m.name for m in models) == ["new_/css/c.css", "new_/js/order/a.js"]
+
+
+def test_scan_include_none_means_all(tmp_path):
+    _write(tmp_path, "js/a.js", b"a")
+    _write(tmp_path, "css/b.css", b"b")
+    models, _ = scan_webresources(tmp_path, "new", include=None)
+    assert len(models) == 2
+    models, _ = scan_webresources(tmp_path, "new", include=[])
+    assert len(models) == 2
+
+
 # ----------------------------------------------------------------- fake client
 
 

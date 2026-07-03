@@ -95,6 +95,7 @@ class Project:
     optionsets: list[str] = field(default_factory=list)
     tables: list[str] = field(default_factory=list)
     webresources: bool = False
+    webresource_files: list[str] = field(default_factory=list)  # relpath/glob list under webresources_root
     plugins: list[str] = field(default_factory=list)
     forms: list[str] = field(default_factory=list)
     views: list[str] = field(default_factory=list)
@@ -136,7 +137,7 @@ def _content_stages(project: Project) -> list[str]:
         present.add("optionsets")
     if project.tables:
         present.add("tables")
-    if project.webresources:
+    if project.webresources or project.webresource_files:
         present.add("webresources")
     if project.plugins:
         present.add("plugins")
@@ -329,8 +330,12 @@ def _run_stage(
         return _deploy_tables(client, project, main=main, prefix=prefix, cfg=cfg)
 
     if stage == "webresources":
+        # webresource_files (relpath/glob list) scopes the sync to those files only;
+        # webresources=True (bool) syncs the whole webresources_root tree.
+        include = project.webresource_files or None
         return sync_webresources(
-            client, Path(project.webresources_root), prefix=prefix, solution=main, publish=publish
+            client, Path(project.webresources_root), prefix=prefix, solution=main,
+            publish=publish, include=include,
         )
 
     if stage == "plugins":
@@ -456,7 +461,10 @@ def _plan_stage(
     if stage == "tables":
         return _plan_tables(client, project, prefix=prefix)
     if stage == "webresources":
-        return plan_webresources(client, Path(project.webresources_root), prefix=prefix)
+        return plan_webresources(
+            client, Path(project.webresources_root), prefix=prefix,
+            include=project.webresource_files or None,
+        )
     if stage == "plugins":
         return _plan_plugins(project)
     if stage == "forms":
@@ -573,6 +581,9 @@ def lint_workflow(project: Project, *, prefix: str = "new") -> list[Issue]:
             issues.append(Issue(ERROR, f"plugin dir '{pdir}' has no plugin_def.py"))
     if project.webresources and not Path(project.webresources_root).is_dir():
         issues.append(Issue(WARNING, f"webresources root not found: {project.webresources_root}"))
+    for rel in project.webresource_files:
+        if not (Path(project.webresources_root) / rel).is_file():
+            issues.append(Issue(ERROR, f"webresource file not found: {project.webresources_root}/{rel}"))
 
     return issues
 

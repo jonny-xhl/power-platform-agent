@@ -17,4 +17,12 @@ PROJECT = Project(
     tables=["new_inquiry", "new_inquirydetail", "new_quote", "new_quotedetail"],
     forms=["new_inquiry__Main", "new_inquirydetail__Main", "new_quote__Main", "new_quotedetail__Main"],
     views=["new_inquiry__Active", "new_inquirydetail__Active", "new_quote__Active", "new_quotedetail__Active"],
+    webresource_files=[
+        "js/new_inquiry/new_inquiry.optionset.js",
+        "js/new_inquiry/new_inquiry.form.js",
+        "js/new_quote/new_quote.optionset.js",
+        "js/new_quote/new_quote.form.js",
+        "js/new_inquirydetail/new_inquirydetail.form.js",
+        "js/new_quotedetail/new_quotedetail.form.js",
+    ],
 )

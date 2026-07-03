@@ -25,6 +25,7 @@ method for teardown.
 from __future__ import annotations
 
 import base64
+import fnmatch
 import logging
 import time
 from dataclasses import dataclass
@@ -36,6 +37,17 @@ from .components.models import WebResource, WebResourceType
 from .deployer import _is_already_exists
 
 logger = logging.getLogger(__name__)
+
+
+def _matches_include(relpath: str, include: Optional[list[str]]) -> bool:
+    """True if ``relpath`` matches any include glob (fnmatch — ``*`` spans ``/``).
+
+    ``None``/empty ``include`` means "all files" (no filtering).
+    """
+    if not include:
+        return True
+    return any(fnmatch.fnmatch(relpath, pat) for pat in include)
+
 
 # File extension -> Dataverse web resource type (forward scan).
 EXT_TO_TYPE: dict[str, WebResourceType] = {
@@ -109,11 +121,17 @@ def relpath_from_name(name: str, prefix: str) -> str:
 # ----------------------------------------------------------------- scan
 
 
-def scan_webresources(root: Path, prefix: str) -> tuple[list[WebResource], list[str]]:
+def scan_webresources(
+    root: Path, prefix: str, *, include: Optional[list[str]] = None
+) -> tuple[list[WebResource], list[str]]:
     """Walk ``root`` and build a :class:`WebResource` per recognized file.
 
     Returns ``(models, warnings)``. Dotfiles/dot-dirs are skipped; unrecognized extensions
     are recorded as warnings (not fatal). ``content`` is the base64-encoded file bytes.
+
+    ``include`` (optional) restricts the scan to files whose relpath (forward slashes)
+    matches any fnmatch glob — e.g. ``["js/order/*.js"]`` syncs only those, not the whole
+    tree. ``None``/empty scans everything.
     """
     root = Path(root)
     if not root.is_dir():
@@ -122,15 +140,18 @@ def scan_webresources(root: Path, prefix: str) -> tuple[list[WebResource], list[
     models: list[WebResource] = []
     warnings: list[str] = []
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        rel = path.relative_to(root)
         # Skip dotfiles / dot-dirs (e.g. .git, .DS_Store).
-        if any(part.startswith(".") for part in path.relative_to(root).parts):
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        relpath = rel.as_posix()
+        if not _matches_include(relpath, include):
             continue
         ext = path.suffix.lower()
         wrtype = EXT_TO_TYPE.get(ext)
         if wrtype is None:
             warnings.append(f"skipping unrecognized extension '{ext}': {path}")
             continue
-        relpath = path.relative_to(root).as_posix()
         content = base64.b64encode(path.read_bytes()).decode("ascii")
         models.append(
             WebResource(
@@ -146,9 +167,11 @@ def scan_webresources(root: Path, prefix: str) -> tuple[list[WebResource], list[
 # ----------------------------------------------------------------- plan
 
 
-def plan_webresources(client: Any, root: Path, *, prefix: str = "new") -> dict[str, Any]:
+def plan_webresources(
+    client: Any, root: Path, *, prefix: str = "new", include: Optional[list[str]] = None
+) -> dict[str, Any]:
     """Read-only dry run: per-file ``would_create`` / ``would_update`` / ``would_skip_standard``."""
-    models, warnings = scan_webresources(root, prefix)
+    models, warnings = scan_webresources(root, prefix, include=include)
     files: list[dict[str, Any]] = []
     for model in models:
         try:
@@ -170,15 +193,17 @@ def sync_webresources(
     solution: Optional[str] = None,
     publish: bool = True,
     config: WebResourceSyncConfig | None = None,
+    include: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Sync a local web-resource directory to Dataverse (non-destructive, idempotent).
 
     For each scanned file: create or update (PATCH base64 ``content``). When ``solution`` is
     given, add every synced resource to that solution (code 61; idempotent). When ``publish``
     is true, targeted-``PublishXml`` the synced resources so the new content goes live.
+    ``include`` restricts the scan to matching relpath globs (see :func:`scan_webresources`).
     """
     cfg = config or WebResourceSyncConfig()
-    models, warnings = scan_webresources(root, prefix)
+    models, warnings = scan_webresources(root, prefix, include=include)
     result: dict[str, Any] = {
         "root": str(root),
         "synced": [],

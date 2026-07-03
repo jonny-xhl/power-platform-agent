@@ -135,6 +135,44 @@ def test_active_stages_skip_and_only():
     assert _active_stages(p, include_roles=True, only={"tables", "views"}) == ["tables", "views"]
 
 
+def test_active_stages_webresource_files():
+    # webresource_files (list) triggers the webresources stage even when webresources (bool) is False
+    p = Project(main_solution="m", ribbon_solution="r", webresource_files=["js/a.js"])
+    assert "webresources" in _content_stages(p)
+    assert "webresources" in _active_stages(p, include_roles=False)
+
+
+def test_deploy_workflow_webresource_files_passes_include(monkeypatch):
+    captured: dict = {}
+
+    def _fake_sync(client, root, *, prefix, solution, publish, include=None):
+        captured["solution"] = solution
+        captured["include"] = include
+        return {"synced": []}
+
+    monkeypatch.setattr(workflow, "sync_webresources", _fake_sync)
+    project = Project(
+        main_solution="new_Main", ribbon_solution="new_Ribbon",
+        webresource_files=["js/order/a.js", "js/order/b.js"],
+    )
+    deploy_workflow(FakeClient(), project, prefix="new", config=_NO_DELAY)
+    assert captured["solution"] == "new_Main"
+    assert captured["include"] == ["js/order/a.js", "js/order/b.js"]
+
+
+def test_deploy_workflow_webresources_bool_passes_include_none(monkeypatch):
+    captured: dict = {}
+
+    def _fake_sync(client, root, *, prefix, solution, publish, include=None):
+        captured["include"] = include
+        return {"synced": []}
+
+    monkeypatch.setattr(workflow, "sync_webresources", _fake_sync)
+    project = Project(main_solution="new_Main", ribbon_solution="new_Ribbon", webresources=True)
+    deploy_workflow(FakeClient(), project, prefix="new", config=_NO_DELAY)
+    assert captured["include"] is None  # whole-dir sync (no include filter)
+
+
 # ----------------------------------------------------------------- load
 
 

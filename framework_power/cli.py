@@ -554,7 +554,9 @@ def cmd_webresource_scan(args: argparse.Namespace) -> int:
 
 def cmd_webresource_plan(args: argparse.Namespace) -> int:
     client = get_client(args.env)
-    _print_json(plan_webresources(client, Path(args.root), prefix=_publisher_prefix()))
+    _print_json(
+        plan_webresources(client, Path(args.root), prefix=_publisher_prefix(), include=args.include)
+    )
     return 0
 
 
@@ -568,6 +570,7 @@ def cmd_webresource_sync(args: argparse.Namespace) -> int:
                 prefix=_publisher_prefix(),
                 solution=args.solution,
                 publish=not args.no_publish,
+                include=args.include,
             )
         )
         return 0
@@ -1156,12 +1159,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = wr_sub.add_parser("plan", help="Read-only dry run of a web resource directory.")
     p.add_argument("root", nargs="?", default=DEFAULT_WEBRESOURCES_ROOT, help="Local root dir.")
+    p.add_argument(
+        "--include", nargs="+", default=None, metavar="GLOB",
+        help="Only plan files whose relpath matches these fnmatch globs (e.g. 'js/order/*.js').",
+    )
     p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
     p.set_defaults(func=cmd_webresource_plan)
 
     p = wr_sub.add_parser("sync", help="Sync a web resource directory to Dataverse + publish.")
     p.add_argument("root", nargs="?", default=DEFAULT_WEBRESOURCES_ROOT, help="Local root dir.")
     p.add_argument("--solution", default=None, help="Add synced resources to this solution.")
+    p.add_argument(
+        "--include", nargs="+", default=None, metavar="GLOB",
+        help="Only sync files whose relpath matches these fnmatch globs (e.g. 'js/order/*.js').",
+    )
     p.add_argument(
         "--no-publish", action="store_true", help="Skip the targeted PublishXml after sync."
     )
