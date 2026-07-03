@@ -9,7 +9,7 @@ and exposes ``TABLE``. Deploy with:
     python -m framework_power plan new_projectbudget --env dev
     python -m framework_power deploy new_projectbudget --env dev
 
-Authoring conventions (see docs/metadata-py-conventions.md):
+Authoring conventions (see docs/spec/metadata-spec.md):
 - PascalCase SchemaName with the publisher prefix (new_).
 - Exactly one String column flagged is_primary_name.
 - Multi-language labels via Label.bilingual(zh, en).

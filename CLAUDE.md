@@ -245,8 +245,8 @@ custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly �
   - **禁止使用驼峰命名**（如 `approveAccount`、`customerArea`），必须使用 `approve_account`、`customer_area`
   - 所有元数据文件的 schema_name 值必须符合此规范，包括：tables、forms、views、ribbon、sitemap、webresources 等
 
-- 自定义实体 SchemaName 必须以发布商前缀 `new_` 开头
-- 自定义关系的 SchemaName 也必须以 `new_` 开头
+- 自定义实体 SchemaName 必须以发布商前缀 `config/publishers.yaml->{prefix}` 开头
+- 自定义关系的 SchemaName 也必须以 `config/publishers.yaml->{prefix}` 开头
 - Lookup 字段不能通过 Attributes 端点单独创建，必须通过 Deep Insert（`RelationshipDefinitions`）一次性创建关系 + Lookup
 - 级联行为：每个实体只允许一个 Parental（`Active`）关系，自定义关系推荐使用 Referential 模式（`NoCascade` + `RemoveLink`）
 - YAML 是期望状态的声明，与 Dataverse 对比后执行 create/update/skip，不执行 delete

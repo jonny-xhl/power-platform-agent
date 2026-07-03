@@ -4,7 +4,7 @@
 表元数据部署库"，替代旧 `framework/` 的 YAML→转换→Web API 链路（仅限**表**域：表 + 字段 + 关系）。
 
 > 入口文档：根目录 `CLAUDE.md`；部署说明 `docs/metadata-deploy.md`；作者契约
-> `docs/metadata-py-conventions.md`；相关 skill：`dv-model-to-python`、`dv-reverse-metadata`、
+> `docs/spec/metadata-spec.md`；相关 skill：`dv-model-to-python`、`dv-reverse-metadata`、
 > `dataverse:dv-metadata`。
 
 ---
@@ -157,7 +157,7 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 逆向参考：framework_power reverse <name>   （环境 → 本地，供 AI/对比/约束）
 ```
 
-## 8. 元数据作者约定（摘要，详见 docs/metadata-py-conventions.md）
+## 8. 元数据作者约定（摘要，详见 docs/spec/metadata-spec.md）
 
 - 新表 **PascalCase + `new_` 前缀**（`new_ProjectBudget`）；命名**作者负责、lint 校验、不改写**
   （与旧 YAML 路径的自动转换不同）。

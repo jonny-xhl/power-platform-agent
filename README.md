@@ -1,210 +1,123 @@
 # Power Platform Agent
 
-Power Platform 开发辅助工具 - 基于 Hermes Agent 框架构建，通过 MCP 协议为 Claude Code 和 Cursor 提供工具访问。
+> 基于 MCP (Model Context Protocol) 的 Microsoft Power Platform / Dataverse 开发工具链——用代码定义元数据，一行命令同步到云端。
 
-## 功能特性
-
-- 📋 **代码优先开发**: 使用 YAML 定义 Power Platform 元数据
-- 🔧 **插件自动化**: 自动构建、部署 .NET 插件
-- 🔄 **双向同步**: 本地与云端元数据对比和同步
-- 📝 **命名规范**: 统一的命名转换和验证规则
-- 🧩 **多环境支持**: 管理 dev/test/prod 多环境配置
-- 📚 **数据字典**: 自动生成可导航的数据文档
-- 🗂️ **组件库**: 可复用的 YAML 模板片段
-- 🔌 **Git Hooks**: 提交前自动更新文档
-
-## 快速开始
-
-### 安装依赖
-
-```bash
-# Windows
-install.bat
-
-# Linux/Mac
-chmod +x install.sh
-./install.sh
-```
-
-或手动安装：
-
-```bash
-pip install -r requirements.txt
-```
-
-### 运行构建验证
-
-```bash
-python build_and_validate.py
-```
-
-### 启动MCP服务器
-
-```bash
-# 方式1：直接运行（推荐开发时使用）
-python framework/mcp_serve.py --stdio
-
-# 方式2：作为包安装后运行（推荐生产环境）
-pip install -e .
-pp-mcp --stdio
-
-# SSE模式（独立运行）
-python framework/mcp_serve.py --port 8000
-```
-
-### 测试导入
-
-```bash
-python test_imports.py
-```
-
-## 项目结构
-
-```
-power-platform-agent/
-├── framework/             # 框架层 (可复用核心组件)
-│   ├── agents/            # 代理实现
-│   │   ├── core_agent.py
-│   │   ├── metadata_agent.py
-│   │   ├── plugin_agent.py
-│   │   └── solution_agent.py
-│   ├── utils/             # 工具函数
-│   │   ├── dataverse_client.py
-│   │   ├── yaml_parser.py
-│   │   ├── schema_validator.py
-│   │   └── naming_converter.py
-│   └── mcp_serve.py       # MCP服务器入口
-├── metadata/              # YAML元数据定义
-│   ├── _schema/           # Schema定义
-│   ├── tables/            # 表定义
-│   ├── forms/             # 表单定义
-│   ├── views/             # 视图定义
-│   ├── webresources/      # Web Resource配置
-│   ├── ribbon/            # 命令栏定义
-│   ├── sitemap/           # 应用导航定义
-│   └── optionsets/        # 全局选项集
-├── sources/               # 源文件层
-│   ├── templates/         # Excel/Word/PPT模板
-│   ├── features/          # 按功能迭代组织
-│   └── library/           # 可复用YAML片段
-├── transformers/          # 转换器层 (架构保留)
-├── docs/
-│   ├── data_dictionary/   # 自动生成的数据字典
-│   ├── spec/              # 规范文档
-│   └── guides/            # 使用指南
-├── scripts/               # 脚本工具
-│   ├── generate_data_dictionary.py
-│   ├── hooks/             # Git hooks
-│   └── install_hooks.sh
-├── webresources/          # Web Resource源文件
-│   ├── css/
-│   ├── js/
-│   ├── html/
-│   └── img/
-├── plugins/               # .NET插件源码
-│   └── AccountPlugin/
-├── config/                # 配置文件
-│   ├── hermes_profile.yaml
-│   ├── environments.yaml
-│   ├── naming_rules.yaml
-│   ├── extensions.yaml
-│   └── settings.yaml
-├── .claude/               # Claude Code配置
-│   └── context_config.yaml
-├── build_and_validate.py  # 构建验证脚本
-├── setup.py               # 包安装配置
-└── test_imports.py        # 导入测试
-```
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ---
 
-## 数据字典自动生成
+## 简介
 
-项目包含自动数据字典生成功能，从 YAML 元数据生成可浏览的 Markdown 文档。
+Power Platform Agent 提供**两条互补路径**来管理 Dataverse 元数据：
 
-### 安装 Git Hooks (推荐)
+| 路径 | 入口 | 适合场景 |
+|------|------|----------|
+| **`framework_power` CLI**（推荐） | `python -m framework_power` | 新项目、CI/CD 流水线、类型安全要求 |
+| **MCP Server**（Legacy） | `python -m framework.mcp_serve` | AI 辅助开发（Claude Code / Cursor）、已有 YAML 资产 |
 
-```bash
-bash scripts/install_hooks.sh
-```
-
-安装后，每次提交 `metadata/` 中的 YAML 文件时，会自动更新数据字典。
-
-### 手动生成
-
-```bash
-# 生成所有文档
-python scripts/generate_data_dictionary.py --all
-
-# 生成指定文件
-python scripts/generate_data_dictionary.py --files metadata/tables/account.yaml
-```
-
-### 生成的文档结构
-
-```
-docs/data_dictionary/
-├── index.md              # 汇总索引
-├── all_tables.md         # 所有表结构
-├── all_optionsets.md     # 所有选项集
-├── tables/               # 按表分块
-│   ├── account.md
-│   └── contact.md
-└── optionsets/           # 选项集文档
-    ├── new_customer_status.md
-    └── new_payment_terms.md
-```
-
-### 虚拟字段过滤
-
-生成器会自动过滤 Dataverse 虚拟字段：
-- Lookup 的 `_name` 后缀 (如 `primarycontactid_name`)
-- 计算字段 (`is_calculated: true`)
-- 汇总/Rollup 字段 (`aggregate_type` 存在)
-
-### 全局选项集
-
-在 `metadata/optionsets/global_optionsets.yaml` 中定义可复用的选项集：
-
-```yaml
-global_optionsets:
-  - schema_name: new_customer_status
-    display_name: 客户状态
-    options:
-      - value: 1
-        label_zh: 潜在客户
-        label_en: Potential
-```
-
-在表定义中引用：
-
-```yaml
-attributes:
-  - name: status
-    type: Picklist
-    option_set_ref: new_customer_status
-```
+两者完全隔离，可独立使用。
 
 ---
 
 ## 快速开始
 
-### 安装依赖
+### 前置要求
+
+- Python 3.9+
+- Dataverse 环境（需 App Registration 的 `client_id` + `client_secret`）
+- .NET 8.0+ SDK（仅插件开发需要）
+
+### 安装
 
 ```bash
+git clone <repo-url>
 cd power-platform-agent
+
+# 安装核心依赖
 pip install -r requirements.txt
+
+# 安装为可编辑包（提供 pp-mcp 入口命令）
+pip install -e .
+
+# 可选：安装 CLI 增强
+pip install -e ".[cli]"
 ```
 
-### 配置环境变量
+### 配置
+
+1. 编辑 `config/environments.yaml`，填入 Dataverse 环境 URL：
+   ```yaml
+   environments:
+     dev:
+       url: "https://your-org.crm.dynamics.com"
+   ```
+
+2. 设置环境变量：
+   ```bash
+   export DEV_TENANT_ID="your-tenant-id"
+   export DEV_CLIENT_ID="your-client-id"
+   export DEV_CLIENT_SECRET="your-client-secret"
+   ```
+
+### 验证安装
 
 ```bash
-export DEV_TENANT_ID="your-tenant-id"
-export DEV_CLIENT_ID="your-client-id"
-export DEV_CLIENT_SECRET="your-client-secret"
+# 列出已注册的 Python 表定义
+python -m framework_power list
+
+# 启动 MCP 服务器
+python -m framework.mcp_serve
 ```
 
-### 在 Claude Code 中配置 MCP Server
+---
+
+## framework_power CLI（Python 优先路径）
+
+`framework_power` 是一套类型化的 Python 库，用 Python 代码替代 YAML 作为元数据的单一事实来源，覆盖完整的 Dataverse 开发链。
+
+### 9 大阶段
+
+| # | 阶段 | 功能 | CLI 示例 |
+|---|------|------|----------|
+| 1 | **表管理** | 类型化 `Table`/`Column`/`Relationship`，幂等 deploy/plan/reverse | `framework_power deploy new_projectbudget` |
+| 2 | **解决方案** | `Solution` 容器 + 6 种组件类型统一分发 | `framework_power solution deploy --env dev` |
+| 3 | **安全角色** | 为已存在角色 upsert 表级权限，按表逆向 | `framework_power role deploy --env dev` |
+| 4 | **Web 资源** | 本地目录批量同步 + 精准 `PublishXml` | `framework_power webresource sync --env dev` |
+| 5 | **窗体** | 结构化 Form 模型，逆向→改布局→正向无损往返 | `framework_power form deploy <entity>` |
+| 6 | **视图** | 结构化 View 模型，FetchXml+LayoutXml 配对 | `framework_power view deploy <entity>` |
+| 7 | **Ribbon** | 自定义按钮、JS command、显隐规则、隐藏 OOB | `framework_power ribbon deploy --env dev` |
+| 8 | **插件** | NuGet PluginPackage 优先，net462/net471 | `framework_power plugin build` |
+| 9 | **工作流编排** | `project.py` 清单驱动整条开发链 | `framework_power workflow deploy` |
+
+### 常用命令
+
+```bash
+# 代码检查
+python -m framework_power lint new_projectbudget
+
+# 只读预演（不写入 Dataverse）
+python -m framework_power plan new_projectbudget --env dev
+
+# 同步到 Dataverse
+python -m framework_power deploy new_projectbudget --env dev
+
+# 逆向导出（环境 → 本地 Python 文件）
+python -m framework_power reverse new_projectbudget --env dev
+
+# 全表部署
+python -m framework_power deploy-all --env dev
+```
+
+> **设计原则**：非破坏性部署（只 create/update，不 delete）、幂等双向同步、标准组件自动跳过。
+
+---
+
+## MCP Server（AI 交互路径）
+
+MCP Server 将 Dataverse 操作暴露为 Claude Code 可调用的工具，支持通过自然语言管理元数据。
+
+### 在 Claude Code 中配置
 
 在 `.mcp.json` 中添加：
 
@@ -213,7 +126,7 @@ export DEV_CLIENT_SECRET="your-client-secret"
   "mcpServers": {
     "power-platform": {
       "command": "python",
-      "args": ["{your_path}/power-platform-agent/framework/mcp_serve.py"],
+      "args": ["{repo_path}/framework/mcp_serve.py"],
       "env": {
         "TENANT_ID": "${TENANT_ID}",
         "CLIENT_ID": "${CLIENT_ID}",
@@ -224,7 +137,7 @@ export DEV_CLIENT_SECRET="your-client-secret"
 }
 ```
 
-或安装为包后使用：
+或者安装为包后：
 
 ```json
 {
@@ -236,329 +149,138 @@ export DEV_CLIENT_SECRET="your-client-secret"
 }
 ```
 
----
+### 可用工具
 
-## 使用指南
-
-### 🔐 认证与连接
-
-```
-# 连接到开发环境
-连接到 dev 环境
-
-# 查看连接状态
-查看当前连接状态
-
-# 切换环境
-切换到 test 环境
-
-# 断开连接
-登出当前环境
-```
-
-### 📋 元数据管理
-
-```
-# 创建表（自然语言描述）
-创建一个客户表，包含以下字段：
-- 客户编号 (String, 必填, 主名称)
-- 联系电话 (String)
-- 账户余额 (Money, 精度2位)
-- 客户状态 (Picklist: 活跃/冻结/关闭)
-
-# 验证元数据
-验证 metadata/tables/customer.yaml 的格式
-
-# 应用到Dataverse
-将 customer 表应用到 Dataverse
-
-# 导出元数据
-将 account 表导出为 YAML 到 output/ 目录
-```
-
-### 🏷️ 命名转换
-
-```
-# 转换Schema名称
-将 "CustomerAccountNumber" 转换为 lowercase 风格的 schema_name
-# 输出: new_customer_account_number
-
-# 批量转换
-转换以下字段名为 schema_name:
-- AccountBalance
-- CustomerType
-- IsActive
-
-# 验证命名
-验证 "new_customer_account" 是否符合命名规则
-
-# 查看命名规则
-显示当前的命名规则配置
-```
-
-### 🔌 插件管理
-
-```
-# 构建插件
-构建 plugins/AccountPlugin/AccountPlugin.csproj
-
-# 部署插件
-部署 plugins/AccountPlugin/bin/Release/net462/AccountPlugin.dll
-
-# 注册Step
-为 AccountPlugin 注册一个 Step：
-- 实体: account
-- 消息: Create
-- 阶段: post-operation
-
-# 列出Steps
-列出 AccountPlugin 的所有注册Steps
-
-# 删除Step
-删除指定Step
-```
-
-### 📦 解决方案管理
-
-```
-# 导出解决方案
-导出 MySolution_Dev 解决方案
-
-# 导入解决方案
-导入 solutions/MySolution.zip 到 test 环境
-
-# 对比差异
-对比本地 metadata/ 与云端 MySolution 的差异
-
-# 双向同步
-执行本地到云端的双向同步
-
-# 查看同步状态
-查看当前同步状态
-```
+| 前缀 | 功能 | 说明 |
+|------|------|------|
+| `auth_*` | 认证管理 | 登录、状态、环境切换 |
+| `metadata_*` | 元数据 CRUD | YAML ↔ Dataverse 的表/字段/关系/表单/视图管理 |
+| `naming_*` | 命名转换 | Schema Name 规范化、批量转换、合规校验 |
+| `plugin_*` | 插件管理 | .NET 插件构建、部署、Step 注册 |
+| `solution_*` | 解决方案 | 导入/导出/差异对比/双向同步 |
+| `doc_*` | 文档自律 | 变更检测、影响分析、文档自动更新 |
 
 ---
 
-## 典型工作流程
-
-### 流程1: 创建新表
+## 项目结构
 
 ```
-1. 编辑 metadata/tables/product.yaml
-   ↓
-2. 验证: 验证 product.yaml
-   ↓
-3. 检查命名: 检查命名是否符合规则
-   ↓
-4. 应用: 将 product 表应用到 Dataverse
-   ↓
-5. 确认: 查看创建结果
+power-platform-agent/
+├── sources/                     # 【需求汇总与入口】所有功能的需求、设计、输出
+│   ├── features/                # 按功能模块组织
+│   │   ├── cpq/                 # CPQ 售前模块（询价→报价→转单）
+│   │   ├── so-model/            # 备件销售订单（最完整案例：97字段 Excel→对比→63新增字段 YAML）
+│   │   ├── po-model/            # 采购订单模型
+│   │   └── feature-payment-management/
+│   ├── library/templates/       # 标准化模板（FEATURE_STRUCTURE/PRD_TEMPLATE/ENTITY_DESIGN）
+│   └── templates/               # 源文件模板（Excel/Word/PPT 设计模板）
+├── framework_power/             # Python 优先部署库（推荐）
+│   ├── models.py                # Table/Column/Relationship/Label 类型化模型
+│   ├── deployer.py              # 幂等部署引擎
+│   ├── reverse.py               # 环境 → Python 逆向
+│   ├── codegen.py               # Table → Python 源码生成
+│   ├── lint.py                  # 离线约定校验
+│   ├── cli.py                   # CLI 入口
+│   └── components/              # 解决方案组件注册表（6 种类型统一接口）
+├── metadata_py/                 # Python 元数据定义
+│   ├── tables/                  # 每表一个 .py 文件（导出 TABLE）
+│   ├── forms/                   # 结构化窗体定义
+│   ├── views/                   # 结构化视图定义
+│   ├── solutions/               # 解决方案清单
+│   ├── roles/                   # 安全角色权限定义
+│   └── project.py               # 工作流编排清单
+├── framework/                   # MCP Server（Legacy 路径）
+│   ├── mcp_serve.py             # MCP 服务器入口
+│   ├── agents/                  # Agent 路由（core/metadata/plugin/solution）
+│   └── utils/                   # DataverseClient、命名转换、YAML 解析器
+├── metadata/                    # YAML 元数据定义（Legacy 路径）
+│   ├── tables/                  # 表定义
+│   ├── forms/                   # 表单定义
+│   ├── views/                   # 视图定义
+│   └── optionsets/              # 全局选项集
+├── config/                      # 配置文件
+│   ├── environments.yaml        # 多环境（dev/test/prod）URL 和凭据
+│   ├── naming_rules.yaml        # 命名规则（风格、前缀、标准实体保护列表）
+│   ├── publishers.yaml          # 发布商配置
+│   └── settings.yaml            # Agent 性能与日志设置
+├── plugins/                     # .NET 插件源码
+├── webresources/                # Web 资源文件（JS/CSS/HTML）
+├── docs/                        # 文档
+│   ├── spec/                    # 架构、元数据规范
+│   └── guides/                  # 使用指南
+├── test/                        # 测试（168+ 单元测试）
+├── scripts/                     # 工具脚本（Git hooks、数据字典生成）
+├── .claude/skills/              # Claude Code 技能（14 个）
+├── setup.py                     # 包安装配置
+└── requirements.txt
 ```
 
-### 流程2: 开发插件
-
-```
-1. 编写 C# 插件代码
-   ↓
-2. 配置 plugin_config.yaml
-   ↓
-3. 构建: 构建插件项目
-   ↓
-4. 部署: 部署程序集
-   ↓
-5. 注册: 注册 Plugin Step
-   ↓
-6. 测试: 在 Dataverse 中测试
-```
-
-### 流程3: 表单设计
-
-```
-1. 创建表单定义 YAML
-   ↓
-2. 配置选项卡和分区
-   ↓
-3. 添加字段到单元格
-   ↓
-4. 关联 Web Resources
-   ↓
-5. 应用到 Dataverse
-```
+> **需求到代码的完整链路**：`sources/features/<feature>/` → Excel 设计 → `dv-model-to-python`（AI 生成）→ `metadata_py/tables/` → `framework_power lint/plan/deploy` → Dataverse。`so-model` 是这一管线的完整参考案例。
 
 ---
 
-## 对话示例
+## 配置说明
 
-### 场景：创建账户表
+所有配置文件位于 `config/` 目录：
 
-```
-你: 我需要创建一个银行账户表
-
-Agent: 好的，我来帮你创建银行账户表。请告诉我需要哪些字段？
-
-你: 需要账户号、账户类型(储蓄/支票)、余额、开户日期
-
-Agent: 明白了。我将为你创建一个账户表，包含以下字段：
-- accountNumber (账户号) - String类型
-- accountType (账户类型) - Picklist
-- balance (余额) - Money类型
-- openedDate (开户日期) - DateTime类型
-
-正在生成 YAML 元数据...
-正在验证 Schema...
-正在应用命名转换 (account → new_account)...
-正在应用到 Dataverse...
-
-✓ 表创建成功！schema_name: new_account
-```
-
-### 场景：修复命名问题
-
-```
-你: 这个字段命名有问题吗: CustomerAccount_123?
-
-Agent: 让我检查一下...
-
-检查结果：
-✗ 不符合命名规则
-问题:
-  - 包含非法字符 "_123"
-  - 建议使用: new_customer_account_123 或 new_customer_account123
-
-是否需要我帮你转换？
-```
-
-### 场景：插件部署
-
-```
-你: 我修改了插件代码，帮我重新部署
-
-Agent: 好的，正在处理：
-
-1. 检测到插件代码变更
-2. 正在构建...
-   ✓ 构建成功: AccountPlugin.dll v1.0.0.1
-3. 正在部署...
-   ✓ 部署成功
-4. 正在更新Steps...
-   ✓ Step 更新成功
-
-插件已重新部署并生效！
-```
+| 文件 | 用途 |
+|------|------|
+| `environments.yaml` | 多环境 URL 和认证方式，支持 `${ENV_VAR}` 变量展开 |
+| `naming_rules.yaml` | Schema Name 风格（lowercase/PascalCase）、前缀、标准实体保护列表 |
+| `publishers.yaml` | 发布商名称和前缀（默认 `new`） |
+| `settings.yaml` | 请求超时、日志级别、并发控制 |
 
 ---
 
-## 高级技巧
+## 开发
 
-### 1. 批量操作
+```bash
+# 安装开发依赖
+pip install -e ".[dev]"
 
+# 代码检查
+flake8 framework/ framework_power/ --max-line-length=120
+mypy framework_power --ignore-missing-imports --explicit-package-bases
+
+# 运行测试
+cd test && pytest unit/ -q
+
+# 带覆盖率
+cd test && pytest unit/ --cov=framework_power --cov-report=html
+
+# 安装 Git Hooks（提交时自动更新数据字典）
+bash scripts/install_hooks.sh
 ```
-批量转换所有属性名为 schema_name
-批量验证 metadata/tables/ 下的所有文件
-批量部署 Web Resources
-```
-
-### 2. 差异同步
-
-```
-对比本地与云端差异，告诉我需要同步什么
-执行双向同步，保留本地修改
-```
-
-### 3. 监听模式
-
-```
-开启插件监听模式，自动构建和部署
-```
-
-### 4. 命名规则定制
-
-编辑 `config/naming_rules.yaml`：
-
-```yaml
-naming:
-  prefix: "your_prefix"        # 修改前缀
-  schema_name:
-    style: "camelCase"          # 改为驼峰风格
-```
-
----
-
-## 故障排查
-
-| 问题 | 解决方案 |
-|-----|---------|
-| 认证失败 | 检查环境变量配置 |
-| 命名冲突 | 使用 `naming_validate` 检查 |
-| API限流 | 等待后重试，系统会自动处理 |
-| Schema错误 | 使用 `metadata_validate` 验证 |
-| 标准表保护 | 确认是否真的需要修改标准表 |
-
----
-
-## 命令速查
-
-| 功能 | 命令/描述 |
-|-----|----------|
-| **认证** | |
-| 连接环境 | `连接到 dev 环境` |
-| 查看状态 | `查看连接状态` |
-| 切换环境 | `切换到 test 环境` |
-| **元数据** | |
-| 创建表 | `创建一个客户表，包含...` |
-| 验证元数据 | `验证 customer.yaml` |
-| 应用元数据 | `将 customer 表应用到 Dataverse` |
-| 导出元数据 | `导出 account 表为 YAML` |
-| **命名** | |
-| 转换命名 | `将 "AccountName" 转换为 schema_name` |
-| 验证命名 | `验证 "new_customer" 是否符合规则` |
-| 查看规则 | `显示当前命名规则` |
-| **插件** | |
-| 构建插件 | `构建 AccountPlugin.csproj` |
-| 部署插件 | `部署 AccountPlugin.dll` |
-| 注册Step | `注册插件 Step: account/Create/post` |
-| **解决方案** | |
-| 导出解决方案 | `导出 MySolution` |
-| 导入解决方案 | `导入 MySolution.zip` |
-| 对比差异 | `对比本地与云端差异` |
-| 同步状态 | `查看同步状态` |
-| **数据字典** | |
-| 生成文档 | `python scripts/generate_data_dictionary.py --all` |
-| 安装Hooks | `bash scripts/install_hooks.sh` |
 
 ---
 
 ## 文档
 
-- [架构文档](docs/spec/architecture.md) - 系统架构设计
-- [元数据规范](docs/spec/metadata-spec.md) - 元数据定义规范
-- [快速开始](docs/guides/getting-started.md) - 详细入门指南
-
-### 附加文档
-
-有关 Microsoft Dataverse 和相关技术的综合参考信息：
-
-| 资源 | 描述 |
-|----------|-------------|
-| **[Dataverse 开发者指南](https://learn.microsoft.com/power-apps/developer/data-platform/)** | Microsoft Dataverse 的完整开发者文档 |
-| **[Dataverse Web API 参考](https://learn.microsoft.com/power-apps/developer/data-platform/webapi/)** | 详细的 Web API 参考和示例 |  
-| **[Python 的 Azure Identity](https://learn.microsoft.com/python/api/overview/azure/identity-readme)** | 身份验证库文档和凭据类型 |
-| **[Power Platform 开发者中心](https://learn.microsoft.com/power-platform/developer/)** | 更广泛的 Power Platform 开发资源 |
-| **[.NET 的 Dataverse SDK](https://learn.microsoft.com/power-apps/developer/data-platform/org-service/overview)** | Microsoft Dataverse 的官方 .NET SDK |
-| **[Python 的 Dataverse SDK Source Code](https://github.com/microsoft/PowerPlatform-DataverseClient-Python/tree/main)** | PowerPlatform Dataverse Client for Python |
+| 文档 | 说明 |
+|------|------|
+| [架构文档](docs/spec/architecture.md) | 系统架构、Agent 路由、组件依赖 |
+| [元数据规范](docs/spec/metadata-spec.md) | 元数据定义规范（含 Python API 和 YAML 格式） |
+| [元数据部署指南](docs/metadata-deploy.md) | 两种部署路径完整对比与操作指南 |
+| [快速开始](docs/guides/getting-started.md) | 详细入门教程 |
+| [编码规范](docs/guides/coding-standards.md) | 代码风格和约定 |
 
 ---
 
 ## 技术栈
 
-- **Agent框架**: Hermes Agent
-- **MCP协议**: Model Context Protocol
-- **元数据格式**: YAML + JSON Schema
-- **认证**: MSAL (OAuth 2.0)
-- **插件开发**: .NET Framework 4.6.2
+| 层级 | 技术 |
+|------|------|
+| 主语言 | Python 3.9+（完整类型注解、mypy 严格模式） |
+| MCP 协议 | `mcp>=0.1.0`（stdio 传输） |
+| 认证 | MSAL（OAuth 2.0 client-credentials） |
+| 配置格式 | YAML + JSON Schema 验证 |
+| 插件语言 | C# / .NET（net462/net471） |
+| CLI | `click` + `rich` |
+| 代码质量 | black、flake8、mypy |
+| 测试 | pytest + pytest-asyncio + pytest-cov |
 
 ---
 
 ## License
 
-MIT License
+MIT License —— 详见 [LICENSE](LICENSE)
