@@ -27,6 +27,7 @@ from ..components.models import (
     DeployMode,
     Plugin,
     PluginProject,
+    _pascal,
 )
 
 logger = logging.getLogger(__name__)
@@ -226,7 +227,132 @@ def _find_output_dll(project: Path, configuration: str, assembly_name: Optional[
     return None
 
 
+def generate_plugin_cs(config: PluginProject, output_dir: str | Path) -> list[Path]:
+    """Generate C# plugin files from PluginProject config.
+
+    Creates:
+    - {Module}Plugin.cs: Main plugin class
+    - {Module}Plugin.csproj: Project file
+    - AssemblyInfo.cs: Assembly metadata (optional)
+
+    Args:
+        config: PluginProject configuration
+        output_dir: Directory to write generated files
+
+    Returns:
+        List of generated file paths
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    module = _pascal(config.module)
+    assembly_name = config.assembly_name
+
+    # Generate plugin cs file
+    plugin_content = _generate_plugin_template(config, module, assembly_name)
+    plugin_file = output_dir / f"{module}Plugin.cs"
+    plugin_file.write_text(plugin_content, encoding="utf-8")
+
+    # Generate csproj file
+    csproj_content = _generate_csproj_template(config, assembly_name)
+    csproj_file = output_dir / f"{assembly_name}.csproj"
+    csproj_file.write_text(csproj_content, encoding="utf-8")
+
+    logger.info(f"Generated plugin files: {plugin_file.name}, {csproj_file.name}")
+    return [plugin_file, csproj_file]
+
+
+def _generate_plugin_template(config: PluginProject, module: str, assembly_name: str) -> str:
+    """Generate the C# plugin class template."""
+    steps_doc = []
+    for step in config.steps:
+        entity = step.entity or "entity"
+        message = step.message
+        stage = _stage_to_text(step.stage)
+        steps_doc.append(
+            f"    /// - {step.name}: {entity} {message} ({stage})"
+        )
+    steps_section = "\n".join(steps_doc) if steps_doc else "    /// (no steps registered)"
+
+    return f'''using System;
+using Microsoft.Xrm.Sdk;
+
+namespace {assembly_name}
+{{
+    /// <summary>
+    /// {assembly_name} plugin. Deployed via {config.deploy_mode.value} mode (target: {config.target_framework}).
+    /// Registered steps:
+{steps_section}
+    /// </summary>
+    public class {module}Plugin : IPlugin
+    {{
+        public void Execute(IServiceProvider serviceProvider)
+        {{
+            // 1. 获取执行上下文
+            var context = (IPluginExecutionContext)serviceProvider.GetService(typeof(IPluginExecutionContext));
+
+            // 2. 获取跟踪服务（用于调试）
+            var tracing = (ITracingService)serviceProvider.GetService(typeof(ITracingService));
+
+            // 3. 记录跟踪信息
+            tracing.Trace("{{0}}: {{1}} on {{2}} [{{3}}]",
+                GetType().Name, context.MessageName, context.PrimaryEntityName, context.PrimaryEntityId);
+
+            try
+            {{
+                // 4. 获取目标实体（如果是 Create/Update/Delete）
+                if (context.InputParameters.Contains("Target"))
+                {{
+                    var target = (Entity)context.InputParameters["Target"];
+
+                    // ========================================
+                    // TODO: 业务逻辑实现
+                    // ========================================
+
+                    tracing.Trace("Plugin completed successfully");
+                }}
+            }}
+            catch (Exception ex)
+            {{
+                tracing.Trace("Plugin error: {{0}}", ex.Message);
+                throw new InvalidPluginExecutionException("操作失败，请联系管理员。", ex);
+            }}
+        }}
+    }}
+}}
+'''
+
+
+def _generate_csproj_template(config: PluginProject, assembly_name: str) -> str:
+    """Generate the .csproj project file template."""
+    package_ref = "Microsoft.CrmSdk.CoreAssemblies"
+
+    return f'''<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>{config.target_framework}</TargetFramework>
+    <AssemblyName>{assembly_name}</AssemblyName>
+    <RootNamespace>{assembly_name}</RootNamespace>
+    <Version>{config.version}</Version>
+    <PackageId>{config.prefix}_{assembly_name}</PackageId>
+    <Description>{assembly_name} plugin project</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="{package_ref}" Version="9.0.2.42" />
+  </ItemGroup>
+
+</Project>
+'''
+
+
+def _stage_to_text(stage: int) -> str:
+    """Convert stage number to readable text."""
+    stages = {10: "PreValidation", 20: "PreOperation", 40: "PostOperation"}
+    return stages.get(stage, f"Stage{stage}")
+
+
 __all__ = [
     "dotnet_available", "build_plugin", "build_plugin_project", "load_plugin_project",
-    "_resolve_deploy_mode", "_read_target_framework",
+    "generate_plugin_cs", "_resolve_deploy_mode", "_read_target_framework",
 ]
