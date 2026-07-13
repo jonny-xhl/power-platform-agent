@@ -63,9 +63,13 @@ def test_deploy_updates_when_present():
     assert c.updated and "fetchxml" in c.updated[0][1] and "layoutxml" in c.updated[0][1]
 
 
-def test_deploy_skips_standard_entity():
-    v = vx.new_view("Active Accounts", "account", primary_id="accountid", object_type_code=1)
-    assert view_mod.deploy(FakeClient(), v, prefix="new")["action"] == "skipped_standard"
+def test_deploy_standard_entity_is_authored():
+    # Views on standard entities (account/contact/appointment/...) are authored (created/updated),
+    # not skipped — relaxed from the earlier entity-based skip (same change as forms).
+    v = vx.new_view("Engagements", "appointment", primary_id="activityid", object_type_code=4201)
+    c = FakeClient(existing=None)
+    assert view_mod.deploy(c, v, prefix="new")["action"] == "created"
+    assert c.created
 
 
 def test_resolve_id():

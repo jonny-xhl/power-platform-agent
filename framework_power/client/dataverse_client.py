@@ -920,6 +920,73 @@ class DataverseClient:
         }
 
     @retry_on_metadata_error(max_retries=4, initial_delay=3.0)
+    def remove_solution_component(
+        self,
+        unique_name: str,
+        component_type: int,
+        object_id: str,
+    ) -> dict[str, Any]:
+        """POST the ``RemoveSolutionComponent`` action — remove a component from the solution
+        CONTAINER only.
+
+        Non-destructive: the component itself stays in the environment's default unmanaged layer.
+        This is the correct way to prune solution membership (e.g. drop OOB sub-components dragged
+        in by an entity add). Do NOT ``DELETE solutioncomponents(...)`` rows directly — that 400s;
+        the bound action is the only supported path.
+
+        Verified-live parameter form: ``RemoveSolutionComponent`` takes ``SolutionUniqueName``,
+        ``ComponentType`` (int), and ``SolutionComponent`` — a nested ``mscrm.solutioncomponent``
+        object. Action payloads reject ``@odata.bind`` and require the entity key, so the nested
+        object is ``{@odata.type, solutioncomponentid: <COMPONENT objectid>}`` (the component's own
+        object id, NOT the membership record's id — the action locates the membership by it).
+        """
+        sol = self.get_solution_by_name(unique_name)
+        if not sol:
+            raise ValueError(f"Solution not found: {unique_name}")
+        sid = sol.get("solutionid")
+        rows = self.session.get(
+            self.get_api_url("solutioncomponents"),
+            params={
+                "$filter": f"_solutionid_value eq {sid} and objectid eq {object_id} "
+                f"and componenttype eq {component_type}",
+                "$select": "solutioncomponentid",
+            },
+        ).json().get("value", [])
+        if not rows:
+            return {
+                "removed": False,
+                "solution": unique_name,
+                "object_id": object_id,
+                "note": "not a member of this solution",
+            }
+        scid = rows[0].get("solutioncomponentid")
+        payload = {
+            # RemoveSolutionComponent's SolutionComponent param is a mscrm.solutioncomponent
+            # entity reference (NOT a guid). Action parameter payloads reject @odata.bind
+            # annotations, so pass it as a nested object. Dataverse locates the membership by
+            # (solution, ComponentType, objectid) — verified live.
+            "SolutionComponent": {
+                "@odata.type": "#Microsoft.Dynamics.CRM.solutioncomponent",
+                "solutioncomponentid": object_id,
+            },
+            "ComponentType": component_type,
+            "SolutionUniqueName": unique_name,
+        }
+        response = self.session.post(self.get_api_url("RemoveSolutionComponent"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(
+                response,
+                f"remove component type={component_type} id={object_id} from '{unique_name}'",
+            )
+        return {
+            "removed": True,
+            "solution": unique_name,
+            "component_type": component_type,
+            "object_id": object_id,
+            "solutioncomponentid": scid,
+        }
+
+    @retry_on_metadata_error(max_retries=4, initial_delay=3.0)
     def publish_all_xml(self) -> dict[str, Any]:
         """POST ``PublishAllXml`` — publishes ALL unmanaged customizations in the org."""
         response = self.session.post(self.get_api_url("PublishAllXml"))

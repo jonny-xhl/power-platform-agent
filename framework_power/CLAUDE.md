@@ -199,6 +199,19 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
   或 `{"add_targets":[...]}`（插件），`deploy_solution` 优先用它，避免 create→resolve 竞争。
 - **AddSolutionComponent 幂等**：重复加入已存在组件不报错（返回成功），故二次部署的"加入"
   是良性 no-op。
+- **解决方案成员原则（可移植/可回归）+ clean 模式（2026-07）**：解决方案原则上**只含自建组件 +
+  必要依赖**，不得拖入其它内容（否则污染、不可移植）。痛点是**加实体（code 1）默认含全部子组件**
+  （拖入该实体所有 OOB 窗体/视图）。两套可控机制：
+  - `deploy_table(..., solution=, solution_clean=True)`（CLI `deploy <t> --solution <s> --solution-clean`）：
+    加实体 **SHELL**（`do_not_include_subcomponents=True`）+ 逐个加**自定义字段**（含 relationship lookup
+    字段，code 2）→ 解决方案只留自建内容。`solution_clean=False`（默认，向后兼容）仍是「含子组件」。
+    **按场景选**：feature/可移植方案用 `--solution-clean`；一次性/调试可用默认。
+  - `client.remove_solution_component(name, component_type, object_id)`：**非破坏性**从解决方案移除组件
+    （组件本身留在环境的默认未托管层，只是退出解决方案容器）——清理成员的正确姿势。**不要**
+    `DELETE solutioncomponents(...)`（400）。走 `RemoveSolutionComponent` action：参数 `SolutionUniqueName`/
+    `ComponentType`/`SolutionComponent`（嵌套 `mscrm.solutioncomponent` 对象，action payload 拒绝
+    `@odata.bind` 且要求 entity key → `{@odata.type, solutioncomponentid: <组件 objectid>}`，注意传的是
+    **组件 objectid** 不是成员记录 id，**已 live 验证**）。
 - **`solution deploy/plan` 必须透传 `--definitions-dir`**：表名引用从该目录解析，否则回退到
   默认 `metadata_py/tables`。
 - **`PublishAllXml` 组织级**：发布**所有**未托管自定义项，无法只发布单个解决方案。
@@ -287,6 +300,22 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
   boolean `{B737D7BB-...}`、memo `{B0C872A3-...}`。`add_field` 按 P1 `Column.type` 选；String
   `format_name=Url` → url classid；`LookupColumn` → lookup。**Money/Decimal/Double/File 未覆盖 →
   回退 text，需显式传 `classid=`**。控件 `id`/`datafieldname` 默认取字段逻辑名（`schema_name.lower()`）。
+- **非字段（unbound）控件 classid + builder（已 live 钉死）**：subgrid `{E7A81278-8635-4d9e-8D4D-59480B391C5B}`
+  + webresource（嵌入 HTML 页）`{6213F1A3-37CE-4A1B-9CCB-CE7B3F1C7AA3}`。两者无 `datafieldname`，配置在
+  `<parameters>` 子元素里（`FormControl.parameters` dict 已往返保真）。builder：`add_webresource_cell`
+  （参数 `Url/PassParameters/Scrolling/Border`，⚠️ 是 **`PassParameters`** 不是 `PassParams`，值用 `true/false`）
+  与 `add_subgrid_cell`（参数 `TargetEntityType/ViewId/RelationshipName/RecordsPerPage/...`）。⚠️ 这两类控件
+  的 `<control>` **不要**带 `indicationOfSubgrade` 属性（schema 不允许，报 `0x80048425`）；只放 `id`+`classid`。
+- **嵌入 web 资源的 cell 必须有高度 + 合法 id（已 live 钉死）**：webresource 控件所在 `<cell>` **必须带 `rowspan`**
+  （`add_webresource_cell` 默认 `rowspan=8`），否则 iframe 渲染成 ~0 高度、**页面不显示**。且 cell 必须有合法 `id`
+  (GUID)——曾因给 cell 设 `attrs={"rowspan":"8"}`（旧 serializer 在有 attrs 时只发 attrs、漏了 id）导致 cell `id` 为空 →
+  窗体报 `null is not a valid Guid value` + 解决方案查看器无法加载。已修 `_serialize_cell`：authored cell（attrs 无 `id`）
+  先发 `id/showlabel/visible` 默认再 overlay attrs；attrs 含 `id`（逆向快照）仍原样发（保往返保真）。
+- **标准实体窗体现在可部署（已 live 钉死，2026-07 放开）**：早期 `components/form.deploy/plan` + `form_sync`
+  对标准实体（account/contact/...）硬跳过；现按 name+type create-or-PATCH，**允许**在标准实体上新建/更新命名
+  窗体（不覆盖 OOB "Information" 除非同名同 type）。安全性靠结构化 diff：逆向未改的窗体重 deploy = `would_skip`/
+  `skipped_unchanged`。**视图（view）同样已放开**（2026-07，同 form：`components/view.deploy/plan` + `view_sync` 不再按实体跳过，
+  可在标准实体上新建/更新 Public 视图）。optionset/webresource 仍保持标准跳过。
 - **发布按实体范围（关键，区别于 web 资源）**：formxml 改动**不会立即生效**，必须 `PublishXml`；
   窗体发布范围是**实体**（不是 form id、也不是 web 资源那种按 id）：`POST PublishXml` body
   `{"ParameterXml":"<importexportxml><entities><entity>{logicalname}</entity></entities>
@@ -303,11 +332,10 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
   `eval` 可还原）。
 - **加入解决方案 code 60**（`components/form.SOLUTION_CODE`）：`form deploy --solution NAME` 调
   `add_solution_component(name,60,id)`，幂等。
-- **自动创建窗体的定制 = 实体级 customness（已 live 钉死）**：建表后 Dataverse 自动创建的窗体都叫
-  **"Information"**（无 `new_` 前缀）。所以窗体的 `is_custom` 检查基于**实体**而非 form 名——
-  `components/form.deploy/plan/lint` 与 `form_sync.plan_forms/sync_forms` 都用 `is_custom(form.entity, prefix)`。
-  自定义表（`new_xxx`）的 "Information" 可编辑；标准实体（account）的窗体仍跳过。（早期按 form 名判断会把
-  自动创建窗体误判为 standard 而跳过——已纠正。）
+- **自动创建窗体的定制 = 实体级 customness（历史背景）**：建表后 Dataverse 自动创建的窗体都叫
+  **"Information"**（无 `new_` 前缀）。历史上窗体的 `is_custom` 检查基于**实体**（标准实体窗体跳过）；
+  **2026-07 已放开**——`components/form.deploy/plan` 与 `form_sync.plan_forms/sync_forms` 不再按实体跳过，
+  标准/自定义实体上的命名窗体均按 name+type create-or-PATCH（见上「标准实体窗体现在可部署」）。
 - **同名窗体按 `type` 消歧（已 live 钉死，关键）**：自动创建的 Main/QuickView/Card 窗体**三者都叫
   "Information"**，name-only 查找会命中 QuickView/Card，而它们**不能含 `<events>`** → PATCH 报 400
   `0x8004e300 "Form XML of type quick ... cannot contain element: events"`。故 `get_form_by_name` 带

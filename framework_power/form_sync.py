@@ -31,7 +31,6 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .components import form as form_component
-from .components._common import is_custom
 from .components.models import Form
 from .deployer import _is_already_exists
 
@@ -91,18 +90,13 @@ def _existing_id(client: Any, form: Form) -> Optional[str]:
 def plan_forms(client: Any, forms: list[Form], *, prefix: str = "new") -> dict[str, Any]:
     """Read-only dry run over authored forms.
 
-    Actions: ``would_create`` / ``would_update`` (model changed) / ``would_skip`` (model
-    unchanged vs live) / ``would_skip_standard`` (non-custom name).
+    Actions: ``would_create`` / ``would_update`` (model changed vs live) / ``would_skip``
+    (model unchanged vs live). Forms on standard entities are supported.
     """
     entries: list[dict[str, Any]] = []
     for form in forms:
-        # Customness is ENTITY-based (an auto-created form like "Information" on a custom
-        # table is editable; forms on standard entities are skipped).
-        if not is_custom(form.entity, prefix):
-            entries.append(
-                {"name": form.name, "entity": form.entity, "plan": {"action": "would_skip_standard"}}
-            )
-            continue
+        # Forms on standard entities (account/contact/...) are supported: deploy is by
+        # name+type and the structured-model diff makes re-deploying unchanged forms a no-op.
         try:
             live = _reverse_live(client, form)
         except Exception as e:  # noqa: BLE001
@@ -145,9 +139,6 @@ def sync_forms(
     changed_entities: set[str] = set()
 
     for form in forms:
-        if not is_custom(form.entity, prefix):  # entity-based; see plan_forms()
-            result["synced"].append({"name": form.name, "deploy": {"action": "skipped_standard"}})
-            continue
         try:
             live = _reverse_live(client, form)
         except Exception as e:  # noqa: BLE001

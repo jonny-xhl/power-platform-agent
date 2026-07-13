@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from .models import Table
 from .serializer import (
@@ -62,6 +62,7 @@ def deploy_table(
     config: DeployConfig | None = None,
     prefix: str = "new",
     solution: str | None = None,
+    solution_clean: bool = False,
 ) -> dict[str, Any]:
     """Deploy (create or sync) a ``Table`` to Dataverse.
 
@@ -78,6 +79,11 @@ def deploy_table(
         solution: Optional solution unique name; when set, the entity is added to it (code 1,
             idempotent) after deploy — mirrors ``deploy_plugin(solution=…)``. Default ``None``
             preserves the legacy no-membership behavior.
+        solution_clean: Membership MODE when ``solution`` is set. ``False`` (default, backward-
+            compatible) adds the entity WITH sub-components (Dataverse default — drags in all OOB
+            forms/views/fields). ``True`` adds the entity as a SHELL plus only its CUSTOM columns
+            as individual attributes (code 2), so the solution holds only self-authored content
+            (portable/regressable). Select per the solution portability principle.
 
     Returns:
         A result dict with ``entity``/``attributes``/``relationships`` action summaries, plus an
@@ -98,26 +104,82 @@ def deploy_table(
     _deploy_relationships(client, table, logical, cfg, result, prefix)
 
     if solution:
-        result["solution"] = _add_entity_to_solution(client, solution, logical)
+        result["solution"] = _add_entity_to_solution(
+            client, solution, logical, clean=solution_clean, table=table, prefix=prefix
+        )
 
     return result
 
 
-def _add_entity_to_solution(client: Any, solution: str, logical: str) -> dict[str, Any]:
-    """Add the entity (code 1) to ``solution`` (idempotent). Assumes the solution already exists."""
+def _add_entity_to_solution(
+    client: Any,
+    solution: str,
+    logical: str,
+    *,
+    clean: bool = False,
+    table: Optional[Table] = None,
+    prefix: str = "new",
+) -> dict[str, Any]:
+    """Add the entity (code 1) to ``solution`` (idempotent). Assumes the solution exists.
+
+    ``clean=False`` (default) adds the entity WITH sub-components (Dataverse default — drags in
+    every OOB form/view/field). ``clean=True`` adds the entity as a SHELL
+    (``do_not_include_subcomponents``) plus only its CUSTOM columns as individual attributes
+    (code 2), so the solution carries only self-authored content.
+    """
     try:
         mid = client.get_entity_metadata(logical).get("MetadataId")
     except Exception as e:  # noqa: BLE001
         return {"name": solution, "action": "failed", "error": f"resolve MetadataId: {e}"}
     if not mid:
         return {"name": solution, "action": "skipped", "note": "no MetadataId (standard entity?)"}
+
+    result: dict[str, Any] = {
+        "name": solution,
+        "object_id": mid,
+        "mode": "clean" if clean else "subcomponents",
+        "members": [],
+    }
     try:
-        client.add_solution_component(solution, 1, mid)
-        return {"name": solution, "object_id": mid, "action": "added"}
+        client.add_solution_component(solution, 1, mid, do_not_include_subcomponents=clean)
+        result["action"] = "added"
     except Exception as e:  # noqa: BLE001
         if _is_already_exists(e):
-            return {"name": solution, "object_id": mid, "action": "already_in_solution"}
-        return {"name": solution, "object_id": mid, "action": "failed", "error": str(e)}
+            result["action"] = "already_in_solution"
+        else:
+            result["action"] = "failed"
+            result["error"] = str(e)
+            return result
+
+    # Clean mode: add only the self-authored (custom) attributes as individual members.
+    if clean and table:
+        try:
+            attr_ids = {a.get("LogicalName"): a.get("MetadataId") for a in client.get_attributes(logical)}
+        except Exception as e:  # noqa: BLE001
+            result["members"].append({"action": "failed", "error": f"get_attributes: {e}"})
+            return result
+        # Custom attributes = plain columns + lookup columns from custom relationships.
+        custom_attrs: list[str] = [c.schema_name for c in table.columns if _is_custom(c.schema_name, prefix)]
+        for rel in table.relationships:
+            if rel.lookup and _is_custom(rel.lookup.schema_name, prefix):
+                custom_attrs.append(rel.lookup.schema_name)
+        for schema in custom_attrs:
+            aid = attr_ids.get(schema.lower())
+            entry: dict[str, Any] = {"attribute": schema}
+            if not aid:
+                entry["action"] = "skipped"
+                entry["note"] = "no MetadataId"
+                result["members"].append(entry)
+                continue
+            try:
+                client.add_solution_component(solution, 2, aid)
+                entry["action"] = "added"
+            except Exception as e:  # noqa: BLE001
+                entry["action"] = "already_in_solution" if _is_already_exists(e) else "failed"
+                if entry["action"] == "failed":
+                    entry["error"] = str(e)
+            result["members"].append(entry)
+    return result
 
 
 def plan_table(

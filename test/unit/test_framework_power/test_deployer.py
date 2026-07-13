@@ -91,9 +91,22 @@ class FakeClient:
         self.calls["create_relationship_from_json"].append(payload)
         return {"status": "created"}
 
-    def add_solution_component(self, solution: str, code: int, oid: str) -> dict[str, Any]:
-        self.calls["add_solution_component"].append((solution, code, oid))
+    def add_solution_component(
+        self,
+        solution: str,
+        code: int,
+        oid: str,
+        add_required: bool = False,
+        do_not_include_subcomponents: bool = False,
+    ) -> dict[str, Any]:
+        self.calls["add_solution_component"].append(
+            (solution, code, oid, do_not_include_subcomponents)
+        )
         return {"status": "added"}
+
+    def remove_solution_component(self, solution: str, code: int, oid: str) -> dict[str, Any]:
+        self.calls.setdefault("remove_solution_component", []).append((solution, code, oid))
+        return {"status": "removed"}
 
 
 def _str_existing(name: str, *, max_length: int = 200, display: Label | None = None) -> dict[str, Any]:
@@ -287,12 +300,42 @@ def test_deploy_skips_standard_columns_and_relationships():
 
 
 def test_deploy_table_adds_to_solution_when_given():
-    """deploy_table(solution=...) self-adds the entity (code 1) — Phase 9 uniformity."""
+    """deploy_table(solution=...) self-adds the entity (code 1) — Phase 9 uniformity.
+
+    Default mode adds the entity WITH sub-components (do_not_include_subcomponents=False)."""
     client = FakeClient(table_exists=False)
     result = deploy_table(client, _basic_table(), config=NO_DELAY, solution="new_MainSoln")
     assert result["entity"]["action"] == "created"
     assert result["solution"]["name"] == "new_MainSoln"
-    assert client.calls["add_solution_component"] == [("new_MainSoln", 1, "fake-id")]
+    assert result["solution"]["mode"] == "subcomponents"
+    assert client.calls["add_solution_component"] == [("new_MainSoln", 1, "fake-id", False)]
+
+
+def test_deploy_table_solution_clean_adds_shell_and_custom_fields():
+    """solution_clean=True adds the entity SHELL + only its custom attributes (code 2) — both
+    plain columns AND lookup columns from custom relationships — so the solution holds only
+    self-authored content (no OOB sub-components)."""
+    attrs = [
+        {"LogicalName": "new_name", "MetadataId": "mid-name"},
+        {"LogicalName": "new_amount", "MetadataId": "mid-amount"},
+        {"LogicalName": "new_accountid", "MetadataId": "mid-accountid"},
+    ]
+    client = FakeClient(table_exists=False, existing_attributes=attrs)
+    result = deploy_table(
+        client, _basic_table(), config=NO_DELAY, solution="new_MainSoln", solution_clean=True
+    )
+    sol = result["solution"]
+    assert sol["mode"] == "clean"
+    # entity added as a SHELL (do_not_include_subcomponents=True)
+    assert ("new_MainSoln", 1, "fake-id", True) in client.calls["add_solution_component"]
+    # plain columns + the relationship lookup, all added individually as attributes (code 2)
+    member_attrs = {m["attribute"]: m["action"] for m in sol["members"]}
+    assert member_attrs == {
+        "new_Name": "added",
+        "new_Amount": "added",
+        "new_AccountId": "added",
+    }
+    assert {c[1] for c in client.calls["add_solution_component"]} == {1, 2}
 
 
 def test_deploy_table_no_solution_unchanged():

@@ -177,7 +177,15 @@ def cmd_plan(args: argparse.Namespace) -> int:
 def cmd_deploy(args: argparse.Namespace) -> int:
     defn = get_definition(args.name, args.definitions_dir)
     client = get_client(args.env)
-    _print_json(deploy_table(client, defn.table, prefix=_publisher_prefix()))
+    _print_json(
+        deploy_table(
+            client,
+            defn.table,
+            prefix=_publisher_prefix(),
+            solution=args.solution,
+            solution_clean=args.solution_clean,
+        )
+    )
     return 0
 
 
@@ -1026,6 +1034,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_dep = sub.add_parser("deploy", help="Deploy (create/sync) a definition to Dataverse.")
     p_dep.add_argument("name")
     p_dep.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p_dep.add_argument(
+        "--solution",
+        default=None,
+        help="Also add the entity (code 1) to this solution after deploy (idempotent).",
+    )
+    p_dep.add_argument(
+        "--solution-clean",
+        action="store_true",
+        help="With --solution: add the entity as a SHELL + only its custom fields (code 2), "
+        "not all OOB sub-components — keeps the solution portable (only self-authored content).",
+    )
     p_dep.set_defaults(func=cmd_deploy)
 
     p_all = sub.add_parser("deploy-all", help="Deploy all definitions in dependency order.")

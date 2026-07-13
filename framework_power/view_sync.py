@@ -31,7 +31,6 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .components import view as view_component
-from .components._common import is_custom
 from .components.models import View
 from .deployer import _is_already_exists
 
@@ -97,11 +96,7 @@ def plan_views(client: Any, views: list[View], *, prefix: str = "new") -> dict[s
     """Read-only dry run over authored views (structured-model diff)."""
     entries: list[dict[str, Any]] = []
     for view in views:
-        if not is_custom(view.entity, prefix):
-            entries.append(
-                {"name": view.name, "entity": view.entity, "plan": {"action": "would_skip_standard"}}
-            )
-            continue
+        # Views on standard entities are supported (relaxed; see components/view.deploy).
         try:
             live = _reverse_live(client, view)
         except Exception as e:  # noqa: BLE001
@@ -144,9 +139,6 @@ def sync_views(
     changed_entities: set[str] = set()
 
     for view in views:
-        if not is_custom(view.entity, prefix):
-            result["synced"].append({"name": view.name, "deploy": {"action": "skipped_standard"}})
-            continue
         _fill_object_type_code(client, view)
         try:
             live = _reverse_live(client, view)

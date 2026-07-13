@@ -15,7 +15,6 @@ from typing import Any, Optional
 
 from ..lint import ERROR, WARNING, Issue
 from ..view_xml import parse_view, to_fetchxml, to_layoutxml
-from ._common import is_custom
 from .models import (
     QueryType,
     UPDATABLE_VIEW_TYPES,
@@ -62,9 +61,9 @@ def resolve_id(client: Any, model: View) -> Optional[str]:
 
 
 def deploy(client: Any, model: View, *, prefix: str = "new", config: Any = None) -> dict[str, Any]:
-    # Customness is ENTITY-based (a view on a custom table is ours, even with a generic name).
-    if not is_custom(model.entity, prefix):
-        return {"action": "skipped_standard"}
+    # Views on standard entities (account/contact/appointment/...) are supported: deploy is by
+    # name+querytype (create-or-PATCH) and the structured-model diff makes re-deploy non-destructive
+    # (relaxed from the earlier entity-based skip — same change as forms).
     existing = client.get_view_by_name(model.entity, model.name, query_type=int(model.query_type))
     if existing is None:
         if model.query_type != QueryType.Public:
@@ -82,8 +81,6 @@ def deploy(client: Any, model: View, *, prefix: str = "new", config: Any = None)
 
 
 def plan(client: Any, model: View, *, prefix: str = "new") -> dict[str, Any]:
-    if not is_custom(model.entity, prefix):  # entity-based; see deploy()
-        return {"action": "would_skip_standard"}
     existing = client.get_view_by_name(model.entity, model.name, query_type=int(model.query_type))
     if existing is None and model.query_type != QueryType.Public:
         return {"action": "would_skip_standard", "note": "system views are update-only"}
@@ -149,8 +146,6 @@ def _to_py(value: Any, indent: int) -> str:
 
 def lint(model: View, *, prefix: str = "new") -> list[Issue]:
     issues: list[Issue] = []
-    if not is_custom(model.entity, prefix):
-        issues.append(Issue(WARNING, f"View '{model.name}' is on standard entity '{model.entity}'."))
     if not model.entity:
         issues.append(Issue(WARNING, f"View '{model.name}' has no entity (returnedtypecode)."))
     if model.query_type not in UPDATABLE_VIEW_TYPES:

@@ -66,9 +66,14 @@ def test_deploy_updates_when_present():
     assert c.updated and "formxml" in c.updated[0][1]
 
 
-def test_deploy_skips_standard():
-    form = fx.new_form("Information", "account")
-    assert form_mod.deploy(FakeClient(), form, prefix="new")["action"] == "skipped_standard"
+def test_deploy_standard_entity_is_authored():
+    # Forms on standard entities (account/contact/...) are authored (created/updated), not
+    # skipped — deploy is name+type-scoped and non-destructive (relaxed from the earlier
+    # entity-based skip). A new named form on a standard entity is created.
+    form = fx.new_form("Contact View", "account")
+    c = FakeClient(existing=None)
+    assert form_mod.deploy(c, form, prefix="new")["action"] == "created"
+    assert c.created
 
 
 def test_deploy_nonprefixed_name_on_custom_entity():

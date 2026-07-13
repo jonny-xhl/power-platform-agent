@@ -63,6 +63,13 @@ FIELD_TYPE_CLASSID: dict[AttributeType, str] = {
 URL_CLASSID = "{71716B6C-711E-476c-8AB8-5D11542BFB47}"
 LOOKUP_CLASSID = "{270BD3DB-D9AF-4782-9025-509E298DEC0A}"
 
+# Unbound (non-field) control classids. SUBGRID is verified-live (env account/contact forms);
+# WEBRESOURCE embeds an HTML web-resource page and is verified at deploy time (no env example
+# existed to reverse from). Both carry their config in <parameters> children, which the
+# FormControl.parameters dict already round-trips.
+SUBGRID_CLASSID = "{E7A81278-8635-4d9e-8D4D-59480B391C5B}"
+WEBRESOURCE_CLASSID = "{6213F1A3-37CE-4A1B-9CCB-CE7B3F1C7AA3}"
+
 
 def classid_for_field(column: Any) -> str:
     """Pick a control classid for a P1 ``Column``/``LookupColumn``.
@@ -326,13 +333,18 @@ def _serialize_control(control: FormControl) -> ET.Element:
 
 def _serialize_cell(cell: FormCell) -> ET.Element:
     el = ET.Element("cell")
-    if cell.attrs:
+    if cell.attrs and "id" in cell.attrs:
+        # Full attrs (reversed snapshot, or a fully-specified cell) — emit verbatim for fidelity.
         for k, v in cell.attrs.items():
             el.set(k, v)
     else:
+        # Authored cell: emit id/showlabel/visible defaults, then overlay any extra attrs
+        # (e.g. rowspan) — so a cell authored with only {"rowspan": "8"} still gets a valid id.
         el.set("id", _guid(cell.id))
         el.set("showlabel", "true" if cell.showlabel else "false")
         el.set("visible", "true" if cell.visible else "false")
+        for k, v in cell.attrs.items():
+            el.set(k, v)
     if cell.labels:
         el.append(_serialize_labels(cell.labels))
     if cell.control is not None:
@@ -579,6 +591,128 @@ def add_field(
         section.rows[-1].cells.append(cell)
     else:
         section.rows.append(FormRow(cells=[cell]))
+    return form
+
+
+def _append_cell(section: FormSection, cell: FormCell) -> None:
+    """Place ``cell`` on the section's last row if it has room, else start a new row."""
+    ncols = max(section.columns, 1)
+    if section.rows and len(section.rows[-1].cells) < ncols:
+        section.rows[-1].cells.append(cell)
+    else:
+        section.rows.append(FormRow(cells=[cell]))
+
+
+def add_webresource_cell(
+    form: Form,
+    webresource_name: str,
+    *,
+    tab_name: str,
+    section_name: str,
+    control_id: Optional[str] = None,
+    label: Optional[FormLabel] = None,
+    pass_params: bool = True,
+    scrolling: str = "auto",
+    border: bool = False,
+    rowspan: int = 8,
+) -> Form:
+    """Embed an HTML web-resource page as a new unbound cell in ``section_name``.
+
+    ``webresource_name`` is the Dataverse web-resource name (e.g. ``new_/html/x.html``). When
+    ``pass_params`` is true the record context (``id``, ``orgname``, ``userlcid``, ``typename``,
+    ``type``) is appended to the page URL so its JS can read the current record via
+    ``URLSearchParams``. The control is unbound (no ``datafieldname``).
+
+    ``rowspan`` (default 8) gives the embedded iframe visible height — REQUIRED: without it the
+    web-resource collapses to ~0 height and won't display (verified live). The cell still gets a
+    valid ``id`` (the serializer generates one for an authored cell carrying extra attrs).
+    """
+    form = _clone(form)
+    section = _find_section(form, tab_name, section_name)
+    if section is None:
+        raise ValueError(
+            f"Section '{section_name}' not found in tab '{tab_name}' on form '{form.name}'."
+        )
+    cid = control_id or (webresource_name.split("/")[-1].replace(".", "_") + "_ctrl")
+    control = FormControl(
+        datafieldname="",
+        classid=WEBRESOURCE_CLASSID,
+        id=cid,
+        attrs={"id": cid, "classid": WEBRESOURCE_CLASSID},
+        parameters={
+            "Url": webresource_name,
+            "PassParameters": "true" if pass_params else "false",
+            "Scrolling": scrolling,
+            "Border": "true" if border else "false",
+        },
+    )
+    cell = FormCell(
+        control=control,
+        labels=[label] if label else [],
+        showlabel=bool(label),
+        visible=True,
+        attrs={"rowspan": str(rowspan)},
+    )
+    _append_cell(section, cell)
+    return form
+
+
+def add_subgrid_cell(
+    form: Form,
+    target_entity: str,
+    *,
+    tab_name: str,
+    section_name: str,
+    control_id: str,
+    view_id: str,
+    relationship_name: Optional[str] = None,
+    label: Optional[FormLabel] = None,
+    rows_per_page: int = 5,
+    auto_expand: str = "Fixed",
+) -> Form:
+    """Add a sub-grid cell showing related ``target_entity`` records in ``section_name``.
+
+    ``view_id`` is the ``savedquery`` guid to display; ``relationship_name`` is the 1:N
+    relationship from this form's entity to ``target_entity`` (omit for an unbound list grid).
+    Classid + parameter set mirror verified-live sub-grids on env account/contact forms.
+    """
+    form = _clone(form)
+    section = _find_section(form, tab_name, section_name)
+    if section is None:
+        raise ValueError(
+            f"Section '{section_name}' not found in tab '{tab_name}' on form '{form.name}'."
+        )
+    params: dict[str, str] = {
+        "TargetEntityType": target_entity,
+        "ViewId": view_id,
+        "IsUserView": "false",
+        "AutoExpand": auto_expand,
+        "EnableQuickFind": "false",
+        "EnableViewPicker": "false",
+        "EnableJumpBar": "false",
+        "ChartGridMode": "Grid",
+        "VisualizationId": "",
+        "IsUserChart": "false",
+        "EnableChartPicker": "false",
+        "RecordsPerPage": str(rows_per_page),
+        "EnableContextualActions": "false",
+    }
+    if relationship_name:
+        params["RelationshipName"] = relationship_name
+    control = FormControl(
+        datafieldname="",
+        classid=SUBGRID_CLASSID,
+        id=control_id,
+        attrs={"id": control_id, "classid": SUBGRID_CLASSID},
+        parameters=params,
+    )
+    cell = FormCell(
+        control=control,
+        labels=[label] if label else [],
+        showlabel=bool(label),
+        visible=True,
+    )
+    _append_cell(section, cell)
     return form
 
 

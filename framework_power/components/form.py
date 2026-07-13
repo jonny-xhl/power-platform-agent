@@ -15,7 +15,6 @@ from typing import Any, Optional
 
 from ..form_xml import parse_formxml, to_formxml
 from ..lint import ERROR, WARNING, Issue
-from ._common import is_custom
 from .models import (
     EDITABLE_FORM_TYPES,
     Form,
@@ -64,11 +63,11 @@ def resolve_id(client: Any, model: Form) -> Optional[str]:
 
 
 def deploy(client: Any, model: Form, *, prefix: str = "new", config: Any = None) -> dict[str, Any]:
-    # Customness is ENTITY-based for forms: an auto-created form (e.g. "Information") on a
-    # custom table is ours to edit, even though its generic name lacks the publisher prefix.
-    # Forms on standard entities (account/contact/...) are skipped.
-    if not is_custom(model.entity, prefix):
-        return {"action": "skipped_standard"}
+    # Forms are deployed by name+type (create-or-PATCH). Authoring a form on a standard
+    # entity (account/contact/...) is supported: it creates a NEW named form, and only
+    # PATCHes an existing form when name+type matches (customizing an OOB "Information" form
+    # is intentional). sync_forms diffs the structured model, so re-deploying an unchanged
+    # reverse snapshot is a no-op (non-destructive).
     existing = client.get_form_by_name(model.entity, model.name, form_type=int(model.form_type))
     if existing is None:
         res = client.create_form(serialize(model))
@@ -81,8 +80,6 @@ def deploy(client: Any, model: Form, *, prefix: str = "new", config: Any = None)
 
 
 def plan(client: Any, model: Form, *, prefix: str = "new") -> dict[str, Any]:
-    if not is_custom(model.entity, prefix):  # entity-based; see deploy()
-        return {"action": "would_skip_standard"}
     existing = client.get_form_by_name(model.entity, model.name, form_type=int(model.form_type))
     return {"action": "would_create"} if existing is None else {"action": "would_update"}
 
@@ -159,13 +156,6 @@ def _to_py(value: Any, indent: int) -> str:
 
 def lint(model: Form, *, prefix: str = "new") -> list[Issue]:
     issues: list[Issue] = []
-    # Customness is entity-based (see deploy()): a form on a standard entity is not ours.
-    if not is_custom(model.entity, prefix):
-        issues.append(Issue(
-            WARNING,
-            f"Form '{model.name}' is on standard entity '{model.entity}' (no prefix "
-            f"'{prefix}_') — skipped on forward sync.",
-        ))
     if not model.entity:
         issues.append(Issue(WARNING, f"Form '{model.name}' has no entity (objecttypecode)."))
     if model.form_type not in EDITABLE_FORM_TYPES:
