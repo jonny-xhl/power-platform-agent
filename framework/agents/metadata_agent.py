@@ -3069,6 +3069,9 @@ class MetadataAgent:
         targets = attr.get("Targets", [])
         if targets:
             return ", ".join(f"`{t}`" for t in targets)
+        # 多态 Lookup（如 actioncard.RecordId / ParentRegardingObjectId）无固定目标实体
+        if attr.get("AttributeType") == "Lookup":
+            return "(多态)"
         return ""
 
     def _get_option_set_info(self, attr: dict[str, Any]) -> str:
@@ -3083,6 +3086,10 @@ class MetadataAgent:
 
         options = option_set.get("Options", [])
         if not options:
+            # 选项集已解析（有 Name）但无 Options —— 通常是 organization.DateFormatCode /
+            # TimeFormatCode / WeekStartDayCode 这类系统内置设置，其选项值不经元数据暴露
+            if option_set.get("Name"):
+                return "(系统内置选项集)"
             return ""
 
         # 格式化为 label:value; label:value

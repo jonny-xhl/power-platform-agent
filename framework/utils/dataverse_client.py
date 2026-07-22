@@ -530,9 +530,35 @@ class DataverseClient:
                             # 合并局部选项集信息到属性中
                             attr["OptionSet"] = optionset_data
                     elif response.status_code == 204:
-                        # 204 No Content - 尝试通过属性名匹配全局选项集
-                        # Dataverse 约定：如果 Picklist 属性的 SchemaName 与全局选项集名称相同，则使用该全局选项集
-                        if schema_name and schema_name not in global_optionsets:
+                        # 204 No Content (cast 返回空体)。改用 $expand=OptionSet 可靠获取选项集——
+                        # 全局选项集的 Name 常与字段 SchemaName 不同（如 new_dmsstatus -> new_mdm_system_status），
+                        # 故下面"按 SchemaName 名匹配全局选项集"的回退在这些字段上必然落空。
+                        attr_logical = attr.get("LogicalName", "")
+                        if attr_logical and not attr.get("OptionSet"):
+                            try:
+                                expand_url = self.get_api_url(
+                                    f"EntityDefinitions(LogicalName='{entity_name}')"
+                                    f"/Attributes(LogicalName='{attr_logical}')"
+                                    f"/Microsoft.Dynamics.CRM.PicklistAttributeMetadata"
+                                    f"?$select=OptionSet&$expand=OptionSet"
+                                    f"($select=Options,IsGlobal,Name,OptionSetType)"
+                                )
+                                er = self.session.get(expand_url)
+                                if er.status_code == 200:
+                                    os_data = er.json().get("OptionSet") or {}
+                                    if os_data.get("Options"):
+                                        os_name = os_data.get("Name")
+                                        if os_data.get("IsGlobal") and os_name:
+                                            global_optionsets[os_name] = os_data
+                                        attr["OptionSet"] = os_data
+                                        logger.debug(
+                                            f"Resolved optionset via $expand: {attr_logical} -> {os_name}"
+                                        )
+                            except Exception as e:
+                                logger.debug(f"$expand optionset failed for {attr_logical}: {e}")
+
+                        # 旧回退：按 SchemaName 匹配全局选项集（仅当选项集 Name 恰好等于字段名时命中）
+                        if not attr.get("OptionSet") and schema_name and schema_name not in global_optionsets:
                             try:
                                 # 先获取全局选项集列表，找到匹配的 MetadataId
                                 global_list_url = self.get_api_url("GlobalOptionSetDefinitions")

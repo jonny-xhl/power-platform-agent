@@ -58,6 +58,7 @@ metadata/.generated/
 
 # Ignore all metadata content except _schema schema definitions
 metadata/*
+metadata_py/*
 sources/*
 !metadata/_schema/
 !metadata/_schema/**
