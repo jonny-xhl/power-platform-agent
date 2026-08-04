@@ -72,39 +72,65 @@ docs/data_dictionary/
 
 ## 同步方式
 
-数据字典从 Dataverse 云端环境同步，使用 MCP 工具：
+数据字典通过 `pp` CLI 从 Dataverse 云端环境同步：
 
-### 同步所有表和选项集
+### 查看环境中所有自定义表
 
-```
-调用工具: metadata_export_dictionary
-参数:
-  - output_dir: "docs/data_dictionary" (可选，默认值)
-  - custom_only: true (可选，只导出自定义表/字段)
-  - environment: "dev" (可选，目标环境)
-```
+```bash
+# 列出 Dataverse 环境中所有自定义表（new_ 前缀）
+pp list --remote
 
-### 同步单个实体
-
-```
-调用工具: metadata_export_entity_dictionary
-参数:
-  - entity_name: "account" (必填)
-  - output_dir: "docs/data_dictionary" (可选)
-  - environment: "dev" (可选)
+# 列出所有表（不含过滤）
+pp list --remote --all
 ```
 
-## 与 ninebot-project/metadata/ 的区别
+### 批量导出所有自定义表
+
+```bash
+# 导出所有自定义表的数据字典（顺序执行）
+pp reverse --all --dictionary
+
+# 并行导出（8 workers，~2x 加速）
+pp reverse --all --dictionary --parallel auto
+
+# 自定义并发数
+pp reverse --all --dictionary --parallel 4
+```
+
+### 导出指定表（含标准表）
+
+```bash
+# 同时包含 account、contact、systemuser
+pp reverse --all --dictionary --include "account,contact,systemuser"
+
+# 仅导出指定前缀
+pp reverse --all --dictionary --prefix "new_"
+```
+
+### 导出单表
+
+```bash
+# 导出数据字典 Markdown
+pp reverse account --dictionary
+
+# 导出为 Python 定义文件（存入 metadata_py/）
+pp reverse account
+```
+
+> **注意**：数据字典输出到 workspace 的 `docs/data_dictionary/`（如 `ninebot-project/docs/data_dictionary/`），引擎根目录 `docs/data_dictionary/` 仅保留本文档。
+
+## 与 ninebot-project/metadata_py/ 的区别
 
 | 目录 | 用途 | 数据来源 |
 |------|------|----------|
-| `ninebot-project/metadata/` | 元数据 YAML 源文件，用于声明式定义 Dataverse 表结构 | 手动编写/设计 |
-| `docs/data_dictionary/` | 数据字典文档，用于查阅云端实际结构 | 从 Dataverse 云端同步 |
+| `ninebot-project/metadata_py/` | Python 元数据源文件，用于声明式定义 Dataverse 表结构 | 手动编写/设计，或 `pp reverse <name>` 导出 |
+| `ninebot-project/docs/data_dictionary/` | 数据字典 Markdown 文档，用于查阅云端实际结构 | 从 Dataverse 云端同步（`pp reverse --all --dictionary`） |
 
 ## 更新策略
 
-- **手动同步**：调用 MCP 工具 `metadata_export_dictionary`
-- **查看最新**：数据字典反映云端当前状态，定期同步以保持最新
+- **增量更新**：`pp reverse <name> --dictionary` 更新单表
+- **全量同步**：`pp reverse --all --dictionary --parallel auto` 重新同步全部
+- **数据时效**：数据字典反映执行时刻的云端状态，需定期同步以保持最新
 
 ## 命名规范
 

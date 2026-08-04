@@ -142,6 +142,37 @@ class DataverseClient:
         except Exception:  # noqa: BLE001
             return False
 
+    def list_entities(
+        self, prefix: Optional[str] = None, include_system: bool = False
+    ) -> list[dict[str, Any]]:
+        """List all entities in the environment, optionally filtered by prefix.
+
+        Args:
+            prefix: Filter to logical names starting with this prefix (e.g. ``new_``).
+                Filtering is done client-side (Dataverse ``startswith`` is not universally
+                supported on EntityDefinitions).
+            include_system: If False, only return custom entities (IsCustomEntity=true).
+        """
+        filter_clause = ""
+        if not include_system:
+            filter_clause = "?$filter=IsCustomEntity eq true"
+
+        url = self.get_api_url(f"EntityDefinitions{filter_clause}")
+        url += "&$select=LogicalName,SchemaName,DisplayName,IsCustomEntity,IsManaged,"
+        url += "Description,OwnershipType,PrimaryNameAttribute"
+
+        entities: list[dict[str, Any]] = []
+        while url:
+            response = self.session.get(url)
+            response.raise_for_status()
+            data = response.json()
+            batch = data.get("value", [])
+            if prefix:
+                batch = [e for e in batch if (e.get("LogicalName") or "").startswith(prefix)]
+            entities.extend(batch)
+            url = data.get("@odata.nextLink", "")
+        return entities
+
     @retry_on_404(max_retries=5, initial_delay=2.0)
     def get_entity_metadata(self, entity_name: str) -> dict[str, Any]:
         """Get the full entity metadata (retries on transient 404)."""

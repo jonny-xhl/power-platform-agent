@@ -36,14 +36,37 @@ sys.path.insert(0, str(project_root))
 
 # 首先加载 .env 文件（必须在导入其他模块之前）
 # 这样确保环境变量对所有模块都可用
+#
+# Workspace-aware loading order:
+#   1. Workspace .env (if pp-workspace.yaml found upward from CWD)
+#   2. User-level ~/.power-platform-agent/.env (LLM keys, cross-project)
+#   3. Legacy: project_root/.env (backward compat)
 try:
     from dotenv import load_dotenv
-    env_file = project_root / ".env"
-    if env_file.exists():
-        load_dotenv(env_file)
-        logger.info(f"Loaded .env from: {env_file}")
-    else:
-        logger.warning(f".env file not found at: {env_file}")
+
+    _user_env = Path.home() / ".power-platform-agent" / ".env"
+    if _user_env.exists():
+        load_dotenv(_user_env, override=False)
+        logger.info(f"Loaded user .env from: {_user_env}")
+
+    # Find workspace .env
+    _ws_env_loaded = False
+    _cwd = Path.cwd()
+    for _d in [_cwd, *_cwd.parents]:
+        if (_d / "pp-workspace.yaml").exists():
+            _ws_env = _d / ".env"
+            if _ws_env.exists():
+                load_dotenv(_ws_env, override=False)
+                logger.info(f"Loaded workspace .env from: {_ws_env}")
+            _ws_env_loaded = True
+            break
+
+    # Legacy fallback: project_root/.env
+    if not _ws_env_loaded:
+        env_file = project_root / ".env"
+        if env_file.exists():
+            load_dotenv(env_file, override=False)
+            logger.info(f"Loaded legacy .env from: {env_file}")
 except ImportError:
     logger.warning("python-dotenv not available, environment variables not loaded from .env")
 

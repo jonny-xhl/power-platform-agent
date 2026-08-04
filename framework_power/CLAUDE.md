@@ -145,6 +145,10 @@ python -m framework_power delete <name> --env dev                # 删除表（�
 认证：`get_client(env)` 复用 `config/environments.yaml` + `.env`（client-secret），MSAL
 client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 
+> **.env scope** (ADR-003): Dataverse 凭证放 `<workspace>/.env`（per-project），
+> LLM API 密钥放 `~/.power-platform-agent/.env`（cross-project）。
+> `load_env_file()` 自动按 workspace → user-level → CWD 回退链加载。
+
 ## 7. 工作流（需求 → 定义 → 同步）
 
 ```

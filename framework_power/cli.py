@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from .client.env_config import load_env_file
 from .deployer import deploy_table, plan_table
 from .lint import ERROR, INFO, WARNING, has_errors, lint_table
 from .registry import DEFAULT_DEFINITIONS_DIR, deploy_order, discover_definitions, get_definition
@@ -179,6 +180,9 @@ def _get_client_ws(args: argparse.Namespace, env: Optional[str] = None):
     """Build authenticated client using workspace config or CWD fallback."""
     ws = _try_workspace(args)
     if ws is not None:
+        # load_env_file() is workspace-aware, but we pass the explicit path
+        # for clarity and to avoid redundant discovery.
+        load_env_file(str(ws.env_file))
         return get_client(env, config_path=str(ws.environments_config))
     return get_client(env)
 
@@ -304,6 +308,13 @@ def cmd_workspace_init(args: argparse.Namespace) -> int:
             (_TEMPLATES_DIR / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8"
         )
 
+    # .env.example (workspace-level Dataverse credentials template)
+    env_example = target / ".env.example"
+    if not env_example.exists() or args.force:
+        env_example.write_text(
+            (_TEMPLATES_DIR / ".env.example").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
     # requirements.txt
     req_path = target / "requirements.txt"
     if not req_path.exists() or args.force:
@@ -324,9 +335,10 @@ def cmd_workspace_init(args: argparse.Namespace) -> int:
     print(f"  ribbon_solution: {ribbon_sol}")
     print(f"\nNext steps:")
     print(f"  1. Edit {target / 'config' / 'environments.yaml'} with your Dataverse URLs")
-    print(f"  2. Set env vars: DEV_TENANT_ID, DEV_CLIENT_ID, DEV_CLIENT_SECRET")
-    print(f"  3. Create table definitions in {ws.tables_dir}")
-    print(f"  4. Run: pp list")
+    print(f"  2. Copy .env.example to .env and fill in Dataverse credentials")
+    print(f"  3. (Optional) Put LLM API keys in ~/.power-platform-agent/.env")
+    print(f"  4. Create table definitions in {ws.tables_dir}")
+    print(f"  5. Run: pp list")
     return 0
 
 
@@ -357,6 +369,9 @@ def cmd_workspace_validate(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
+    if getattr(args, "remote", False):
+        return _cmd_list_remote(args)
+
     tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
     defs = discover_definitions(tables_dir)
     if not defs:
@@ -368,6 +383,31 @@ def cmd_list(args: argparse.Namespace) -> int:
         print(
             f"{name:32} {t.schema_name:28} {len(t.columns):4} {len(t.relationships):4}  {defn.source}"
         )
+    return 0
+
+
+def _cmd_list_remote(args: argparse.Namespace) -> int:
+    """List tables from the Dataverse environment (--remote flag)."""
+    client = _get_client_ws(args, getattr(args, "env", None))
+    prefix = getattr(args, "prefix", None)
+    if prefix is None:
+        prefix = _effective_prefix(args) + "_"
+    entities = client.list_entities(prefix=prefix)
+    if not entities:
+        print(f"No entities found with prefix '{prefix}' in the environment.")
+        return 0
+    print(f"{'LogicalName':40s} {'SchemaName':40s} Custom  Managed  DisplayName")
+    for e in entities:
+        ln = e["LogicalName"]
+        sn = e.get("SchemaName", "")
+        is_custom = "Y" if e.get("IsCustomEntity", False) else "N"
+        is_managed = "Y" if e.get("IsManaged", False) else "N"
+        dn = ""
+        disp = e.get("DisplayName") or {}
+        ull = disp.get("UserLocalizedLabel") or {}
+        dn = ull.get("Label", "")
+        print(f"{ln:40s} {sn:40s} {is_custom:6s} {is_managed:8s} {dn}")
+    print(f"\n[ok] {len(entities)} entities with prefix '{prefix}'")
     return 0
 
 
@@ -456,6 +496,9 @@ def cmd_deploy_all(args: argparse.Namespace) -> int:
 
 
 def cmd_reverse(args: argparse.Namespace) -> int:
+    if getattr(args, "all", False):
+        return _cmd_reverse_all(args)
+
     from .codegen import table_to_python_source
     from .reverse import reverse_table
 
@@ -486,6 +529,158 @@ def cmd_reverse(args: argparse.Namespace) -> int:
         f"({len(table.columns)} cols, {len(table.relationships)} rels)"
     )
     return 0
+
+
+def _cmd_reverse_all(args: argparse.Namespace) -> int:
+    """Batch reverse-export multiple tables (--all) with optional --parallel."""
+    from .reverse import reverse_table
+    from .data_dictionary import DEFAULT_DICTIONARY_DIR, table_to_markdown
+
+    client = _get_client_ws(args, args.env)
+    prefix = getattr(args, "prefix", None) or (_effective_prefix(args) + "_")
+    entities = client.list_entities(prefix=prefix)
+
+    # Add standard tables if requested
+    extra = [n.strip() for n in (getattr(args, "include", "") or "").split(",") if n.strip()]
+    seen = {e["LogicalName"] for e in entities}
+    for name in extra:
+        if name not in seen:
+            entities.append({"LogicalName": name, "SchemaName": name, "DisplayName": {}})
+
+    if not entities:
+        print(f"No entities found with prefix '{prefix}'.")
+        return 0
+
+    logical_names = [e["LogicalName"] for e in entities]
+    print(f"Found {len(logical_names)} entities. Exporting...")
+
+    # Determine parallelism
+    parallel = 1
+    parallel_str = str(getattr(args, "parallel", "1") or "1")
+    if parallel_str.lower() == "auto":
+        import os
+        parallel = min(os.cpu_count() or 4, 8)
+    else:
+        try:
+            parallel = int(parallel_str)
+        except ValueError:
+            parallel = 1
+
+    if parallel > 1:
+        _batch_reverse_parallel(args, client, logical_names, parallel)
+    else:
+        _batch_reverse_sequential(args, client, logical_names)
+
+    return 0
+
+
+def _batch_reverse_sequential(
+    args: argparse.Namespace, client, logical_names: list[str]
+) -> None:
+    """Export tables one at a time."""
+    from .reverse import reverse_table
+
+    success = 0
+    fail = 0
+    total = len(logical_names)
+    for i, name in enumerate(logical_names):
+        print(f"  [{i+1}/{total}] {name}...", end=" ", flush=True)
+        try:
+            table = reverse_table(client, name)
+            _write_reverse_output(args, name, table)
+            print("ok")
+            success += 1
+        except Exception as e:
+            print(f"FAIL ({e})")
+            fail += 1
+    print(f"\n[ok] {success} exported, {fail} failed (out of {total})")
+
+
+def _batch_reverse_parallel(
+    args: argparse.Namespace, client, logical_names: list[str], workers: int
+) -> None:
+    """Export tables using ThreadPoolExecutor for parallelism."""
+    import os
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from .reverse import reverse_table
+    from .client.dataverse_client import DataverseClient
+
+    token = client.access_token
+    env = client.environment
+    config_path = str(client.config_path)
+
+    success = 0
+    fail = 0
+    total = len(logical_names)
+    print(f"  (using {workers} workers)")
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures: dict = {}
+        for name in logical_names:
+            fut = executor.submit(
+                _reverse_one_worker, name, token, env, config_path
+            )
+            futures[fut] = name
+
+        completed = 0
+        for future in as_completed(futures):
+            name = futures[future]
+            completed += 1
+            print(f"  [{completed}/{total}] {name}...", end=" ", flush=True)
+            try:
+                table = future.result()
+                _write_reverse_output(args, name, table)
+                print("ok")
+                success += 1
+            except Exception as e:
+                print(f"FAIL ({e})")
+                fail += 1
+
+    print(f"\n[ok] {success} exported, {fail} failed (out of {total})")
+
+
+def _reverse_one_worker(
+    logical_name: str, access_token: str, env: str, config_path: str
+):
+    """Worker function for parallel reverse — creates its own client per thread."""
+    from .client.dataverse_client import DataverseClient
+    from .reverse import reverse_table
+
+    client = DataverseClient(env, config_path, access_token=access_token)
+    return reverse_table(client, logical_name)
+
+
+def _write_reverse_output(
+    args: argparse.Namespace, logical_name: str, table
+) -> None:
+    """Write a single reversed table to the appropriate output format."""
+    from .data_dictionary import DEFAULT_DICTIONARY_DIR, table_to_markdown
+    from .codegen import table_to_python_source
+
+    if getattr(args, "dictionary", False):
+        ws = _try_workspace(args)
+        dict_dir = DEFAULT_DICTIONARY_DIR
+        if ws is not None and not Path(dict_dir).is_absolute():
+            dict_dir = str(ws.root / dict_dir)
+        out_path = Path(args.output) if args.output else Path(dict_dir) / "tables" / f"{table.schema_name}.md"
+        md = table_to_markdown(table, source_name=None)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(md, encoding="utf-8")
+    else:
+        tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+        out_path = Path(args.output) if args.output else Path(tables_dir) / f"{logical_name}.py"
+        header = [
+            f'"""Reverse-exported from Dataverse ({logical_name!r}) by framework_power.',
+            "",
+            "Full snapshot for local reference and sync. Forward `deploy` skips",
+            "standard (non-custom) items automatically.",
+            "",
+            f"Regenerate: pp reverse {logical_name} --env <env>",
+            '"""',
+        ]
+        source = table_to_python_source(table, header=header)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(source, encoding="utf-8")
 
 
 def _reverse_to_dictionary(args: argparse.Namespace, table, tables_dir: str) -> int:
@@ -1534,7 +1729,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("list", help="List discovered definitions.").set_defaults(func=cmd_list)
+    p_list = sub.add_parser("list", help="List discovered definitions (local or --remote).")
+    p_list.add_argument(
+        "--remote", action="store_true", default=False,
+        help="List tables from the Dataverse environment instead of local definitions.",
+    )
+    p_list.add_argument(
+        "--prefix", default=None,
+        help="Filter by logical name prefix (default: publisher prefix + '_'). "
+        "Only used with --remote.",
+    )
+    p_list.add_argument(
+        "--env", default=None,
+        help="Target environment (used with --remote).",
+    )
+    p_list.set_defaults(func=cmd_list)
 
     # --- workspace group ---
     p_ws = sub.add_parser("workspace", help="Manage Power Platform workspaces (init/info/validate).")
@@ -1595,8 +1804,15 @@ def build_parser() -> argparse.ArgumentParser:
         "reverse",
         help="Export a table FROM Dataverse into a definition file or data dictionary.",
     )
-    p_rev.add_argument("name", help="Logical name of the table to export (e.g. contact).")
-    p_rev.add_argument("--env", default=None, help="Source environment (default: config 'current').")
+    p_rev.add_argument(
+        "name", nargs="?", default=None,
+        help="Logical name of the table to export (e.g. contact). "
+        "Omit when using --all.",
+    )
+    p_rev.add_argument(
+        "--env", default=None,
+        help="Source environment (default: config 'current').",
+    )
     p_rev.add_argument(
         "-o", "--output", default=None,
         help="Output file (default: <definitions-dir>/<name>.py or <dict-dir>/tables/<schema>.md).",
@@ -1604,6 +1820,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_rev.add_argument(
         "--dictionary", action="store_true", default=False,
         help="Generate a data dictionary Markdown doc instead of a .py definition file.",
+    )
+    p_rev.add_argument(
+        "--all", action="store_true", default=False,
+        help="Export ALL custom tables (matching --prefix) from the environment. "
+        "Use with --dictionary for bulk data dictionary generation.",
+    )
+    p_rev.add_argument(
+        "--prefix", default=None,
+        help="Filter by logical name prefix when using --all (default: publisher prefix + '_').",
+    )
+    p_rev.add_argument(
+        "--include", default="",
+        help="Comma-separated standard table names to also include (e.g. 'account,contact'). "
+        "Only used with --all.",
+    )
+    p_rev.add_argument(
+        "--parallel", default="1",
+        help="Number of parallel workers (1=sequential, 'auto'=cpu count, max 8). "
+        "Only used with --all.",
     )
     p_rev.set_defaults(func=cmd_reverse)
 
