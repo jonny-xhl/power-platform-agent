@@ -1,6 +1,6 @@
 将解决方案 YAML 中定义的所有组件批量同步到 Dataverse（完整流程：验证 → 计划 → 确认 → 按依赖顺序执行 → 验证）。
 
-参数: `$ARGUMENTS`（解决方案 YAML 文件路径，如 `metadata/solutions/payment_solution.yaml`）
+参数: `$ARGUMENTS`（解决方案 YAML 文件路径，如 `ninebot-project/metadata/solutions/payment_solution.yaml`）
 
 ## 执行流程
 
@@ -29,14 +29,14 @@ except Exception as e:
 
 ### Step 2: 发现并验证解决方案 YAML
 
-1. 解析 `$ARGUMENTS` 获取解决方案 YAML 文件路径。如果 `$ARGUMENTS` 为空，列出 `metadata/solutions/` 下所有可用的解决方案文件让用户选择：
+1. 解析 `$ARGUMENTS` 获取解决方案 YAML 文件路径。如果 `$ARGUMENTS` 为空，列出 `ninebot-project/metadata/solutions/` 下所有可用的解决方案文件让用户选择：
 
 ```python
 python -c "
 from pathlib import Path
 import json
 
-solutions_dir = Path('metadata/solutions')
+solutions_dir = Path('ninebot-project/metadata/solutions')
 if solutions_dir.exists():
     files = list(solutions_dir.glob('*.yaml'))
     solutions = [{'name': f.stem, 'path': str(f)} for f in files if f.stem != '_template']

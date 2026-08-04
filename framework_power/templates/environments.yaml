@@ -1,0 +1,28 @@
+# Dataverse Environments Configuration
+# Replace URLs with your actual Power Platform environment URLs.
+# Credentials are read from environment variables (never commit secrets).
+
+current: dev
+
+environments:
+  dev:
+    url: "https://YOUR-ORG-DEV.crm.dynamics.com"
+    auth_type: client_credentials
+    # Credentials from env vars:
+    tenant_id: ${DEV_TENANT_ID}
+    client_id: ${DEV_CLIENT_ID}
+    client_secret: ${DEV_CLIENT_SECRET}
+
+  test:
+    url: "https://YOUR-ORG-UAT.crm.dynamics.com"
+    auth_type: client_credentials
+    tenant_id: ${TEST_TENANT_ID}
+    client_id: ${TEST_CLIENT_ID}
+    client_secret: ${TEST_CLIENT_SECRET}
+
+  production:
+    url: "https://YOUR-ORG-PROD.crm.dynamics.com"
+    auth_type: client_credentials
+    tenant_id: ${PROD_TENANT_ID}
+    client_id: ${PROD_CLIENT_ID}
+    client_secret: ${PROD_CLIENT_SECRET}

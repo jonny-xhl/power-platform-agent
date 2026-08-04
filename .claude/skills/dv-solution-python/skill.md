@@ -1,6 +1,6 @@
 ---
 name: dv-solution-python
-description: 用 framework_power（Python 优先）管理 Power Platform 解决方案（Solution）的创建、部署、逆向。当用户需要"创建解决方案"、"把表/选项集/Web 资源/表单/视图/插件打包进解决方案"、"解决方案部署到 Dataverse"、"逆向导出解决方案"、处理发布商（Publisher）时使用此技能。短语如"framework_power solution deploy/reverse"、"metadata_py/solutions"、"解决方案同步 python"。
+description: 用 framework_power（Python 优先）管理 Power Platform 解决方案（Solution）的创建、部署、逆向。当用户需要"创建解决方案"、"把表/选项集/Web 资源/表单/视图/插件打包进解决方案"、"解决方案部署到 Dataverse"、"逆向导出解决方案"、处理发布商（Publisher）时使用此技能。短语如"framework_power solution deploy/reverse"、"ninebot-project/metadata_py/solutions"、"解决方案同步 python"。
 ---
 
 # Power Platform 解决方案管理（Python 优先 / framework_power）
@@ -16,7 +16,7 @@ YAML/Agent 路径（`dv-solution` skill + `framework/agents/solution_agent.py`�
 - **正向 `solution deploy`**：5 步同步到 Dataverse ——
   发布商 → 解决方案对象 → 按依赖顺序部署组件 → 把自定义组件加入解决方案 → 发布。
 - **逆向 `solution reverse`**：把环境中已存在的解决方案导出为本地 Python 定义（全量快照）。
-- **双向单文件**：同一份 `metadata_py/solutions/<unique_name>.py` 既可被逆向覆盖，也可被正向同步。
+- **双向单文件**：同一份 `ninebot-project/metadata_py/solutions/<unique_name>.py` 既可被逆向覆盖，也可被正向同步。
 
 组件类型按 `framework_power/components/` 注册表分发：
 `table`（已有，复用 `deploy_table`）/ `optionset` / `webresource` / `form` / `view` / `plugin`。
@@ -29,12 +29,12 @@ YAML/Agent 路径（`dv-solution` skill + `framework/agents/solution_agent.py`�
 - **发布商前缀**（默认 `new`）决定"自定义"组件；标准/系统组件（无前缀）在正向同步时**自动跳过**
   → 全量快照正向同步是**幂等且安全**的。
 - `solution deploy` **非破坏**：只 create/update/add，从不 delete。
-- 每个解决方案必须关联一个发布商（`Publisher` 内联 或 `publisher_key` 引用 `config/publishers.yaml`）。
+- 每个解决方案必须关联一个发布商（`Publisher` 内联 或 `publisher_key` 引用 `ninebot-project/config/publishers.yaml`）。
 - 布尔值用 Python `True`/`False`。
 
 ## 定义文件结构
 
-`metadata_py/solutions/<unique_name>.py`，导出 `SOLUTION: Solution`：
+`ninebot-project/metadata_py/solutions/<unique_name>.py`，导出 `SOLUTION: Solution`：
 
 ```python
 from framework_power import Publisher, Solution, ComponentRef
@@ -44,14 +44,14 @@ SOLUTION: Solution = Solution(
     friendly_name="Core",
     version="1.0.0.0",
     publisher_key="default",          # 或内联 publisher=Publisher(name=..., display_name=..., prefix="new")
-    tables=["new_projectbudget"],     # NAME REFS -> metadata_py/tables/<name>.py（由 registry 解析）
+    tables=["new_projectbudget"],     # NAME REFS -> ninebot-project/metadata_py/tables/<name>.py（由 registry 解析）
     # 选项集/Web 资源/表单/视图/插件随各 wave 作为内联模型加入：
     # optionsets=[...], webresources=[...], forms=[...], views=[...], plugins=[...],
     refs=[ComponentRef(type="webresource", object_id="<guid>")],  # 显式 id 的 add-only 引用
 )
 ```
 
-- `tables` 是**名称引用**（指向 `metadata_py/tables/<name>.py`），由表 registry 在部署时解析、
+- `tables` 是**名称引用**（指向 `ninebot-project/metadata_py/tables/<name>.py`），由表 registry 在部署时解析、
   按依赖顺序部署（复用 `deploy_table`）。
 - 其它组件类型**内联**在解决方案文件里。
 
@@ -69,7 +69,7 @@ SOLUTION: Solution = Solution(
 ## CLI
 
 ```bash
-python -m framework_power solution list                          # 发现 metadata_py/solutions/*.py
+python -m framework_power solution list                          # 发现 ninebot-project/metadata_py/solutions/*.py
 python -m framework_power solution show <name>                   # 打印定义摘要（离线）
 python -m framework_power solution lint [<name>]                 # 离线约定校验
 python -m framework_power solution plan <name> --env dev         # 只读预演
@@ -83,7 +83,7 @@ python -m framework_power solution publish --env dev             # PublishAllXml
 ## 工作流
 
 ```
-定义：metadata_py/solutions/<name>.py（AI 按契约生成，或由逆向生成）
+定义：ninebot-project/metadata_py/solutions/<name>.py（AI 按契约生成，或由逆向生成）
   → framework_power solution lint     （离线门）
   → framework_power solution plan     （只读预演）
   → framework_power solution deploy   （同步到环境）
@@ -113,7 +113,7 @@ python -m framework_power solution publish --env dev             # PublishAllXml
 
 ## 不要做
 
-- 不要 import 或修改 `framework/`、`metadata/`。
+- 不要 import 或修改 `framework/`、`ninebot-project/metadata/`。
 - 不要让 `solution deploy` 变成破坏性操作。
 - 不要在库内生成/改写 FormXml/FetchXml/LayoutXml（保持不透明字符串）。
 - 旧路径 `dv-solution`（YAML/Agent）仍存在，但新工作请用本 Python 优先路径。

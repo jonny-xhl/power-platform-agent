@@ -45,7 +45,7 @@ Power Platform 解决方案是**组件的容器**，用于将相关组件（表�
 
 ## 解决方案 YAML 结构
 
-解决方案定义文件存放在 `metadata/solutions/` 目录：
+解决方案定义文件存放在 `ninebot-project/metadata/solutions/` 目录：
 
 ```yaml
 $schema: "../_schema/solution_schema.yaml"
@@ -58,7 +58,7 @@ solution:
   display_name: "您的解决方案显示名称"  # 显示名称
   description: "详细描述解决方案的功能和用途"
   version: "1.0.0.0"                   # 版本号：主版本.次版本.内部版本.修订
-  publisher: "default"                 # 发布商引用（引用 config/publishers.yaml）
+  publisher: "default"                 # 发布商引用（引用 ninebot-project/config/publishers.yaml）
   type: "Unmanaged"                    # 类型：Unmanaged/Managed
 
 # ================================================================
@@ -74,9 +74,9 @@ components:
   optionsets:                          # 全局选项集
     - "optionsets/your_global_optionset.yaml"
   webresources:                        # Web 资源
-    - "webresources/js/your_script.js"
+    - "ninebot-project/webresources/js/your_script.js"
   plugins:                             # 插件程序集
-    - "plugins/YourPlugin/bin/Debug/YourPlugin.dll"
+    - "ninebot-project/plugins/YourPlugin/bin/Debug/YourPlugin.dll"
   other:                               # 其他组件
     - component_type: "ribbon"
       id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
@@ -117,7 +117,7 @@ build:
 
 ## 发布商（Publisher）配置
 
-发布商定义在 `config/publishers.yaml` 中：
+发布商定义在 `ninebot-project/config/publishers.yaml` 中：
 
 ```yaml
 publishers:
@@ -151,7 +151,7 @@ current: "default"  # 当前使用的发布商
 
 ## 组件分类路径
 
-解决方案组件按类型组织，路径相对于 `metadata/` 目录：
+解决方案组件按类型组织，路径相对于 `ninebot-project/metadata/` 目录：
 
 | 组件类型 | components 键 | 路径示例 |
 |----------|---------------|----------|
@@ -159,8 +159,8 @@ current: "default"  # 当前使用的发布商
 | 表单 (Form) | `forms` | `forms/payment_recognition_main.yaml` |
 | 视图 (View) | `views` | `views/payment_recognition_active.yaml` |
 | 选项集 (OptionSet) | `optionsets` | `optionsets/global_optionsets.yaml` |
-| Web 资源 | `webresources` | `webresources/js/form.js` |
-| 插件 | `plugins` | `plugins/Plugin/bin/Debug/Plugin.dll` |
+| Web 资源 | `webresources` | `ninebot-project/webresources/js/form.js` |
+| 插件 | `plugins` | `ninebot-project/plugins/Plugin/bin/Debug/Plugin.dll` |
 
 ## 解决方案同步工作流
 
@@ -252,7 +252,7 @@ optionset → table → form → view → webresource → plugin
 
 ```bash
 cp .claude/skills/dv-solution/references/solution_template.yaml \
-   metadata/solutions/your_solution.yaml
+   ninebot-project/metadata/solutions/your_solution.yaml
 ```
 
 ### 步骤2: 编辑解决方案文件
@@ -266,17 +266,17 @@ cp .claude/skills/dv-solution/references/solution_template.yaml \
 ### 步骤3: 验证解决方案定义
 
 ```bash
-python -m framework.utils.schema_validator metadata/solutions/your_solution.yaml
+python -m framework.utils.schema_validator ninebot-project/metadata/solutions/your_solution.yaml
 ```
 
 ### 步骤4: 同步到 Dataverse
 
 ```bash
 # 通过 MCP 工具
-solution_sync_from_yaml --file metadata/solutions/your_solution.yaml
+solution_sync_from_yaml --file ninebot-project/metadata/solutions/your_solution.yaml
 
 # 或通过 Python
-python -m framework.agents.solution_agent sync metadata/solutions/your_solution.yaml
+python -m framework.agents.solution_agent sync ninebot-project/metadata/solutions/your_solution.yaml
 ```
 
 ## MCP 工具

@@ -52,18 +52,40 @@ desktop.ini
 
 # Power Platform Local State
 .pp-local/state/*.json
+.pp/
+
+# ============================================================
+# Workspace Data (not tracked by git — engine repo only)
+# ============================================================
+# This repo is the ENGINE source. Workspace data (metadata,
+# configs, webresources, plugins, sources) lives in workspace
+# directories like ninebot-project/ and is NOT tracked here.
+#
+# Each workspace has its own .gitignore (created by `pp workspace init`).
+# Workspaces manage their own git lifecycle independently.
+
+# Workspace directories (any directory containing pp-workspace.yaml)
+*/pp-workspace.yaml
+ninebot-project/
+
+# Legacy workspace data at root (no longer tracked — migrated to workspace dirs)
+metadata_py/
+metadata/
+config/
+webresources/
+plugins/
+sources/
+.pp-local/
+.workbuddy/
+
+# Engine-level schema definitions ARE tracked
+!metadata/_schema/
+!metadata/_schema/**
 
 # Metadata generated files
 metadata/.generated/
 
-# Ignore all metadata content except _schema schema definitions
-metadata/*
-metadata_py/*
-sources/*
-!metadata/_schema/
-!metadata/_schema/**
-
-# Data dictionary temp files
+# Data dictionary temp files (generated per-workspace)
 docs/data_dictionary/*
 docs/data_dictionary/*.md
 !docs/data_dictionary/CLAUDE.md

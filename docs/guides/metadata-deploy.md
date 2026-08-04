@@ -5,7 +5,7 @@
 | 方式 | 定义格式 | 部署入口 | 适用场景 |
 |------|----------|----------|----------|
 | **Legacy YAML + MCP** | `metadata/*.yaml` | MCP 工具 (`framework/mcp_serve.py`) | 已有 YAML 资产；需要 AI 通过 MCP 工具交互式部署 |
-| **Python API (`framework_power`)** | `metadata_py/*.py` / Python 代码 | CLI (`python -m framework_power`) 或代码调用 | 新项目；追求类型安全与 IDE 支持 |
+| **Python API (`framework_power`)** | `metadata_py/*.py` / Python 代码 | CLI (`pp`) 或代码调用 | 新项目；追求类型安全与 IDE 支持 |
 
 两套方式共享相同的认证和 `config/environments.yaml` 配置，但代码层面**互相隔离**，
 `framework_power` 不导入也不修改 `framework/`。
@@ -137,7 +137,7 @@ MCP 服务器入口为 `framework/mcp_serve.py`，按工具名前缀路由到不
 | `metadata_sync_webresource_batch` | 批量同步 Web Resources |
 | `metadata_export` | 从 Dataverse 反向导出为 YAML |
 | `metadata_diff` | 对比本地 YAML 与云端实体差异（属性级别） |
-| `metadata_export_dictionary` | 导出数据字典 |
+| `metadata_export_dictionary` | 导出数据字典到 `docs/data_dictionary/`（Workspace 产物） |
 | `metadata_generate_optionset_constants` | 生成选项集常量代码 |
 
 **解决方案操作（由 `SolutionAgent` 处理）：**
@@ -241,7 +241,7 @@ print(deploy_table(get_client("dev"), table))
 完整参考脚本（覆盖所有字段类型 + 1:N 关系）位于 `framework_power/examples/setup_projectbudget.py`：
 
 ```bash
-python -m framework_power.examples.setup_projectbudget --env dev
+pp.examples.setup_projectbudget --env dev
 ```
 
 ### CLI 工作流
@@ -250,13 +250,13 @@ python -m framework_power.examples.setup_projectbudget --env dev
 （每表一个 `<schema>.py`，各暴露 `TABLE`）。通过统一的 CLI 驱动：
 
 ```bash
-python -m framework_power list                           # 发现 metadata_py/tables/*.py
-python -m framework_power show new_projectbudget         # 打印序列化后的请求体（离线模式）
-python -m framework_power lint new_projectbudget         # 离线约定检查（要求 0 错误）
-python -m framework_power lint                           # 检查所有定义
-python -m framework_power plan new_projectbudget --env dev   # 只读干运行
-python -m framework_power deploy new_projectbudget --env dev # 同步到 Dataverse
-python -m framework_power deploy-all --env dev           # 全量部署，按引用顺序处理
+pp list                           # 发现 metadata_py/tables/*.py
+pp show new_projectbudget         # 打印序列化后的请求体（离线模式）
+pp lint new_projectbudget         # 离线约定检查（要求 0 错误）
+pp lint                           # 检查所有定义
+pp plan new_projectbudget --env dev   # 只读干运行
+pp deploy new_projectbudget --env dev # 同步到 Dataverse
+pp deploy-all --env dev           # 全量部署，按引用顺序处理
 ```
 
 - **需求 → 定义**：`dv-model-to-python` skill 将 Excel 设计（来自 `design-dv-model`）

@@ -200,7 +200,7 @@ power-platform-agent/
 │   ├── form_xml.py view_xml.py ribbon_xml.py   # XML 解析/序列化（无损往返）
 │   ├── form_sync.py view_sync.py ribbon_sync.py webresource_sync.py optionset_sync.py
 │   ├── client/             # 隔离的传输/认证拷贝（plugin_build.py 在此）
-│   └── cli.py              # python -m framework_power ...
+│   └── cli.py              # pp ...
 ├── metadata_py/            # Python 元数据定义（单一事实来源）
 │   ├── tables/ solutions/ forms/ views/ roles/ optionsets/
 │   └── project.py          # Phase 9 工作流清单

@@ -1,0 +1,21 @@
+# Naming Rules Configuration
+# Controls Schema Name validation and normalization.
+
+style: pascal_case
+prefix: __PREFIX__
+prefix_required: true
+
+# Standard Power Platform entities that must never be overwritten
+protected_entities:
+  - account
+  - contact
+  - lead
+  - opportunity
+  - systemuser
+  - team
+  - businessunit
+  - transactioncurrency
+  - activitypointer
+  - activityparty
+
+case_insensitive_lookup: true

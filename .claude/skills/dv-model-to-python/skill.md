@@ -1,12 +1,12 @@
 ---
 name: dv-model-to-python
-description: 将Excel实体设计转换为 framework_power 的 Python 表定义文件（metadata_py/tables/<schema>.py）。当用户需要把 Excel 中的 Dataverse 实体设计转换成 Python 元数据定义、Excel转Python、设计文档转可执行元数据、或使用 framework_power 部署表时使用此技能。包括"转换Excel生成Python表定义"、"Excel转framework_power"、"生成表定义脚本"、"用Python定义表"等短语。
+description: 将Excel实体设计转换为 framework_power 的 Python 表定义文件（ninebot-project/metadata_py/tables/<schema>.py）。当用户需要把 Excel 中的 Dataverse 实体设计转换成 Python 元数据定义、Excel转Python、设计文档转可执行元数据、或使用 framework_power 部署表时使用此技能。包括"转换Excel生成Python表定义"、"Excel转framework_power"、"生成表定义脚本"、"用Python定义表"等短语。
 ---
 
 # Excel 实体设计转 Python 表定义（framework_power）
 
 此技能将 Excel 中的 Dataverse 实体设计（由 `design-dv-model` 产出）转换为
-`framework_power` 的**可执行 Python 表定义**，保存到 `metadata_py/tables/<schema>.py`。
+`framework_power` 的**可执行 Python 表定义**，保存到 `ninebot-project/metadata_py/tables/<schema>.py`。
 生成的定义即"单一事实来源"——随后用 `framework_power lint → plan → deploy` 同步到 Dataverse。
 
 **重要约束（必须先读）**: `docs/metadata-py-conventions.md` 是 AI 生成的硬性契约；
@@ -16,7 +16,7 @@ description: 将Excel实体设计转换为 framework_power 的 Python 表定义�
 
 | 维度 | dv-model-to-yaml（旧） | dv-model-to-python（本技能） |
 |------|----------------------|-----------------------------|
-| 输出 | `metadata/tables/<schema>.yaml` | `metadata_py/tables/<schema>.py`（暴露 `TABLE`） |
+| 输出 | `ninebot-project/metadata/tables/<schema>.yaml` | `ninebot-project/metadata_py/tables/<schema>.py`（暴露 `TABLE`） |
 | 命名风格 | lowercase (`new_payment_number`) | **PascalCase** (`new_PaymentNumber`) |
 | 命名处理 | NamingConverter 自动改写 | 作者负责；lint 校验、deploy 原样发送 |
 | 多语言 | 仅中文 (2052) | **双语** `Label.bilingual(zh, en)` |
@@ -32,16 +32,16 @@ description: 将Excel实体设计转换为 framework_power 的 Python 表定义�
 ## 输入 / 输出
 
 - **输入**: Excel 设计文件，通常位于
-  `sources/features/{feature-name}/02-designs/entities/{design}.xlsx`
+  `ninebot-project/sources/features/{feature-name}/02-designs/entities/{design}.xlsx`
   关键工作表 `02_实体模型`（实体/字段）、`05_枚举选项集`（选项集）。
-- **输出**: `metadata_py/tables/{schema_lowercase}.py`，文件内 `TABLE: Table = Table(...)`。
+- **输出**: `ninebot-project/metadata_py/tables/{schema_lowercase}.py`，文件内 `TABLE: Table = Table(...)`。
   文件名 stem 即 CLI 的定义名（如 `new_projectbudget`）。
 
 ## Excel 工作表映射
 
 | Excel 工作表 | Python 输出 |
 |-------------|------------|
-| `02_实体模型` | `metadata_py/tables/{entity}.py` 的 `Table(...)` |
+| `02_实体模型` | `ninebot-project/metadata_py/tables/{entity}.py` 的 `Table(...)` |
 | `05_枚举选项集` | 内联为 `Column(..., options=[Option(...)])`（本地选项集） |
 
 > 全局选项集 / 表单 / 视图仍走 YAML 路径（本技能 Phase 1 只覆盖**表 + 字段 + 关系**）。
@@ -63,7 +63,7 @@ description: 将Excel实体设计转换为 framework_power 的 Python 表定义�
 
 ## 命名（PascalCase + 前缀）
 
-发布商前缀取自 `config/publishers.yaml`（默认 `new`）。**作者直接写出合规的 PascalCase
+发布商前缀取自 `ninebot-project/config/publishers.yaml`（默认 `new`）。**作者直接写出合规的 PascalCase
 SchemaName**，lint 只校验不改写。
 
 | Excel 原始 | Python schema_name |
@@ -110,12 +110,12 @@ TABLE: Table = Table(
 
 ## 转换步骤
 
-1. **定位 Excel**：`sources/features/{feature}/02-designs/entities/{design}.xlsx`。
+1. **定位 Excel**：`ninebot-project/sources/features/{feature}/02-designs/entities/{design}.xlsx`。
    Windows 终端读中文可能乱码——写入 UTF-8 临时文件后用 Read 查看（见 dv-model-to-yaml 的编码处理）。
 2. **读取 `02_实体模型`**：提取实体名、字段（名称/显示名/英文名/类型/长度/必填/主字段/选项）、关系（关联实体/关联类型）。
 3. **按契约生成 `Table`**：PascalCase + 前缀；双语 `Label.bilingual`；每个表有且仅有一个 String 主字段；
    选项值唯一；关系用 Referential 级联。
-4. **写入 `metadata_py/tables/{schema_lowercase}.py`**，暴露 `TABLE`。
+4. **写入 `ninebot-project/metadata_py/tables/{schema_lowercase}.py`**，暴露 `TABLE`。
 5. **校验门**：`python -m framework_power lint {name}` 必须 0 errors。
 6. **预览**：`python -m framework_power plan {name} --env dev`（只读）。
 7. **部署**（用户确认环境后）：`python -m framework_power deploy {name} --env dev`。

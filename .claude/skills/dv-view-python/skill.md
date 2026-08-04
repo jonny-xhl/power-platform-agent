@@ -97,7 +97,7 @@ python -m framework_power view reverse <entity> --env dev [--views-dir DIR]
 
 ```
 逆向参考：framework_power view reverse new_order --env dev
-  → metadata_py/views/new_order__*.py（每视图一个，结构化模型 + 完整 attrs，无损）
+  → ninebot-project/metadata_py/views/new_order__*.py（每视图一个，结构化模型 + 完整 attrs，无损）
 新建/编辑：
   from framework_power import view_xml as vx
   v = vx.new_view("new_Order Active", "new_order",

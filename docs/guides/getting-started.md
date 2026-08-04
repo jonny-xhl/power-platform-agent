@@ -1,120 +1,201 @@
 # Power Platform 快速开始指南
 
+## 架构概览
+
+Power Platform Agent 采用 **Engine + Workspace 分离架构**：
+
+- **Engine**（pip 包 `power-platform-agent`）：提供 CLI 工具 `pp`、部署引擎、MCP Server
+- **Workspace**（每个项目独立）：包含表定义、配置、插件、Web 资源
+
+外部项目只需 `pip install power-platform-agent` + `pp workspace init`，无需 clone 任何仓库。
+
+---
+
 ## 安装
 
 ### 前置要求
 
-- Python 3.8+
-- .NET SDK 8.0+ (用于插件开发)
-- PAC CLI (可选，用于解决方案管理)
+- Python 3.9+
+- .NET SDK 8.0+（仅插件开发需要）
+- Dataverse 环境（需 App Registration 的 `client_id` + `client_secret`）
 
-### 安装步骤
+### 方式一：外部项目安装（推荐）
 
-1. 克隆或下载项目
 ```bash
-git clone https://github.com/your-org/power-platform-agent.git
+# 从 PyPI 安装 Engine
+pip install power-platform-agent
+
+# 验证安装
+pp --help
+```
+
+### 方式二：本仓库开发安装
+
+```bash
+git clone <repo-url>
 cd power-platform-agent
-```
-
-2. 安装 Python 依赖
-```bash
 pip install -r requirements.txt
+pip install -e .
 ```
 
-3. 配置环境变量
+---
+
+## 创建 Workspace
+
+### 第一步：初始化项目
+
 ```bash
-export TENANT_ID="your-tenant-id"
-export CLIENT_ID="your-client-id"
-export CLIENT_SECRET="your-client-secret"
+mkdir my-cpq-solution && cd my-cpq-solution
+git init
+
+# 创建 workspace（自动生成目录结构 + 配置模板）
+pp workspace init \
+  --name my-cpq-solution \
+  --publisher contoso \
+  --prefix con \
+  --main-solution con_CPQ
 ```
 
-## 配置
+### 第二步：配置环境
 
-### 环境配置
-
-编辑 `config/environments.yaml`，添加你的环境信息：
+编辑 `config/environments.yaml`：
 
 ```yaml
 environments:
   dev:
-    url: "https://your-org-dev.crm.dynamics.com"
-    tenant_id: "${TENANT_ID}"
-    client_id: "${CLIENT_ID}"
-    client_secret: "${CLIENT_SECRET}"
+    url: "https://your-dev.crm.dynamics.com"
+  test:
+    url: "https://your-test.crm.dynamics.com"
+  production:
+    url: "https://your-prod.crm.dynamics.com"
 ```
 
-### 命名规则配置
-
-编辑 `config/naming_rules.yaml`，设置你的命名偏好：
-
-```yaml
-naming:
-  prefix: "new"  # 发布商前缀
-  schema_name:
-    style: "lowercase"  # lowercase | camelCase | PascalCase
-    auto_prefix: true
-```
-
-## 使用
-
-### 启动 MCP 服务器
+设置环境变量：
 
 ```bash
-# 直接运行
-python framework/mcp_serve.py
-
-# 或使用 stdio 模式
-python framework/mcp_serve.py --stdio
-
-# 或安装为包后运行
-pip install -e .
-pp-mcp
+export DEV_TENANT_ID="your-tenant-id"
+export DEV_CLIENT_ID="your-client-id"
+export DEV_CLIENT_SECRET="your-client-secret"
 ```
 
-### 在 Claude Code 中使用
+### 第三步：验证
 
-1. 连接到环境
-```plaintext
-/auth login --env dev
+```bash
+# 验证 workspace 结构
+pp workspace validate
+
+# 查看工作区信息
+pp workspace info
 ```
 
-2. 创建表
+---
+
+## 基本使用
+
+### 表管理（Phase 1）
+
+```bash
+# 创建表定义文件
+# metadata_py/tables/new_customer.py -> 导出 TABLE
+
+# 代码检查
+pp lint new_customer
+
+# 只读预演
+pp plan new_customer --env dev
+
+# 部署到 Dataverse
+pp deploy new_customer --env dev
+
+# 逆向导出（环境 → 本地）
+pp reverse new_customer --env dev
+```
+
+### 解决方案管理（Phase 2）
+
+```bash
+# 列出解决方案
+pp solution list
+
+# 部署解决方案
+pp solution deploy --env dev
+```
+
+### Web 资源（Phase 4）
+
+```bash
+# 扫描 webresources/ 目录
+pp webresource scan
+
+# 同步到 Dataverse
+pp webresource sync --env dev
+```
+
+### 工作流编排（Phase 9）
+
+```bash
+# 检查 project.py 清单
+pp workflow lint
+
+# 部署全部组件（按依赖顺序）
+pp workflow deploy --env dev
+```
+
+### CI/CD Pipeline
+
+```bash
+# 查看分支→环境映射
+pp pipeline map
+
+# 部署到 DEV（source mode）
+pp pipeline run --branch develop
+
+# 升级到 UAT/PROD（promote mode）
+pp pipeline promote --branch release/1.0
+```
+
+---
+
+## Workspace 发现
+
+CLI 自动发现 workspace，在**任何子目录**执行命令都能正确解析：
+
+```
+优先级：
+1. --workspace <path>           显式指定
+2. PP_WORKSPACE 环境变量          CI/CD
+3. CWD/pp-workspace.yaml         当前目录
+4. 从 CWD 向上搜索               像 git 一样
+```
+
+---
+
+## MCP Server（AI 交互路径）
+
+MCP Server 将 Dataverse 操作暴露为 Claude Code 可调用的工具。
+
+### 在 Claude Code 中配置
+
+安装后直接使用：
+
+```json
+{
+  "mcpServers": {
+    "power-platform": {
+      "command": "pp-mcp"
+    }
+  }
+}
+```
+
+### Claude Code 中使用
+
 ```plaintext
+# 通过自然语言操作
 请创建一个客户表，包含账户编号、余额和状态字段
 ```
 
-3. 添加字段
-```plaintext
-为账户表添加一个信用额度字段，类型为货币
-```
-
-4. 创建表单
-```plaintext
-创建一个账户主表单，包含基本信息和财务信息两个选项卡
-```
-
-### 命名转换
-
-```plaintext
-将 "CustomerAccountNumber" 转换为 schema_name
-# 结果: new_customer_account_number
-```
-
-### 验证元数据
-
-```yaml
-# metadata/tables/customer.yaml
-$schema: "../_schema/table_schema.yaml"
-
-schema:
-  schema_name: "customer"
-  display_name: "客户"
-  ownership_type: "UserOwned"
-```
-
-```plaintext
-验证 metadata/tables/customer.yaml
-```
+---
 
 ## 插件开发
 
@@ -126,88 +207,29 @@ cd MyPlugin
 dotnet add package Microsoft.CrmSdk.CoreAssemblies
 ```
 
-### 编写插件
-
-```csharp
-using Microsoft.Xrm.Sdk;
-
-public class MyPlugin : IPlugin
-{
-    public void Execute(IServiceProvider serviceProvider)
-    {
-        var context = (IPluginExecutionContext)serviceProvider.GetService(typeof(IPluginExecutionContext));
-        var tracingService = (ITracingService)serviceProvider.GetService(typeof(ITracingService));
-
-        tracingService.Trace("Plugin executed!");
-    }
-}
-```
-
 ### 构建和部署
 
-```plaintext
-/plugin_build --project_path src/MyPlugin/MyPlugin.csproj
-/plugin_deploy --assembly_path src/MyPlugin/bin/Release/net462/MyPlugin.dll
-/plugin_step_register --plugin_name MyPlugin --entity account --message Create --stage post-operation
+```bash
+# 构建 .NET 插件
+pp plugin build --project-dir plugins/MyPlugin
+
+# 部署到 Dataverse
+pp plugin deploy --project-dir plugins/MyPlugin --env dev
 ```
 
-## 解决方案管理
+---
 
-### 导出解决方案
+## 典型开发流程
 
-```plaintext
-/solution_export --solution_name MySolution --managed false
-```
+1. **初始化**：`pp workspace init` 创建项目结构
+2. **设计**：在 `metadata_py/tables/` 创建 Python 表定义
+3. **检查**：`pp lint` 离线验证
+4. **预演**：`pp plan --env dev` 只读预览变更
+5. **部署**：`pp deploy --env dev` 同步到 DEV
+6. **编排**：`pp workflow deploy` 一条命令部署全部
+7. **CI/CD**：`pp pipeline run/promote` 自动化环境切换
 
-### 导入解决方案
-
-```plaintext
-/solution_import --solution_path solutions/MySolution.zip
-```
-
-### 对比差异
-
-```plaintext
-/solution_diff --local_path metadata/tables --solution_name MySolution
-```
-
-## 工作流程
-
-### 典型开发流程
-
-1. **设计阶段**
-   - 在 `metadata/` 目录创建 YAML 定义文件
-   - 使用 Schema 验证确保格式正确
-
-2. **开发阶段**
-   - 使用 `metadata_apply` 应用元数据到开发环境
-   - 在 Dataverse 中测试
-
-3. **插件开发**
-   - 编写 .NET 插件代码
-   - 使用监听模式自动构建和部署
-
-4. **测试阶段**
-   - 在测试环境中验证
-   - 使用 `solution_diff` 检查差异
-
-5. **部署阶段**
-   - 使用解决方案导出/导入
-   - 或使用元数据同步
-
-### 命名规范
-
-建议遵循以下命名规范：
-
-1. **Schema Name**: 使用 `lowercase` 风格
-   - `customer_account` (而非 `CustomerAccount`)
-
-2. **Display Name**: 使用中文
-   - `display_name: "客户账户"`
-
-3. **Web Resource**: 按类型组织
-   - `new_css/account_form.css`
-   - `new_js/account_handler.js`
+---
 
 ## 故障排查
 
@@ -215,47 +237,28 @@ public class MyPlugin : IPlugin
 
 ```
 错误: Authentication failed
-解决: 检查环境变量配置，确认 CLIENT_ID 和 CLIENT_SECRET 正确
+解决: 检查 config/environments.yaml 和环境变量（TENANT_ID, CLIENT_ID, CLIENT_SECRET）
+```
+
+### Workspace 未找到
+
+```
+错误: Not in a Power Platform workspace
+解决: 确保当前目录或上级目录有 pp-workspace.yaml，或使用 --workspace <path> 指定
 ```
 
 ### 命名冲突
 
 ```
 错误: A component with that name already exists
-解决: 使用 naming_validate 检查命名，或使用不同的名称
+解决: 使用 pp lint 检查命名，确保遵循 config/naming_rules.yaml 规则
 ```
 
-### 限流错误
-
-```
-错误: 429 Too Many Requests
-解决: 等待片刻后重试，或减少并发请求数
-```
-
-## 最佳实践
-
-1. **使用版本控制**
-   - 将 `metadata/` 目录纳入 Git 管理
-   - 为每个功能创建分支
-
-2. **测试环境优先**
-   - 始终在测试环境验证后再部署到生产环境
-
-3. **命名一致性**
-   - 保持命名风格一致
-   - 使用前缀避免冲突
-
-4. **文档化**
-   - 为自定义元数据添加描述
-   - 记录重要的业务规则
-
-5. **备份**
-   - 定期导出解决方案作为备份
-   - 保留重要的配置文件
+---
 
 ## 下一步
 
-- 阅读 [架构文档](architecture.md)
-- 参考 [命名规范](naming-spec.md)
-- 查看 [元数据规范](metadata-spec.md)
-- 了解 [API 参考](api-spec.md)
+- [Workspace 架构规划](../references/pac-cli/workspace-architecture-plan.md)
+- [外部仓库集成指南](../references/pac-cli/external-repo-integration-guide.md)
+- [编码规范](coding-standards.md)
+- [配置指南](configuration.md)

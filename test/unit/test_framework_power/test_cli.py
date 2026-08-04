@@ -111,7 +111,7 @@ def test_cli_solution_deploy_uses_client(tmp_path, capsys, monkeypatch):
             return {"published": True}
 
     fake = FakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     monkeypatch.setattr("framework_power.cli._publisher_prefix", lambda *a, **k: "new")
 
     rc = main(["--solutions-dir", str(sdir), "solution", "deploy", "new_core", "--env", "dev"])
@@ -131,7 +131,7 @@ def test_cli_solution_publish_calls_client(monkeypatch, capsys):
             return {"published": True}
 
     fake = FakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     rc = main(["solution", "publish", "--env", "dev"])
     assert rc == 0 and fake.published
 
@@ -146,7 +146,7 @@ def test_cli_solution_delete_calls_client(monkeypatch, capsys):
             return {"status": "deleted", "uniquename": name}
 
     fake = FakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     rc = main(["solution", "delete", "new_FpSmoke", "--env", "dev"])
     out = capsys.readouterr().out
     assert rc == 0 and fake.deleted == "new_FpSmoke"
@@ -210,7 +210,7 @@ def test_cli_role_deploy_uses_client(tmp_path, monkeypatch, capsys):
             return {"synced": True, "count": len(privileges)}
 
     fake = FakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     monkeypatch.setattr("framework_power.cli._publisher_prefix", lambda *a, **k: "new")
     rc = main(["--roles-dir", str(rdir), "role", "deploy", "test_role", "--env", "dev"])
     out = capsys.readouterr().out
@@ -260,7 +260,7 @@ def test_cli_webresource_sync_uses_client(tmp_path, monkeypatch, capsys):
     (tmp_path / "js").mkdir()
     (tmp_path / "js" / "a.js").write_bytes(b"a")
     fake = _WRFakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     monkeypatch.setattr("framework_power.cli._publisher_prefix", lambda *a, **k: "new")
     rc = main(["webresource", "sync", str(tmp_path), "--env", "dev"])
     out = capsys.readouterr().out
@@ -274,7 +274,7 @@ def test_cli_webresource_sync_no_publish(tmp_path, monkeypatch, capsys):
     (tmp_path / "js").mkdir()
     (tmp_path / "js" / "a.js").write_bytes(b"a")
     fake = _WRFakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     monkeypatch.setattr("framework_power.cli._publisher_prefix", lambda *a, **k: "new")
     rc = main(["webresource", "sync", str(tmp_path), "--no-publish", "--env", "dev"])
     assert rc == 0
@@ -294,7 +294,7 @@ def test_cli_webresource_publish_resolves_names(tmp_path, monkeypatch, capsys):
             return {"published": True, "count": len(ids), "ids": ids}
 
     fake = C()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     rc = main(["webresource", "publish", "new_/js/a.js", "--env", "dev"])
     assert rc == 0
     assert fake.published == ["wr-new_/js/a.js"]
@@ -353,7 +353,7 @@ def test_cli_form_deploy_uses_client(tmp_path, monkeypatch, capsys):
             return {"published": True, "entity": entity}
 
     fake = FakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     monkeypatch.setattr("framework_power.cli._publisher_prefix", lambda *a, **k: "new")
     rc = main(["form", "deploy", str(f), "--env", "dev"])
     out = capsys.readouterr().out
@@ -374,7 +374,7 @@ def test_cli_form_reverse_writes_file(tmp_path, monkeypatch, capsys):
             return self.list_forms_by_entity("x")[0]
 
     fake = FakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     out_dir = tmp_path / "forms"
     rc = main(["form", "reverse", "new_clidemo", "--forms-dir", str(out_dir), "--env", "dev"])
     assert rc == 0
@@ -439,7 +439,7 @@ def test_cli_view_deploy_uses_client(tmp_path, monkeypatch, capsys):
             return {"published": True, "entity": entity}
 
     fake = FakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     monkeypatch.setattr("framework_power.cli._publisher_prefix", lambda *a, **k: "new")
     rc = main(["view", "deploy", str(f), "--env", "dev"])
     out = capsys.readouterr().out
@@ -460,7 +460,7 @@ def test_cli_view_reverse_writes_file(tmp_path, monkeypatch, capsys):
             return self.list_views_by_entity("x")[0]
 
     fake = FakeClient()
-    monkeypatch.setattr("framework_power.cli.get_client", lambda env: fake)
+    monkeypatch.setattr("framework_power.cli.get_client", lambda env=None, **kw: fake)
     out_dir = tmp_path / "views"
     rc = main(["view", "reverse", "new_cliview", "--views-dir", str(out_dir), "--env", "dev"])
     assert rc == 0

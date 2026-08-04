@@ -7,7 +7,7 @@
 Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服务器，为 Claude Code / Cursor 提供 Microsoft Power Platform / Dataverse 的操作能力。核心功能包括：
 
 - **元数据管理**：通过 YAML 声明式定义 Dataverse 表、字段、关系、表单、视图，支持与云端 diff/apply 增量同步
-- **命名转换**：自动将中文/驼峰命名转换为符合 Dataverse 规范的 Schema Name（规则见 `config/naming_rules.yaml`）
+- **命名转换**：自动将中文/驼峰命名转换为符合 Dataverse 规范的 Schema Name（规则见 `ninebot-project/config/naming_rules.yaml`）
 - **插件管理**：构建 .NET 插件并部署到 Dataverse，注册/管理 Plugin Step
 - **解决方案管理**：Power Platform 解决方案的导入、导出、双向同步
 - **文档自律**：通过 Git hooks 自动检测代码变更并更新相关文档
@@ -23,7 +23,7 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 
 - `Table`/`Column`/`Relationship`/`Label` 类型化模型；幂等 `deploy_table`（create + PATCH-sync 字段
   + create-only 关系，**非破坏**）+ 只读 `plan_table` + `reverse_table`（环境→本地全量快照）。
-- 定义文件 `metadata_py/tables/<schema>.py`（每文件导出 `TABLE`）；**双向单文件**：逆向覆盖、正向同步，
+- 定义文件 `ninebot-project/metadata_py/tables/<schema>.py`（每文件导出 `TABLE`）；**双向单文件**：逆向覆盖、正向同步，
   标准（无 `new_` 前缀）组件自动跳过 → 全量快照正向同步幂等且安全。
 - CLI：`python -m framework_power list|show|lint|plan|deploy|deploy-all|reverse|delete [name] --env dev`。
 - Skill：`dv-model-to-python`（Excel 设计→Python 定义）、`dv-reverse-metadata`（逆向）。
@@ -35,8 +35,8 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - `Solution`/`Publisher`/`ComponentRef` 模型；`deploy_solution` **5 步流程**
   （发布商 → 解决方案 → 按依赖顺序部署组件 → 加入解决方案 → `PublishAllXml`）+ 只读 `plan_solution`
   + `reverse_solution`（环境→Solution 全量快照）+ `solution_to_python_source`（往返保真）。
-- **双向单文件** `metadata_py/solutions/<name>.py`（导出 `SOLUTION`）；`tables` 为名称引用（指向
-  `metadata_py/tables/`），其它组件内联。
+- **双向单文件** `ninebot-project/metadata_py/solutions/<name>.py`（导出 `SOLUTION`）；`tables` 为名称引用（指向
+  `ninebot-project/metadata_py/tables/`），其它组件内联。
 - 组件类型经 `framework_power/components/` 注册表统一分发（`COMPONENT_TYPES`，各类型 serialize/deploy/
   plan/reverse/codegen/lint 统一接口）：
 
@@ -63,7 +63,7 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - **角色不在本项目创建**（环境手动建好）；`deploy_role` 给已存在角色 upsert 表权限
   （非破坏：只加/改定义中列出的权限）。缺失角色报错。
 - `SecurityRole`/`TablePrivilege`/`AccessRight`/`PrivilegeDepth` 模型；定义文件
-  `metadata_py/roles/<name>.py`（导出 `ROLE`），双向单文件。
+  `ninebot-project/metadata_py/roles/<name>.py`（导出 `ROLE`），双向单文件。
 - 权限模型（已 live 验证，详见 `framework_power/CLAUDE.md §9.2`）：深度存于
   `roleprivilegescollection.privilegedepthmask` 位掩码（USER=1/BU=2/PARENT_CHILD=4/GLOBAL=8，
   **不是** `depth`）；privilege 按名 `prv<Right><SchemaName>` 寻址（无 `objecttypecode`），
@@ -84,7 +84,7 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - `--solution NAME` 把资源加入解决方案（code 61，幂等）；`publish <name>` 按名解析 id 再精准发布。
 - `reverse` env→本地：base64 解码写字节回 `<dir>/{relpath}`，默认只拉本发布商（`new_/`），
   `--name-prefix` 可收窄。collection 查询需显式 `$select` 才返回 `content`。
-- CLI：`python -m framework_power webresource scan|plan|sync|reverse|publish`（根目录默认 `webresources/`）。
+- CLI：`python -m framework_power webresource scan|plan|sync|reverse|publish`（根目录默认 `ninebot-project/webresources/`）。
 - Skill：`dv-webresource-sync`。
 
 ### Phase 5 — 窗体操作（已完成，已 live 验证）
@@ -115,7 +115,7 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
   窗体。（细微差别：全新 builder 创作的窗体 attrs 为空、逆向的已填充，语义相同但模型不等 →
   重 deploy 是幂等 `would_update`，cell GUID 重生成，不影响语义。）
 - CLI：`python -m framework_power form list|show|lint|plan|deploy|reverse`（`reverse <entity>` 写
-  `metadata_py/forms/{entity}__{name}.py`，每窗体一个文件导出 `FORM`）。Skill：`dv-form-python`。
+  `ninebot-project/metadata_py/forms/{entity}__{name}.py`，每窗体一个文件导出 `FORM`）。Skill：`dv-form-python`。
 
 ### Phase 6 — 视图操作（已完成，已 live 验证）
 
@@ -138,7 +138,7 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - **非破坏 + 保真**：`plan`/`deploy` 在结构化模型上 diff → 逆向未改的视图重 deploy = `would_skip`/
   `skipped_unchanged`，不重写真实视图。customness 按**实体**（自定义表的视图可编辑）。
 - CLI：`python -m framework_power view list|show|lint|plan|deploy|reverse`（`reverse <entity>` 写
-  `metadata_py/views/{entity}__{name}.py`，每视图一个文件导出 `VIEW`）。Skill：`dv-view-python`。
+  `ninebot-project/metadata_py/views/{entity}__{name}.py`，每视图一个文件导出 `VIEW`）。Skill：`dv-view-python`。
 
 ### Phase 7 — Ribbon 定制（已完成，已 live 验证）
 
@@ -200,18 +200,18 @@ custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly �
   ① ensure 两个 solution 外壳（含 publisher）② 按链序跑各阶段 ③ 最终 `PublishAllXml`（optionset/table
   元数据靠它生效）。为此 Phase 9 做了三处**加法式**改动：`deploy_table`/`deploy_role` 加 `solution=None`
   形参（默认 None=旧行为不变）；新增 `optionset_sync.py`（optionset 此前是唯一没有 `*_sync.py` 的组件类型）。
-- **显式清单 `metadata_py/project.py`**（导出 `PROJECT = Project(...)`）：`main_solution`/`ribbon_solution`/
+- **显式清单 `ninebot-project/metadata_py/project.py`**（导出 `PROJECT = Project(...)`）：`main_solution`/`ribbon_solution`/
   `publisher`/`version` + 各阶段组件列表。列表是 **stems**（按 `<dir>/<stem>.py` 解析）；`tables`/`roles`
   是名称引用（走 registry）；`plugins` 是工程目录；`webresources` 是 bool。**某阶段没配内容则自动跳过**。
 - **阶段过滤**：`--only a,b` / `--skip a,b`（取值：optionsets/tables/webresources/plugins/forms/views/roles/
   ribbon）；`--include-roles`（角色阶段默认关，opt-in）；`--no-publish`。
-- CLI：`python -m framework_power workflow show|lint|plan|deploy`（`--project metadata_py/project.py`）。
+- CLI：`python -m framework_power workflow show|lint|plan|deploy`（`--project ninebot-project/metadata_py/project.py`）。
   Skill：`dv-workflow-python`。
 
 ### 关键约束
 
 - 与 `framework/`、`metadata/` 隔离；复用代码在 `framework_power/client/`；认证复用
-  `config/environments.yaml` + `.env`（`get_client`，client-secret + MSAL）。
+  `ninebot-project/config/environments.yaml` + `.env`（`get_client`，client-secret + MSAL）。
 - `deploy` **非破坏**（create/update/add）；标准（非 `new_` 前缀）组件正向同步**跳过** → 全量快照安全。
 - 布尔用 `True`/`False`；mypy 严格；`flake8 --max-line-length=120`；mypy 需 `--explicit-package-bases`（仓库根有遗留 `__init__.py`）。
 - **已 live 踩坑**（详见 `framework_power/CLAUDE.md §9`）：全局选项集按**小写** `Name` 键查询（禁
@@ -221,7 +221,7 @@ custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly �
 ## 编程语言要求
 
 - **主要语言**：Python 3.9+（MCP 服务器、Agent、工具链）
-- **插件语言**：C# / .NET（Dataverse 插件开发，位于 `plugins/` 目录）
+- **插件语言**：C# / .NET（Dataverse 插件开发，位于 `ninebot-project/plugins/` 目录）
 - **配置语言**：YAML（元数据定义、环境配置、命名规则）
 - **类型注解**：Python 代码必须包含类型注解（`typing`），项目配置了 `mypy` 类型检查
 
@@ -237,7 +237,7 @@ custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly �
 
 ### 元数据 YAML 规范
 
-- **【硬核要求】schema_name 必须严格遵循 `config/naming_rules.yaml` 定义的命名规则**：
+- **【硬核要求】schema_name 必须严格遵循 `ninebot-project/config/naming_rules.yaml` 定义的命名规则**：
   - 风格：`lowercase`（小写 + 下划线分隔）
   - 分隔符：`_`
   - 自定义组件自动添加前缀 `{prefix}`
@@ -245,12 +245,12 @@ custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly �
   - **禁止使用驼峰命名**（如 `approveAccount`、`customerArea`），必须使用 `approve_account`、`customer_area`
   - 所有元数据文件的 schema_name 值必须符合此规范，包括：tables、forms、views、ribbon、sitemap、webresources 等
 
-- 自定义实体 SchemaName 必须以发布商前缀 `config/publishers.yaml->{prefix}` 开头
-- 自定义关系的 SchemaName 也必须以 `config/publishers.yaml->{prefix}` 开头
+- 自定义实体 SchemaName 必须以发布商前缀 `ninebot-project/config/publishers.yaml->{prefix}` 开头
+- 自定义关系的 SchemaName 也必须以 `ninebot-project/config/publishers.yaml->{prefix}` 开头
 - Lookup 字段不能通过 Attributes 端点单独创建，必须通过 Deep Insert（`RelationshipDefinitions`）一次性创建关系 + Lookup
 - 级联行为：每个实体只允许一个 Parental（`Active`）关系，自定义关系推荐使用 Referential 模式（`NoCascade` + `RemoveLink`）
 - YAML 是期望状态的声明，与 Dataverse 对比后执行 create/update/skip，不执行 delete
-- 标准实体（account、contact、systemuser 等）受保护，命名转换时不会被修改（列表见 `config/naming_rules.yaml` 的 `standard_entities`）
+- 标准实体（account、contact、systemuser 等）受保护，命名转换时不会被修改（列表见 `ninebot-project/config/naming_rules.yaml` 的 `standard_entities`）
 
 ### MCP 工具开发规范
 
@@ -261,7 +261,7 @@ custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly �
 
 ### 插件开发规范
 
-- 插件位于 `plugins/` 目录，使用 .NET SDK（`Microsoft.Xrm.Sdk`）
+- 插件位于 `ninebot-project/plugins/` 目录，使用 .NET SDK（`Microsoft.Xrm.Sdk`）
 - 实现标准 `IPlugin` 接口，入口方法 `Execute(IServiceProvider)`
 - 通过 `PluginAgent` 调用 `dotnet build` 构建，`DataverseClient` 部署
 - Plugin Step 注册需指定：实体名、消息名（Create/Update/Delete）、阶段（pre-validation/pre-operation/post-operation）
@@ -326,13 +326,13 @@ cd test && python -m pytest unit/test_framework_power -o addopts="" -q   # 168 �
 bash scripts/install_hooks.sh
 ```
 
-Pre-commit hook 自动执行：`metadata/` 变更时更新数据字典，framework 代码变更时建议文档更新。
+Pre-commit hook 自动执行：`ninebot-project/metadata/` 变更时更新数据字典，framework 代码变更时建议文档更新。
 
 ### 数据字典生成
 
 ```bash
 python scripts/generate_data_dictionary.py --all
-python scripts/generate_data_dictionary.py --files metadata/tables/account.yaml
+python scripts/generate_data_dictionary.py --files ninebot-project/metadata/tables/account.yaml
 ```
 
 ## 架构
@@ -396,7 +396,7 @@ async with stdio_server() as (read_stream, write_stream):
 
 ### 配置文件
 
-所有配置在 `config/` 目录：
+所有配置在 `ninebot-project/config/` 目录：
 
 | 文件 | 用途 |
 |------|------|
@@ -415,9 +415,9 @@ async with stdio_server() as (read_stream, write_stream):
 
 ### 元数据 YAML 结构
 
-YAML 定义存放在 `metadata/`：
-- `metadata/tables/*.yaml` — 实体定义，包含属性和关系
-- `metadata/optionsets/*.yaml` — 全局选项集
+YAML 定义存放在 `ninebot-project/metadata/`：
+- `ninebot-project/metadata/tables/*.yaml` — 实体定义，包含属性和关系
+- `ninebot-project/metadata/optionsets/*.yaml` — 全局选项集
 - `metadata/_schema/*.yaml` — JSON Schema 验证定义
 
 ### 技能（Skills）

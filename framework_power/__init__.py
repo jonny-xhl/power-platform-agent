@@ -165,6 +165,13 @@ from .workflow import (
     load_project,
     plan_workflow,
 )
+from .data_dictionary import (
+    DEFAULT_DICTIONARY_DIR,
+    generate_all_tables_summary,
+    generate_index,
+    generate_table_docs,
+    table_to_markdown,
+)
 
 __all__ = [
     # models
@@ -311,4 +318,10 @@ __all__ = [
     "lint_workflow",
     "load_project",
     "plan_workflow",
+    # data dictionary (Gen 2 Python-first)
+    "DEFAULT_DICTIONARY_DIR",
+    "generate_all_tables_summary",
+    "generate_index",
+    "generate_table_docs",
+    "table_to_markdown",
 ]

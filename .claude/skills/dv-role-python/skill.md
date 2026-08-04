@@ -1,6 +1,6 @@
 ---
 name: dv-role-python
-description: 用 framework_power（Python 优先）为已存在的 Dataverse 安全角色（Security Role）同步/逆向表级权限（privilege × depth）。当用户需要"给角色分配表权限"、"角色权限同步"、"逆向角色权限"、按表范围导出角色权限时使用此技能。短语如"framework_power role deploy/reverse"、"metadata_py/roles"、"角色权限"。
+description: 用 framework_power（Python 优先）为已存在的 Dataverse 安全角色（Security Role）同步/逆向表级权限（privilege × depth）。当用户需要"给角色分配表权限"、"角色权限同步"、"逆向角色权限"、按表范围导出角色权限时使用此技能。短语如"framework_power role deploy/reverse"、"ninebot-project/metadata_py/roles"、"角色权限"。
 ---
 
 # Dataverse 安全角色权限管理（Python 优先 / framework_power）
@@ -50,7 +50,7 @@ description: 用 framework_power（Python 优先）为已存在的 Dataverse 安
 
 ## 定义文件
 
-`metadata_py/roles/<name>.py`，导出 `ROLE: SecurityRole`：
+`ninebot-project/metadata_py/roles/<name>.py`，导出 `ROLE: SecurityRole`：
 
 ```python
 from framework_power import AccessRight, PrivilegeDepth, SecurityRole, TablePrivilege
@@ -73,7 +73,7 @@ ROLE: SecurityRole = SecurityRole(
 ## CLI
 
 ```bash
-python -m framework_power role list                          # 发现 metadata_py/roles/*.py
+python -m framework_power role list                          # 发现 ninebot-project/metadata_py/roles/*.py
 python -m framework_power role show <name>                   # 打印定义（离线）
 python -m framework_power role lint [<name>]                 # 离线约定校验
 python -m framework_power role plan <name> --env dev         # 只读预演
@@ -86,7 +86,7 @@ python -m framework_power role reverse <name> --tables a,b,c --env dev  # 逆向
 
 ```
 角色在环境中手动创建好
-  → metadata_py/roles/<name>.py（声明该角色对哪些表、哪些 right、什么 depth）
+  → ninebot-project/metadata_py/roles/<name>.py（声明该角色对哪些表、哪些 right、什么 depth）
   → framework_power role lint     （离线门）
   → framework_power role plan     （只读预演）
   → framework_power role deploy   （upsert 到环境）
@@ -96,7 +96,7 @@ python -m framework_power role reverse <name> --tables a,b,c --env dev  # 逆向
 ## 角色作为解决方案组件（Phase 2 集成）
 
 - 角色也是解决方案组件（`SolutionComponentType` code = **20**，已 live 验证）。
-- `Solution.roles` 为**名称引用**（指向 `metadata_py/roles/`）；`solution deploy` 会把
+- `Solution.roles` 为**名称引用**（指向 `ninebot-project/metadata_py/roles/`）；`solution deploy` 会把
   **已存在的角色**加入解决方案（`AddSolutionComponent` code=20），**不**在此同步权限。
 - 权限同步始终走独立的 `role deploy` —— 即便角色已在解决方案里。
 

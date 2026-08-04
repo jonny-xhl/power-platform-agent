@@ -173,7 +173,7 @@ YAML 中定义的属性类型与 Dataverse AttributeMetadata 类型的完整映�
 
 # 七、命名规则（基于 naming_rules.yaml）
 
-命名转换由 `NamingConverter` 类自动处理，配置文件为 `config/naming_rules.yaml`。
+命名转换由 `NamingConverter` 类自动处理，配置文件为 `ninebot-project/config/naming_rules.yaml`。
 
 ## 核心规则
 
@@ -426,7 +426,7 @@ POST /api/data/v9.2/RelationshipDefinitions
 | 执行时间 | 20 分钟上限 |
 | 并发连接 | 52 个并发请求 |
 
-## 本项目配置（config/environments.yaml）
+## 本项目配置（ninebot-project/config/environments.yaml）
 
 | 配置项 | 值 | 说明 |
 |-------|------|------|

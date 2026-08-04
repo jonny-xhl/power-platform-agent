@@ -3,12 +3,21 @@ Command-line interface for framework_power.
 
 Drives the 需求 -> definition -> sync pipeline from one entry point:
 
-    python -m framework_power list
-    python -m framework_power show new_projectbudget
-    python -m framework_power lint new_projectbudget
-    python -m framework_power plan new_projectbudget --env dev
-    python -m framework_power deploy new_projectbudget --env dev
-    python -m framework_power deploy-all --env dev
+    pp list
+    pp show new_projectbudget
+    pp lint new_projectbudget
+    pp plan new_projectbudget --env dev
+    pp deploy new_projectbudget --env dev
+    pp deploy-all --env dev
+
+**Workspace-aware**: The CLI auto-discovers the workspace root by searching
+for ``pp-workspace.yaml`` from CWD upward. All directory paths (tables,
+forms, config, etc.) resolve relative to the workspace root, not CWD.
+Use ``--workspace <path>`` to override, or set ``PP_WORKSPACE`` env var.
+
+    pp workspace init           # scaffold a new workspace
+    pp workspace info           # show resolved workspace paths
+    pp workspace validate       # check workspace structure
 
 Definitions are discovered under ``metadata_py/tables/`` (each ``<schema>.py`` exposes
 ``TABLE``). ``lint`` runs offline (no network); ``plan`` is a read-only dry run;
@@ -19,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -28,6 +38,13 @@ from .lint import ERROR, INFO, WARNING, has_errors, lint_table
 from .registry import DEFAULT_DEFINITIONS_DIR, deploy_order, discover_definitions, get_definition
 from .runtime import get_client
 from .components.models import Solution
+from .workspace import (
+    NotInWorkspaceError,
+    Workspace,
+    WorkspaceManifest,
+    get_cached_workspace,
+    reset_cache,
+)
 from .solution_deployer import (
     _ref_type_code,
     deploy_solution,
@@ -90,11 +107,92 @@ DEFAULT_RIBBON_SOLUTION = "new_RibbonSoln"
 DEFAULT_PLUGIN_SOLUTION = "new_PluginSoln"
 
 
+# ----------------------------------------------------------------- workspace helpers
+
+# Process-wide flag: emit the "not in workspace" hint at most once per invocation.
+_warned_no_workspace: bool = False
+
+
+def _try_workspace(args: argparse.Namespace) -> Optional[Workspace]:
+    """Try to discover the workspace from args or CWD; return None if not in a workspace.
+
+    This is non-fatal — callers fall back to CWD-relative paths (legacy behavior)
+    when no workspace is found. Used for backward compatibility.
+
+    When no workspace is found, a hint is printed to stderr (once per process) so
+    users are aware they are operating in legacy CWD-fallback mode.
+    """
+    global _warned_no_workspace
+    explicit = getattr(args, "workspace", None)
+    try:
+        return get_cached_workspace(explicit)
+    except NotInWorkspaceError:
+        if not _warned_no_workspace:
+            _warned_no_workspace = True
+            print(
+                "[hint] Not in a Power Platform workspace. "
+                "Run 'pp workspace init' to create one, or use --workspace <path>.\n"
+                "       Falling back to CWD-relative paths (legacy mode).",
+                file=sys.stderr,
+            )
+        return None
+
+
+def _reset_no_workspace_warning() -> None:
+    """Reset the once-per-process "not in workspace" warning flag (for tests)."""
+    global _warned_no_workspace
+    _warned_no_workspace = False
+
+
+def _workspace_prefix(ws: Optional[Workspace]) -> str:
+    """Read publisher prefix from workspace manifest, or fall back to config file."""
+    if ws is not None:
+        return ws.manifest.publisher_prefix
+    return _publisher_prefix()
+
+
+def _workspace_dir(args: argparse.Namespace, attr: str, fallback: str) -> str:
+    """Resolve a directory path: workspace-aware with CWD fallback.
+
+    If a workspace is discovered, use ``ws.<attr>`` (absolute path).
+    Otherwise, fall back to the legacy CWD-relative default.
+    """
+    ws = _try_workspace(args)
+    if ws is not None:
+        return str(getattr(ws, attr))
+    return fallback
+
+
+def _resolve_dir(args: argparse.Namespace, attr: str, current: str, default: str) -> str:
+    """Resolve a directory path, but only use workspace resolution when the user
+    did NOT explicitly override (i.e. ``current == default``).
+
+    This preserves backward compatibility: if the user passes ``--definitions-dir /foo``
+    or a positional ``root=/foo``, that explicit value is honored.
+    """
+    if current != default:
+        return current  # user explicitly provided a path
+    return _workspace_dir(args, attr, current)
+
+
+def _get_client_ws(args: argparse.Namespace, env: Optional[str] = None):
+    """Build authenticated client using workspace config or CWD fallback."""
+    ws = _try_workspace(args)
+    if ws is not None:
+        return get_client(env, config_path=str(ws.environments_config))
+    return get_client(env)
+
+
+def _effective_prefix(args: argparse.Namespace) -> str:
+    """Get publisher prefix from workspace manifest or config file."""
+    ws = _try_workspace(args)
+    return _workspace_prefix(ws)
+
+
 def _publisher_prefix(config_path: str = PUBLISHERS_CONFIG) -> str:
     """Read the current publisher prefix from config/publishers.yaml (default 'new')."""
     try:
         import yaml
-        from pathlib import Path
 
         if not Path(config_path).exists():
             return "new"
@@ -113,13 +211,156 @@ def _print_json(obj: object) -> None:
     print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
 
 
+# ----------------------------------------------------------------- workspace commands
+
+
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+def _render_template(filename: str, replacements: dict[str, str]) -> str:
+    """Read a template file and apply ``__KEY__`` → value replacements."""
+    template_path = _TEMPLATES_DIR / filename
+    content = template_path.read_text(encoding="utf-8")
+    for key, value in replacements.items():
+        content = content.replace(f"__{key}__", value)
+    return content
+
+
+def cmd_workspace_init(args: argparse.Namespace) -> int:
+    """Initialize a new workspace in the current (or specified) directory."""
+    target = Path(args.path or ".").resolve()
+    target.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = target / "pp-workspace.yaml"
+    if manifest_path.exists() and not args.force:
+        print(f"Error: workspace already exists at {target}")
+        print("  Use --force to overwrite.")
+        return 1
+
+    name = args.name or target.name
+    publisher = args.publisher or "new"
+    prefix = args.prefix or "new"
+    main_sol = args.main_solution or f"{prefix}_{name}"
+    ribbon_sol = args.ribbon_solution or f"{main_sol}_Ribbon"
+
+    # Create workspace via the Workspace API
+    ws = Workspace.create_from_template(
+        target,
+        name=name,
+        publisher=publisher,
+        publisher_prefix=prefix,
+        publisher_display_name=args.publisher_display or "",
+        main_solution=main_sol,
+        ribbon_solution=ribbon_sol,
+        description=args.description or "",
+    )
+    ws.write_manifest()
+
+    # Generate config templates
+    replacements = {
+        "WORKSPACE_NAME": name,
+        "PUBLISHER": publisher,
+        "PREFIX": prefix,
+        "PUBLISHER_DISPLAY": args.publisher_display or publisher,
+        "MAIN_SOLUTION": main_sol,
+        "RIBBON_SOLUTION": ribbon_sol,
+    }
+
+    config_dir = ws.config_dir
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    # environments.yaml
+    env_path = config_dir / "environments.yaml"
+    if not env_path.exists() or args.force:
+        env_path.write_text(
+            _render_template("environments.yaml", replacements), encoding="utf-8"
+        )
+
+    # pipeline.yaml
+    pipe_path = config_dir / "pipeline.yaml"
+    if not pipe_path.exists() or args.force:
+        pipe_path.write_text(
+            _render_template("pipeline.yaml", replacements), encoding="utf-8"
+        )
+
+    # publishers.yaml
+    pub_path = config_dir / "publishers.yaml"
+    if not pub_path.exists() or args.force:
+        pub_path.write_text(
+            _render_template("publishers.yaml", replacements), encoding="utf-8"
+        )
+
+    # naming_rules.yaml
+    naming_path = config_dir / "naming_rules.yaml"
+    if not naming_path.exists() or args.force:
+        naming_path.write_text(
+            _render_template("naming_rules.yaml", replacements), encoding="utf-8"
+        )
+
+    # .gitignore
+    gitignore = target / ".gitignore"
+    if not gitignore.exists() or args.force:
+        gitignore.write_text(
+            (_TEMPLATES_DIR / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+    # requirements.txt
+    req_path = target / "requirements.txt"
+    if not req_path.exists() or args.force:
+        req_path.write_text(
+            (_TEMPLATES_DIR / "requirements.txt").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+    # metadata_py __init__.py files
+    for subdir in ("tables", "forms", "views", "ribbons", "roles", "optionsets", "solutions"):
+        init_path = ws.path(subdir) / "__init__.py"
+        if not init_path.exists():
+            init_path.write_text("", encoding="utf-8")
+
+    print(f"[ok] workspace initialized at {target}")
+    print(f"  name:           {name}")
+    print(f"  publisher:      {publisher} ({prefix})")
+    print(f"  main_solution:  {main_sol}")
+    print(f"  ribbon_solution: {ribbon_sol}")
+    print(f"\nNext steps:")
+    print(f"  1. Edit {target / 'config' / 'environments.yaml'} with your Dataverse URLs")
+    print(f"  2. Set env vars: DEV_TENANT_ID, DEV_CLIENT_ID, DEV_CLIENT_SECRET")
+    print(f"  3. Create table definitions in {ws.tables_dir}")
+    print(f"  4. Run: pp list")
+    return 0
+
+
+def cmd_workspace_info(args: argparse.Namespace) -> int:
+    """Show current workspace info."""
+    ws = Workspace.discover(args.workspace)
+    _print_json(ws.to_dict())
+    return 0
+
+
+def cmd_workspace_validate(args: argparse.Namespace) -> int:
+    """Validate workspace structure."""
+    ws = Workspace.discover(args.workspace)
+    issues = ws.validate()
+    if issues:
+        print(f"[FAIL] {len(issues)} issue(s):")
+        for i in issues:
+            print(f"  - {i}")
+        return 1
+    print(f"[ok] workspace '{ws.manifest.name}' is valid")
+    print(f"  root: {ws.root}")
+    print(f"  publisher: {ws.manifest.publisher} ({ws.manifest.publisher_prefix})")
+    print(f"  main_solution: {ws.manifest.main_solution}")
+    return 0
+
+
 # ----------------------------------------------------------------- commands
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    defs = discover_definitions(args.definitions_dir)
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+    defs = discover_definitions(tables_dir)
     if not defs:
-        print(f"No definitions found under '{args.definitions_dir}'.")
+        print(f"No definitions found under '{tables_dir}'.")
         return 0
     print(f"{'name':32} {'schema_name':28} cols rels  source")
     for name, defn in defs.items():
@@ -131,7 +372,8 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    defn = get_definition(args.name, args.definitions_dir)
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+    defn = get_definition(args.name, tables_dir)
     from .serializer import serialize_relationship, serialize_table_for_create
 
     payload = serialize_table_for_create(defn.table)
@@ -144,12 +386,13 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def cmd_lint(args: argparse.Namespace) -> int:
-    prefix = _publisher_prefix()
+    prefix = _effective_prefix(args)
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
     if args.name:
-        defn = get_definition(args.name, args.definitions_dir)
+        defn = get_definition(args.name, tables_dir)
         targets = {defn.name: defn.table}
     else:
-        targets = {n: d.table for n, d in discover_definitions(args.definitions_dir).items()}
+        targets = {n: d.table for n, d in discover_definitions(tables_dir).items()}
 
     any_errors = False
     for name, table in targets.items():
@@ -168,20 +411,22 @@ def cmd_lint(args: argparse.Namespace) -> int:
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    defn = get_definition(args.name, args.definitions_dir)
-    client = get_client(args.env)
-    _print_json(plan_table(client, defn.table, prefix=_publisher_prefix()))
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+    defn = get_definition(args.name, tables_dir)
+    client = _get_client_ws(args, args.env)
+    _print_json(plan_table(client, defn.table, prefix=_effective_prefix(args)))
     return 0
 
 
 def cmd_deploy(args: argparse.Namespace) -> int:
-    defn = get_definition(args.name, args.definitions_dir)
-    client = get_client(args.env)
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+    defn = get_definition(args.name, tables_dir)
+    client = _get_client_ws(args, args.env)
     _print_json(
         deploy_table(
             client,
             defn.table,
-            prefix=_publisher_prefix(),
+            prefix=_effective_prefix(args),
             solution=args.solution,
             solution_clean=args.solution_clean,
         )
@@ -190,14 +435,15 @@ def cmd_deploy(args: argparse.Namespace) -> int:
 
 
 def cmd_deploy_all(args: argparse.Namespace) -> int:
-    defs = discover_definitions(args.definitions_dir)
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+    defs = discover_definitions(tables_dir)
     if not defs:
-        print(f"No definitions found under '{args.definitions_dir}'.")
+        print(f"No definitions found under '{tables_dir}'.")
         return 0
     order = deploy_order(defs)
     print(f"Deploy order: {order}")
-    client = get_client(args.env)
-    prefix = _publisher_prefix()
+    client = _get_client_ws(args, args.env)
+    prefix = _effective_prefix(args)
     summary = []
     for name in order:
         print(f"\n=== deploying {name} ===")
@@ -213,9 +459,15 @@ def cmd_reverse(args: argparse.Namespace) -> int:
     from .codegen import table_to_python_source
     from .reverse import reverse_table
 
-    client = get_client(args.env)
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+    client = _get_client_ws(args, args.env)
     table = reverse_table(client, args.name)
-    out_path = Path(args.output) if args.output else Path(args.definitions_dir) / f"{args.name}.py"
+
+    if getattr(args, "dictionary", False):
+        # --dictionary: generate data dictionary Markdown instead of .py
+        return _reverse_to_dictionary(args, table, tables_dir)
+
+    out_path = Path(args.output) if args.output else Path(tables_dir) / f"{args.name}.py"
     header = [
         f'"""Reverse-exported from Dataverse ({args.name!r}) by framework_power.',
         "",
@@ -223,7 +475,7 @@ def cmd_reverse(args: argparse.Namespace) -> int:
         "diffing, and AI constraint. Forward `deploy` skips standard (non-custom) items",
         "automatically, so this same file is safe to sync.",
         "",
-        "Regenerate: python -m framework_power reverse " + f"{args.name} --env <env>",
+        "Regenerate: pp reverse " + f"{args.name} --env <env>",
         '"""',
     ]
     source = table_to_python_source(table, header=header)
@@ -236,9 +488,62 @@ def cmd_reverse(args: argparse.Namespace) -> int:
     return 0
 
 
+def _reverse_to_dictionary(args: argparse.Namespace, table, tables_dir: str) -> int:
+    """Write a single table's data dictionary Markdown (from a reversed Table)."""
+    from .data_dictionary import DEFAULT_DICTIONARY_DIR, table_to_markdown
+
+    dict_dir = DEFAULT_DICTIONARY_DIR
+    # When in a workspace, resolve dict_dir relative to workspace root
+    ws = _try_workspace(args)
+    if ws is not None and not Path(dict_dir).is_absolute():
+        dict_dir = str(ws.root / dict_dir)
+
+    out_path = Path(args.output) if args.output else Path(dict_dir) / "tables" / f"{table.schema_name}.md"
+    md = table_to_markdown(table, source_name=None)  # no source file (reversed from Dataverse)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(md, encoding="utf-8")
+    print(f"[ok] reverse {args.name} --dictionary -> {out_path}")
+    return 0
+
+
+def cmd_dictionary(args: argparse.Namespace) -> int:
+    """Generate data dictionary Markdown from local metadata_py/ definitions.
+
+    No Dataverse connection required — reads from the Python definitions.
+    """
+    from .data_dictionary import DEFAULT_DICTIONARY_DIR, generate_table_docs
+
+    tables_dir = _resolve_dir(args, "tables_dir", DEFAULT_DEFINITIONS_DIR, DEFAULT_DEFINITIONS_DIR)
+    dict_dir = args.output or DEFAULT_DICTIONARY_DIR
+
+    # When in a workspace, resolve dict_dir relative to workspace root
+    ws = _try_workspace(args)
+    if ws is not None and not Path(dict_dir).is_absolute():
+        dict_dir = str(ws.root / dict_dir)
+
+    defs = discover_definitions(tables_dir)
+    if not defs:
+        print(f"[warn] No table definitions found in {tables_dir}/")
+        return 1
+
+    # Pass a relative source_dir for clean Markdown links
+    source_dir = DEFAULT_DEFINITIONS_DIR
+    if ws is not None:
+        try:
+            source_dir = str(Path(tables_dir).relative_to(ws.root)).replace("\\", "/")
+        except ValueError:
+            source_dir = tables_dir
+
+    written = generate_table_docs(defs, output_dir=dict_dir, source_dir=source_dir)
+    for p in written:
+        print(f"  [ok] {p}")
+    print(f"\n[ok] dictionary: {len(defs)} tables -> {dict_dir}/")
+    return 0
+
+
 def cmd_delete(args: argparse.Namespace) -> int:
     """Delete a table from Dataverse (destructive; cascades attributes + relationships)."""
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     logical = args.name.lower()
     result = client.delete_entity(logical)
     _print_json({"name": logical, **result})
@@ -292,9 +597,10 @@ def _discover_solutions(solutions_dir: str) -> dict[str, Solution]:
 
 
 def cmd_solution_list(args: argparse.Namespace) -> int:
-    sols = _discover_solutions(args.solutions_dir)
+    sols_dir = _resolve_dir(args, "solutions_dir", args.solutions_dir, DEFAULT_SOLUTIONS_DIR)
+    sols = _discover_solutions(sols_dir)
     if not sols:
-        print(f"No solutions found under '{args.solutions_dir}'.")
+        print(f"No solutions found under '{sols_dir}'.")
         return 0
     print(f"{'name':32} {'unique_name':28} version     tables refs  publisher")
     for name, sol in sols.items():
@@ -307,7 +613,8 @@ def cmd_solution_list(args: argparse.Namespace) -> int:
 
 
 def cmd_solution_show(args: argparse.Namespace) -> int:
-    sol = _get_solution(args.name, args.solutions_dir)
+    sols_dir = _resolve_dir(args, "solutions_dir", args.solutions_dir, DEFAULT_SOLUTIONS_DIR)
+    sol = _get_solution(args.name, sols_dir)
     _print_json(
         {
             "unique_name": sol.unique_name,
@@ -335,11 +642,12 @@ def cmd_solution_show(args: argparse.Namespace) -> int:
 
 
 def cmd_solution_lint(args: argparse.Namespace) -> int:
-    prefix = _publisher_prefix()
+    prefix = _effective_prefix(args)
+    sols_dir = _resolve_dir(args, "solutions_dir", args.solutions_dir, DEFAULT_SOLUTIONS_DIR)
     if args.name:
-        targets = {args.name: _get_solution(args.name, args.solutions_dir)}
+        targets = {args.name: _get_solution(args.name, sols_dir)}
     else:
-        targets = _discover_solutions(args.solutions_dir)
+        targets = _discover_solutions(sols_dir)
     any_errors = False
     for name, sol in targets.items():
         issues = lint_solution(sol, prefix=prefix)
@@ -355,25 +663,30 @@ def cmd_solution_lint(args: argparse.Namespace) -> int:
 
 
 def cmd_solution_plan(args: argparse.Namespace) -> int:
-    sol = _get_solution(args.name, args.solutions_dir)
-    client = get_client(args.env)
-    _print_json(plan_solution(client, sol, definitions_dir=args.definitions_dir, prefix=_publisher_prefix()))
+    sols_dir = _resolve_dir(args, "solutions_dir", args.solutions_dir, DEFAULT_SOLUTIONS_DIR)
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+    sol = _get_solution(args.name, sols_dir)
+    client = _get_client_ws(args, args.env)
+    _print_json(plan_solution(client, sol, definitions_dir=tables_dir, prefix=_effective_prefix(args)))
     return 0
 
 
 def cmd_solution_deploy(args: argparse.Namespace) -> int:
-    sol = _get_solution(args.name, args.solutions_dir)
-    client = get_client(args.env)
+    sols_dir = _resolve_dir(args, "solutions_dir", args.solutions_dir, DEFAULT_SOLUTIONS_DIR)
+    tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
+    sol = _get_solution(args.name, sols_dir)
+    client = _get_client_ws(args, args.env)
     _print_json(
-        deploy_solution(client, sol, definitions_dir=args.definitions_dir, prefix=_publisher_prefix())
+        deploy_solution(client, sol, definitions_dir=tables_dir, prefix=_effective_prefix(args))
     )
     return 0
 
 
 def cmd_solution_reverse(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    sols_dir = _resolve_dir(args, "solutions_dir", args.solutions_dir, DEFAULT_SOLUTIONS_DIR)
+    client = _get_client_ws(args, args.env)
     sol = reverse_solution(client, args.name)
-    out_path = Path(args.output) if args.output else Path(args.solutions_dir) / f"{args.name}.py"
+    out_path = Path(args.output) if args.output else Path(sols_dir) / f"{args.name}.py"
     header = [
         f'"""Reverse-exported solution {args.name!r} by framework_power.',
         "",
@@ -394,7 +707,7 @@ def cmd_solution_reverse(args: argparse.Namespace) -> int:
 
 
 def cmd_solution_add_component(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     code = _ref_type_code(args.type)
     oid = args.id
     if not oid and args.type == "table" and args.name:
@@ -417,7 +730,7 @@ def cmd_solution_add_component(args: argparse.Namespace) -> int:
 
 
 def cmd_solution_publish(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     try:
         _print_json(client.publish_all_xml())
         return 0
@@ -427,7 +740,7 @@ def cmd_solution_publish(args: argparse.Namespace) -> int:
 
 
 def cmd_solution_delete(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     try:
         _print_json(client.delete_solution(args.solution))
         return 0
@@ -440,9 +753,10 @@ def cmd_solution_delete(args: argparse.Namespace) -> int:
 
 
 def cmd_role_list(args: argparse.Namespace) -> int:
-    defs = discover_role_definitions(args.roles_dir)
+    roles_dir = _resolve_dir(args, "roles_dir", args.roles_dir, DEFAULT_ROLES_DIR)
+    defs = discover_role_definitions(roles_dir)
     if not defs:
-        print(f"No role definitions found under '{args.roles_dir}'.")
+        print(f"No role definitions found under '{roles_dir}'.")
         return 0
     print(f"{'name':32} {'role':28} tables  source")
     for name, defn in defs.items():
@@ -452,7 +766,8 @@ def cmd_role_list(args: argparse.Namespace) -> int:
 
 
 def cmd_role_show(args: argparse.Namespace) -> int:
-    defn = get_role_definition(args.name, args.roles_dir)
+    roles_dir = _resolve_dir(args, "roles_dir", args.roles_dir, DEFAULT_ROLES_DIR)
+    defn = get_role_definition(args.name, roles_dir)
     _print_json(
         {
             "name": defn.role.name,
@@ -466,11 +781,12 @@ def cmd_role_show(args: argparse.Namespace) -> int:
 
 
 def cmd_role_lint(args: argparse.Namespace) -> int:
-    prefix = _publisher_prefix()
+    prefix = _effective_prefix(args)
+    roles_dir = _resolve_dir(args, "roles_dir", args.roles_dir, DEFAULT_ROLES_DIR)
     if args.name:
-        targets = {args.name: get_role_definition(args.name, args.roles_dir).role}
+        targets = {args.name: get_role_definition(args.name, roles_dir).role}
     else:
-        targets = {n: d.role for n, d in discover_role_definitions(args.roles_dir).items()}
+        targets = {n: d.role for n, d in discover_role_definitions(roles_dir).items()}
     any_errors = False
     for name, role in targets.items():
         issues = [
@@ -486,17 +802,19 @@ def cmd_role_lint(args: argparse.Namespace) -> int:
 
 
 def cmd_role_plan(args: argparse.Namespace) -> int:
-    defn = get_role_definition(args.name, args.roles_dir)
-    client = get_client(args.env)
-    _print_json(plan_role(client, defn.role, prefix=_publisher_prefix()))
+    roles_dir = _resolve_dir(args, "roles_dir", args.roles_dir, DEFAULT_ROLES_DIR)
+    defn = get_role_definition(args.name, roles_dir)
+    client = _get_client_ws(args, args.env)
+    _print_json(plan_role(client, defn.role, prefix=_effective_prefix(args)))
     return 0
 
 
 def cmd_role_deploy(args: argparse.Namespace) -> int:
-    defn = get_role_definition(args.name, args.roles_dir)
-    client = get_client(args.env)
+    roles_dir = _resolve_dir(args, "roles_dir", args.roles_dir, DEFAULT_ROLES_DIR)
+    defn = get_role_definition(args.name, roles_dir)
+    client = _get_client_ws(args, args.env)
     try:
-        _print_json(deploy_role(client, defn.role, prefix=_publisher_prefix()))
+        _print_json(deploy_role(client, defn.role, prefix=_effective_prefix(args)))
         return 0
     except ValueError as e:  # role not found
         _print_json({"error": str(e)})
@@ -504,22 +822,23 @@ def cmd_role_deploy(args: argparse.Namespace) -> int:
 
 
 def cmd_role_reverse(args: argparse.Namespace) -> int:
+    roles_dir = _resolve_dir(args, "roles_dir", args.roles_dir, DEFAULT_ROLES_DIR)
     tables = [t.strip() for t in (args.tables or "").split(",") if t.strip()]
     if not tables:
         print("error: --tables is required (refusing to pull every table's privileges).")
         return 2
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     try:
         role = reverse_role(client, args.name, tables=tables)
     except ValueError as e:
         _print_json({"error": str(e)})
         return 1
-    out_path = Path(args.output) if args.output else Path(args.roles_dir) / f"{args.name}.py"
+    out_path = Path(args.output) if args.output else Path(roles_dir) / f"{args.name}.py"
     header = [
         f'"""Reverse-exported role {args.name!r} by framework_power.',
         "",
         f"Privileges scoped to: {', '.join(tables)}",
-        "Regenerate: python -m framework_power role reverse "
+        "Regenerate: pp role reverse "
         + f"{args.name} --tables {','.join(tables)} --env <env>",
         '"""',
     ]
@@ -550,9 +869,10 @@ def _role_lint(role, *, prefix="new"):
 
 
 def cmd_webresource_scan(args: argparse.Namespace) -> int:
-    models, warnings = scan_webresources(Path(args.root), _publisher_prefix())
+    wr_root = _resolve_dir(args, "webresources_root", args.root, DEFAULT_WEBRESOURCES_ROOT)
+    models, warnings = scan_webresources(Path(wr_root), _effective_prefix(args))
     files = [{"name": m.name, "type": m.webresource_type.name} for m in models]
-    print(f"[scan] {len(files)} web resource(s) under '{args.root}'")
+    print(f"[scan] {len(files)} web resource(s) under '{wr_root}'")
     for f in files:
         print(f"  {f['type']:11} {f['name']}")
     for w in warnings:
@@ -561,21 +881,23 @@ def cmd_webresource_scan(args: argparse.Namespace) -> int:
 
 
 def cmd_webresource_plan(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    wr_root = _resolve_dir(args, "webresources_root", args.root, DEFAULT_WEBRESOURCES_ROOT)
+    client = _get_client_ws(args, args.env)
     _print_json(
-        plan_webresources(client, Path(args.root), prefix=_publisher_prefix(), include=args.include)
+        plan_webresources(client, Path(wr_root), prefix=_effective_prefix(args), include=args.include)
     )
     return 0
 
 
 def cmd_webresource_sync(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    wr_root = _resolve_dir(args, "webresources_root", args.root, DEFAULT_WEBRESOURCES_ROOT)
+    client = _get_client_ws(args, args.env)
     try:
         _print_json(
             sync_webresources(
                 client,
-                Path(args.root),
-                prefix=_publisher_prefix(),
+                Path(wr_root),
+                prefix=_effective_prefix(args),
                 solution=args.solution,
                 publish=not args.no_publish,
                 include=args.include,
@@ -588,10 +910,11 @@ def cmd_webresource_sync(args: argparse.Namespace) -> int:
 
 
 def cmd_webresource_reverse(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    wr_root = _resolve_dir(args, "webresources_root", args.root, DEFAULT_WEBRESOURCES_ROOT)
+    client = _get_client_ws(args, args.env)
     try:
         result = reverse_webresources(
-            client, Path(args.root), prefix=_publisher_prefix(), name_prefix=args.name_prefix
+            client, Path(wr_root), prefix=_effective_prefix(args), name_prefix=args.name_prefix
         )
     except Exception as e:  # noqa: BLE001
         _print_json({"error": str(e)})
@@ -601,7 +924,7 @@ def cmd_webresource_reverse(args: argparse.Namespace) -> int:
 
 
 def cmd_webresource_publish(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     ids: list[str] = []
     missing: list[str] = []
     for name in args.names:
@@ -625,7 +948,7 @@ def cmd_webresource_publish(args: argparse.Namespace) -> int:
 
 
 def cmd_form_list(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     forms = client.list_forms_by_entity(args.entity)
     print(f"[list] {len(forms)} form(s) on '{args.entity}'")
     for f in forms:
@@ -655,7 +978,7 @@ def cmd_form_lint(args: argparse.Namespace) -> int:
     from .components import form as form_component
 
     form = load_form(args.file)
-    issues = form_component.lint(form, prefix=_publisher_prefix())
+    issues = form_component.lint(form, prefix=_effective_prefix(args))
     for issue in issues:
         print(f"  [{issue.severity}] {issue.message}")
     print(f"[lint] {form.name!r}: {len(issues)} issue(s), {sum(i.is_error for i in issues)} error(s)")
@@ -663,21 +986,21 @@ def cmd_form_lint(args: argparse.Namespace) -> int:
 
 
 def cmd_form_plan(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     form = load_form(args.file)
-    _print_json(plan_forms(client, [form], prefix=_publisher_prefix()))
+    _print_json(plan_forms(client, [form], prefix=_effective_prefix(args)))
     return 0
 
 
 def cmd_form_deploy(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     form = load_form(args.file)
     try:
         _print_json(
             sync_forms(
                 client,
                 [form],
-                prefix=_publisher_prefix(),
+                prefix=_effective_prefix(args),
                 solution=args.solution,
                 publish=not args.no_publish,
             )
@@ -689,9 +1012,10 @@ def cmd_form_deploy(args: argparse.Namespace) -> int:
 
 
 def cmd_form_reverse(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    forms_dir = _resolve_dir(args, "forms_dir", args.forms_dir, DEFAULT_FORMS_DIR)
+    client = _get_client_ws(args, args.env)
     try:
-        result = reverse_forms(client, args.entity, out_dir=args.forms_dir, prefix=_publisher_prefix())
+        result = reverse_forms(client, args.entity, out_dir=forms_dir, prefix=_effective_prefix(args))
     except Exception as e:  # noqa: BLE001
         _print_json({"error": str(e)})
         return 1
@@ -703,7 +1027,7 @@ def cmd_form_reverse(args: argparse.Namespace) -> int:
 
 
 def cmd_view_list(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     views = client.list_views_by_entity(args.entity)
     print(f"[list] {len(views)} view(s) on '{args.entity}'")
     for v in views:
@@ -726,7 +1050,7 @@ def cmd_view_lint(args: argparse.Namespace) -> int:
     from .components import view as view_component
 
     view = load_view(args.file)
-    issues = view_component.lint(view, prefix=_publisher_prefix())
+    issues = view_component.lint(view, prefix=_effective_prefix(args))
     for issue in issues:
         print(f"  [{issue.severity}] {issue.message}")
     print(f"[lint] {view.name!r}: {len(issues)} issue(s), {sum(i.is_error for i in issues)} error(s)")
@@ -734,21 +1058,21 @@ def cmd_view_lint(args: argparse.Namespace) -> int:
 
 
 def cmd_view_plan(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     view = load_view(args.file)
-    _print_json(plan_views(client, [view], prefix=_publisher_prefix()))
+    _print_json(plan_views(client, [view], prefix=_effective_prefix(args)))
     return 0
 
 
 def cmd_view_deploy(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     view = load_view(args.file)
     try:
         _print_json(
             sync_views(
                 client,
                 [view],
-                prefix=_publisher_prefix(),
+                prefix=_effective_prefix(args),
                 solution=args.solution,
                 publish=not args.no_publish,
             )
@@ -760,9 +1084,10 @@ def cmd_view_deploy(args: argparse.Namespace) -> int:
 
 
 def cmd_view_reverse(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    views_dir = _resolve_dir(args, "views_dir", args.views_dir, DEFAULT_VIEWS_DIR)
+    client = _get_client_ws(args, args.env)
     try:
-        result = reverse_views(client, args.entity, out_dir=args.views_dir, prefix=_publisher_prefix())
+        result = reverse_views(client, args.entity, out_dir=views_dir, prefix=_effective_prefix(args))
     except Exception as e:  # noqa: BLE001
         _print_json({"error": str(e)})
         return 1
@@ -791,7 +1116,7 @@ def cmd_ribbon_show(args: argparse.Namespace) -> int:
 
 
 def cmd_ribbon_lint(args: argparse.Namespace) -> int:
-    issues = lint_ribbon(load_ribbon(args.file), prefix=_publisher_prefix())
+    issues = lint_ribbon(load_ribbon(args.file), prefix=_effective_prefix(args))
     for issue in issues:
         print(f"  [{issue.severity}] {issue.message}")
     print(f"[lint] {len(issues)} issue(s), {sum(i.is_error for i in issues)} error(s)")
@@ -799,16 +1124,16 @@ def cmd_ribbon_lint(args: argparse.Namespace) -> int:
 
 
 def cmd_ribbon_plan(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
-    _print_json(plan_ribbons(client, [load_ribbon(args.file)], prefix=_publisher_prefix(),
+    client = _get_client_ws(args, args.env)
+    _print_json(plan_ribbons(client, [load_ribbon(args.file)], prefix=_effective_prefix(args),
                              solution=args.ribbon_solution))
     return 0
 
 
 def cmd_ribbon_deploy(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     try:
-        _print_json(sync_ribbons(client, [load_ribbon(args.file)], prefix=_publisher_prefix(),
+        _print_json(sync_ribbons(client, [load_ribbon(args.file)], prefix=_effective_prefix(args),
                                  solution=args.ribbon_solution, publish=not args.no_publish))
         return 0
     except Exception as e:  # noqa: BLE001
@@ -817,14 +1142,15 @@ def cmd_ribbon_deploy(args: argparse.Namespace) -> int:
 
 
 def cmd_ribbon_reverse(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    ribbons_dir = _resolve_dir(args, "ribbons_dir", args.ribbons_dir, DEFAULT_RIBBONS_DIR)
+    client = _get_client_ws(args, args.env)
     entity = None if args.application else args.entity
     try:
         ribbon = reverse_ribbons(client, entity, solution=args.ribbon_solution)
     except Exception as e:  # noqa: BLE001
         _print_json({"error": str(e)})
         return 1
-    out_dir = Path(args.ribbons_dir)
+    out_dir = Path(ribbons_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     name = "application" if entity is None else entity
     path = out_dir / f"{name}.py"
@@ -853,10 +1179,10 @@ def cmd_plugin_build(args: argparse.Namespace) -> int:
 
 
 def cmd_plugin_deploy(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     try:
         _print_json(deploy_plugin(
-            client, args.project_dir, def_path=args.def_file, prefix=_publisher_prefix(),
+            client, args.project_dir, def_path=args.def_file, prefix=_effective_prefix(args),
             solution=args.plugin_solution))
         return 0
     except Exception as e:  # noqa: BLE001
@@ -865,7 +1191,7 @@ def cmd_plugin_deploy(args: argparse.Namespace) -> int:
 
 
 def cmd_plugin_list(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     try:
         _print_json(list_plugins(client, include_system=args.include_system))
         return 0
@@ -875,7 +1201,7 @@ def cmd_plugin_list(args: argparse.Namespace) -> int:
 
 
 def cmd_plugin_reverse(args: argparse.Namespace) -> int:
-    client = get_client(args.env)
+    client = _get_client_ws(args, args.env)
     try:
         plugin = reverse_plugin(client, args.name)
     except Exception as e:  # noqa: BLE001
@@ -929,26 +1255,38 @@ def cmd_workflow_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_project_path(args: argparse.Namespace) -> str:
+    """Resolve project.py path: workspace-aware with explicit override support."""
+    if args.project != DEFAULT_PROJECT_PATH:
+        return args.project  # explicit override
+    ws = _try_workspace(args)
+    if ws is not None:
+        return str(ws.root / DEFAULT_PROJECT_PATH)
+    return args.project  # CWD fallback
+
+
 def cmd_workflow_lint(args: argparse.Namespace) -> int:
-    project = load_project(args.project)
-    issues = lint_workflow(project, prefix=_publisher_prefix())
+    project_path = _resolve_project_path(args)
+    project = load_project(project_path)
+    issues = lint_workflow(project, prefix=_effective_prefix(args))
     errors = [i for i in issues if i.severity == ERROR]
     warnings = [i for i in issues if i.severity == WARNING]
     status = "FAIL" if errors else "ok"
-    print(f"[{status}] {args.project}  ({len(errors)} err, {len(warnings)} warn)")
+    print(f"[{status}] {project_path}  ({len(errors)} err, {len(warnings)} warn)")
     for i in issues:
         print(f"    {i.severity}: {i.message}")
     return 1 if has_errors(issues) else 0
 
 
 def cmd_workflow_plan(args: argparse.Namespace) -> int:
-    project = load_project(args.project)
-    client = get_client(args.env)
+    project_path = _resolve_project_path(args)
+    project = load_project(project_path)
+    client = _get_client_ws(args, args.env)
     _print_json(
         plan_workflow(
             client,
             project,
-            prefix=_publisher_prefix(),
+            prefix=_effective_prefix(args),
             include_roles=args.include_roles,
             skip=_stage_set(args.skip),
             only=_stage_set(args.only),
@@ -958,13 +1296,14 @@ def cmd_workflow_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_workflow_deploy(args: argparse.Namespace) -> int:
-    project = load_project(args.project)
-    client = get_client(args.env)
+    project_path = _resolve_project_path(args)
+    project = load_project(project_path)
+    client = _get_client_ws(args, args.env)
     _print_json(
         deploy_workflow(
             client,
             project,
-            prefix=_publisher_prefix(),
+            prefix=_effective_prefix(args),
             include_roles=args.include_roles,
             skip=_stage_set(args.skip),
             only=_stage_set(args.only),
@@ -974,10 +1313,189 @@ def cmd_workflow_deploy(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------- pipeline (Phase 10: CI/CD)
+
+
+DEFAULT_PIPELINE_CONFIG = "config/pipeline.yaml"
+
+
+def _load_pipeline_config(args: argparse.Namespace):
+    """Load pipeline config from the --pipeline-config argument or workspace."""
+    from .pipeline.config import load_pipeline_config
+    config_path = getattr(args, "pipeline_config", DEFAULT_PIPELINE_CONFIG)
+
+    # If in a workspace and using default path, resolve via workspace
+    ws = _try_workspace(args)
+    if ws is not None and config_path == DEFAULT_PIPELINE_CONFIG:
+        config_path = str(ws.pipeline_config)
+        project_root = str(ws.root)
+    else:
+        project_root = "."
+    return load_pipeline_config(config_path, project_root=project_root)
+
+
+def cmd_pipeline_map(args: argparse.Namespace) -> int:
+    """Show branch → environment → strategy mapping."""
+    config = _load_pipeline_config(args)
+    print(f"{'Branch':20} {'Environment':15} {'Strategy':10} {'Export From':15} {'Managed':8} {'Approval':10} {'Auto Run':10}")
+    print("-" * 98)
+    for pattern, mapping in config.branches.items():
+        print(
+            f"{pattern:20} {mapping.environment:15} {mapping.deploy_strategy:10} "
+            f"{(mapping.source_environment or 'N/A'):15} "
+            f"{'Yes' if mapping.managed else 'No':8} "
+            f"{'Yes' if mapping.require_approval else 'No':10} "
+            f"{'Yes' if mapping.auto_run else 'No':10}"
+        )
+    return 0
+
+
+def cmd_pipeline_compose(args: argparse.Namespace) -> int:
+    """Auto-discover components and show dynamic Project (DEV only)."""
+    config = _load_pipeline_config(args)
+    from .pipeline.composer import SolutionComposer
+
+    composer = SolutionComposer(config, publisher_prefix=_effective_prefix(args))
+    result = composer.compose(args.branch)
+    _print_json(result.to_dict())
+    return 0
+
+
+def cmd_pipeline_run(args: argparse.Namespace) -> int:
+    """Run source-mode pipeline (lint→build→compose→plan→deploy→verify→publish)."""
+    config = _load_pipeline_config(args)
+    from .pipeline.source_executor import SourceExecutor
+    from .pipeline.state import PipelineState
+
+    skip_stages = _stage_set(args.skip) if args.skip else None
+    executor = SourceExecutor(config, publisher_prefix=_effective_prefix(args))
+    result = executor.run(
+        args.branch,
+        stop_after=args.stage,
+        skip_stages=skip_stages,
+    )
+
+    # record in state tracker
+    if result.compose_result is not None:
+        state = PipelineState(config)
+        state.record_source(result)
+
+    _print_json(result.to_dict())
+    return 0 if result.success else 1
+
+
+def cmd_pipeline_promote(args: argparse.Namespace) -> int:
+    """Run promote-mode pipeline (export from source env → import to target)."""
+    config = _load_pipeline_config(args)
+    from .pipeline.promote_executor import PromoteExecutor
+
+    executor = PromoteExecutor(config, publisher_prefix=_effective_prefix(args))
+    result = executor.run(args.branch)
+    _print_json(result.to_dict())
+    return 0 if result.success else 1
+
+
+def cmd_pipeline_verify(args: argparse.Namespace) -> int:
+    """Verify solution components match expectations."""
+    config = _load_pipeline_config(args)
+    from .pipeline.verifier import SolutionVerifier
+
+    env = args.env
+    if not env and args.branch:
+        mapping = config.resolve_branch(args.branch)
+        if mapping:
+            env = mapping.environment
+
+    if not env:
+        print("error: --env or --branch is required for pipeline verify.")
+        return 2
+
+    verifier = SolutionVerifier(config, publisher_prefix=_effective_prefix(args))
+
+    if args.solution_exists:
+        # promote-mode: just check solution exists
+        solution_name = config.get_solution_name(env)
+        result = verifier.verify_promote(env, solution_name)
+    else:
+        # source-mode: need compose result
+        from .pipeline.composer import SolutionComposer
+        composer = SolutionComposer(config, publisher_prefix=_effective_prefix(args))
+        branch = args.branch or "develop"
+        compose_result = composer.compose(branch)
+        result = verifier.verify_source(env, compose_result)
+
+    _print_json(result.to_dict())
+    return 0 if result.success else 1
+
+
+def cmd_pipeline_configure(args: argparse.Namespace) -> int:
+    """Configure env-specific settings (connection refs, env variables)."""
+    config = _load_pipeline_config(args)
+    from .pipeline.promote_executor import PromoteExecutor
+
+    # use PromoteExecutor's configure stage
+    executor = PromoteExecutor(config, publisher_prefix=_effective_prefix(args))
+    # create a minimal result for the configure stage
+    from .pipeline.promote_executor import PromoteResult
+    result = PromoteResult(environment=args.env)
+    output = executor._stage_configure(
+        branch_mapping=config.resolve_branch("main") or config.branches.get("main"),
+        result=result,
+    )
+    _print_json(output)
+    return 0
+
+
+def cmd_pipeline_rollback(args: argparse.Namespace) -> int:
+    """Rollback to a previous solution version."""
+    config = _load_pipeline_config(args)
+    from .pipeline.state import PipelineState
+    from .pipeline.pac_cli import PacCliWrapper
+
+    state = PipelineState(config)
+    target = state.get_rollback_target(args.env, version=args.to)
+    if target is None:
+        _print_json({"error": f"No rollback target found for env '{args.env}'" + (f", version '{args.to}'" if args.to else "")})
+        return 1
+
+    # for promote-mode rollback: re-import previous export
+    export_path = target.get("export_path")
+    if export_path and Path(export_path).exists():
+        pac = PacCliWrapper(project_root=config.project_root)
+        import_result = pac.import_solution(args.env, export_path)
+        _print_json({
+            "rollback_target": target,
+            "import_result": import_result.to_dict(),
+        })
+        return 0 if import_result.success else 1
+    else:
+        _print_json({
+            "error": "Rollback not possible: no export zip found for the target version",
+            "target": target,
+        })
+        return 1
+
+
+def cmd_pipeline_history(args: argparse.Namespace) -> int:
+    """Show deployment history."""
+    config = _load_pipeline_config(args)
+    from .pipeline.state import PipelineState
+
+    state = PipelineState(config)
+    history = state.get_history(environment=args.env, limit=args.limit)
+    _print_json({"deployments": history, "count": len(history)})
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="framework_power",
-        description="Deploy Dataverse tables from Python definitions (framework_power).",
+        prog="pp",
+        description="Power Platform Agent CLI — deploy Dataverse metadata from Python definitions.",
+    )
+    parser.add_argument(
+        "--workspace",
+        default=None,
+        help="Workspace root path (auto-discovered from CWD if omitted).",
     )
     parser.add_argument(
         "--definitions-dir",
@@ -1018,6 +1536,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("list", help="List discovered definitions.").set_defaults(func=cmd_list)
 
+    # --- workspace group ---
+    p_ws = sub.add_parser("workspace", help="Manage Power Platform workspaces (init/info/validate).")
+    ws_sub = p_ws.add_subparsers(dest="workspace_command", required=True)
+
+    p = ws_sub.add_parser("init", help="Initialize a new workspace (scaffold directories + configs).")
+    p.add_argument("--path", default=None, help="Target directory (default: current directory).")
+    p.add_argument("--name", default=None, help="Workspace name (default: directory name).")
+    p.add_argument("--publisher", default=None, help="Publisher unique name (default: 'new').")
+    p.add_argument("--prefix", default=None, help="Publisher prefix (default: 'new').")
+    p.add_argument("--publisher-display", default=None, help="Publisher display name.")
+    p.add_argument("--main-solution", default=None, help="Main solution unique name.")
+    p.add_argument("--ribbon-solution", default=None, help="Ribbon solution unique name.")
+    p.add_argument("--description", default=None, help="Workspace description.")
+    p.add_argument("--force", action="store_true", help="Overwrite existing workspace files.")
+    p.set_defaults(func=cmd_workspace_init)
+
+    p = ws_sub.add_parser("info", help="Show resolved workspace paths and manifest.")
+    p.set_defaults(func=cmd_workspace_info)
+
+    p = ws_sub.add_parser("validate", help="Check workspace structure completeness.")
+    p.set_defaults(func=cmd_workspace_validate)
+
     p_show = sub.add_parser("show", help="Print the serialized Web API payload (no network).")
     p_show.add_argument("name")
     p_show.set_defaults(func=cmd_show)
@@ -1053,15 +1593,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rev = sub.add_parser(
         "reverse",
-        help="Export a table FROM Dataverse into a definition file (full snapshot).",
+        help="Export a table FROM Dataverse into a definition file or data dictionary.",
     )
     p_rev.add_argument("name", help="Logical name of the table to export (e.g. contact).")
     p_rev.add_argument("--env", default=None, help="Source environment (default: config 'current').")
     p_rev.add_argument(
         "-o", "--output", default=None,
-        help="Output file (default: <definitions-dir>/<name>.py).",
+        help="Output file (default: <definitions-dir>/<name>.py or <dict-dir>/tables/<schema>.md).",
+    )
+    p_rev.add_argument(
+        "--dictionary", action="store_true", default=False,
+        help="Generate a data dictionary Markdown doc instead of a .py definition file.",
     )
     p_rev.set_defaults(func=cmd_reverse)
+
+    p_dict = sub.add_parser(
+        "dictionary",
+        help="Generate data dictionary Markdown from local metadata_py/ definitions.",
+    )
+    p_dict.add_argument(
+        "--all", action="store_true", default=True,
+        help="Generate docs for all discovered tables (default behavior).",
+    )
+    p_dict.add_argument(
+        "-o", "--output", default=None,
+        help="Output directory (default: <workspace>/docs/data_dictionary).",
+    )
+    p_dict.set_defaults(func=cmd_dictionary)
 
     p_del = sub.add_parser(
         "delete",
@@ -1408,6 +1966,96 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--no-publish", action="store_true", help="Skip the final PublishAllXml.")
     p.set_defaults(func=cmd_workflow_deploy)
+
+    # --- pipeline group (Phase 10: CI/CD) ---
+    p_pipe = sub.add_parser(
+        "pipeline",
+        help="CI/CD pipeline engine: source deploy (DEV) + promote (UAT/PROD).",
+    )
+    pipe_sub = p_pipe.add_subparsers(dest="pipeline_command", required=True)
+
+    # pipeline map — show branch→env→strategy mapping
+    p = pipe_sub.add_parser("map", help="Show branch → environment → strategy mapping.")
+    p.add_argument(
+        "--pipeline-config", default="config/pipeline.yaml",
+        help="Pipeline config path (default: config/pipeline.yaml).",
+    )
+    p.set_defaults(func=cmd_pipeline_map)
+
+    # pipeline compose — dynamic discovery (DEV only)
+    p = pipe_sub.add_parser("compose", help="Auto-discover components and show dynamic Project (DEV only).")
+    p.add_argument("--branch", required=True, help="Git branch name (e.g. develop, feature/CPQ).")
+    p.add_argument(
+        "--pipeline-config", default="config/pipeline.yaml",
+        help="Pipeline config path (default: config/pipeline.yaml).",
+    )
+    p.set_defaults(func=cmd_pipeline_compose)
+
+    # pipeline run — source mode (lint→build→compose→plan→deploy→verify→publish)
+    p = pipe_sub.add_parser("run", help="Run source-mode pipeline (deploy source code to DEV).")
+    p.add_argument("--branch", required=True, help="Git branch name (e.g. develop).")
+    p.add_argument(
+        "--stage", default=None,
+        help="Stop after this stage (e.g. 'plan' for dry-run).",
+    )
+    p.add_argument(
+        "--skip", default=None,
+        help="Comma-separated stages to skip (e.g. 'build,plugins').",
+    )
+    p.add_argument(
+        "--pipeline-config", default="config/pipeline.yaml",
+        help="Pipeline config path (default: config/pipeline.yaml).",
+    )
+    p.set_defaults(func=cmd_pipeline_run)
+
+    # pipeline promote — promote mode (export→import for UAT/PROD)
+    p = pipe_sub.add_parser("promote", help="Run promote-mode pipeline (export from source env → import to target).")
+    p.add_argument("--branch", required=True, help="Git branch name (e.g. release/1.0, main).")
+    p.add_argument(
+        "--pipeline-config", default="config/pipeline.yaml",
+        help="Pipeline config path (default: config/pipeline.yaml).",
+    )
+    p.set_defaults(func=cmd_pipeline_promote)
+
+    # pipeline verify — verify solution components
+    p = pipe_sub.add_parser("verify", help="Verify solution components match expectations.")
+    p.add_argument("--env", default=None, help="Environment to verify.")
+    p.add_argument("--branch", default=None, help="Branch (to resolve environment).")
+    p.add_argument("--solution-exists", action="store_true", help="Only check if solution exists.")
+    p.add_argument(
+        "--pipeline-config", default="config/pipeline.yaml",
+        help="Pipeline config path (default: config/pipeline.yaml).",
+    )
+    p.set_defaults(func=cmd_pipeline_verify)
+
+    # pipeline configure — set env-specific settings after import
+    p = pipe_sub.add_parser("configure", help="Configure env-specific settings (connection refs, env variables).")
+    p.add_argument("--env", required=True, help="Target environment.")
+    p.add_argument(
+        "--pipeline-config", default="config/pipeline.yaml",
+        help="Pipeline config path (default: config/pipeline.yaml).",
+    )
+    p.set_defaults(func=cmd_pipeline_configure)
+
+    # pipeline rollback — rollback to previous version
+    p = pipe_sub.add_parser("rollback", help="Rollback to a previous solution version.")
+    p.add_argument("--env", required=True, help="Target environment.")
+    p.add_argument("--to", default=None, help="Version to rollback to (default: previous successful).")
+    p.add_argument(
+        "--pipeline-config", default="config/pipeline.yaml",
+        help="Pipeline config path (default: config/pipeline.yaml).",
+    )
+    p.set_defaults(func=cmd_pipeline_rollback)
+
+    # pipeline history — show deployment history
+    p = pipe_sub.add_parser("history", help="Show deployment history.")
+    p.add_argument("--env", default=None, help="Filter by environment.")
+    p.add_argument("--limit", type=int, default=20, help="Max records to show (default: 20).")
+    p.add_argument(
+        "--pipeline-config", default="config/pipeline.yaml",
+        help="Pipeline config path (default: config/pipeline.yaml).",
+    )
+    p.set_defaults(func=cmd_pipeline_history)
 
     return parser
 

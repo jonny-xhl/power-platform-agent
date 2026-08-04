@@ -1,6 +1,6 @@
 预览 YAML 元数据的变更计划（只读 Dry-Run，不执行任何变更，零风险）。
 
-参数: `$ARGUMENTS`（YAML 文件路径，如 `metadata/tables/payment_recognition.yaml`）
+参数: `$ARGUMENTS`（YAML 文件路径，如 `ninebot-project/metadata/tables/payment_recognition.yaml`）
 
 ## 执行流程
 
@@ -29,7 +29,7 @@ except Exception as e:
 
 ### Step 2: 发现并验证 YAML
 
-1. 解析 `$ARGUMENTS` 获取目标 YAML 文件路径。如果 `$ARGUMENTS` 为空，列出 `metadata/tables/` 下所有可用的 YAML 文件让用户选择。
+1. 解析 `$ARGUMENTS` 获取目标 YAML 文件路径。如果 `$ARGUMENTS` 为空，列出 `ninebot-project/metadata/tables/` 下所有可用的 YAML 文件让用户选择。
 2. 确认文件存在。如果文件不存在，提示用户检查路径。
 3. 使用 SchemaValidator 验证 YAML 格式：
 

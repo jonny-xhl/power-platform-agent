@@ -19,10 +19,10 @@ description: Dataverse 认证指南 - 指导 Agent 如何正确使用已认证�
 
 ```json
 // 创建或更新表
-{"tool": "metadata_apply_yaml", "arguments": {"table_yaml": "metadata/tables/entity.yaml"}}
+{"tool": "metadata_apply_yaml", "arguments": {"table_yaml": "ninebot-project/metadata/tables/entity.yaml"}}
 
 // 预览变更
-{"tool": "metadata_plan", "arguments": {"table_yaml": "metadata/tables/entity.yaml"}}
+{"tool": "metadata_plan", "arguments": {"table_yaml": "ninebot-project/metadata/tables/entity.yaml"}}
 
 // 查询元数据
 {"tool": "metadata_list", "arguments": {"type": "table"}}
@@ -56,7 +56,7 @@ core_agent = CoreAgent()
 metadata_agent = MetadataAgent(core_agent=core_agent)
 
 # 所有操作都使用已认证的连接
-result = await metadata_agent.apply_yaml("metadata/tables/entity.yaml", {})
+result = await metadata_agent.apply_yaml("ninebot-project/metadata/tables/entity.yaml", {})
 ```
 
 ## 错误的使用方式（不要这样做）
@@ -115,7 +115,7 @@ DEV_CLIENT_SECRET=your-client-secret-here
 DEV_TENANT_ID=your-tenant-id-here  # 可选
 ```
 
-**重要**：`config/environments.yaml` 中的占位符（如 `${DEV_CLIENT_ID}`）会自动从环境变量或 .env 文件中读取值。
+**重要**：`ninebot-project/config/environments.yaml` 中的占位符（如 `${DEV_CLIENT_ID}`）会自动从环境变量或 .env 文件中读取值。
 
 ### 方式 3：通过系统环境变量
 
@@ -187,7 +187,7 @@ metadata_agent = MetadataAgent(core_agent=core_agent)
    export DEV_CLIENT_SECRET="your-client-secret"
    ```
 
-**注意**：`config/environments.yaml` 中的占位符（如 `${DEV_CLIENT_ID}`）需要从 .env 文件或系统环境变量中读取实际值。
+**注意**：`ninebot-project/config/environments.yaml` 中的占位符（如 `${DEV_CLIENT_ID}`）需要从 .env 文件或系统环境变量中读取实际值。
 
 ## 操作检查清单
 
@@ -279,7 +279,7 @@ async def sync_table():
 
     # 应用 YAML 定义 - 自动检测差异并应用变更
     result = await metadata_agent.apply_yaml(
-        "metadata/tables/payment_recognition.yaml",
+        "ninebot-project/metadata/tables/payment_recognition.yaml",
         {}
     )
 
@@ -306,7 +306,7 @@ async def plan_changes():
 
     # 预览将要应用的变更
     result = await metadata_agent.plan_changes(
-        "metadata/tables/payment_recognition.yaml"
+        "ninebot-project/metadata/tables/payment_recognition.yaml"
     )
 
     import json
@@ -330,9 +330,9 @@ async def sync_multiple_tables():
     metadata_agent = MetadataAgent(core_agent=core_agent)
 
     yaml_files = [
-        "metadata/tables/account.yaml",
-        "metadata/tables/contact.yaml",
-        "metadata/tables/payment_recognition.yaml"
+        "ninebot-project/metadata/tables/account.yaml",
+        "ninebot-project/metadata/tables/contact.yaml",
+        "ninebot-project/metadata/tables/payment_recognition.yaml"
     ]
 
     results = {}
@@ -456,7 +456,7 @@ def advanced_metadata_ops():
 
     # 加载期望的 YAML 定义
     import yaml
-    with open("metadata/tables/payment_recognition.yaml") as f:
+    with open("ninebot-project/metadata/tables/payment_recognition.yaml") as f:
         desired_metadata = yaml.safe_load(f)
 
     # 计算差异
@@ -488,7 +488,7 @@ async def export_entity_to_yaml():
     # 导出实体元数据为 YAML
     result = await metadata_agent.export(
         entity="new_payment_recognition",
-        output_dir="metadata/exported",
+        output_dir="ninebot-project/metadata/exported",
         metadata_type="table"
     )
 
@@ -520,7 +520,7 @@ metadata_agent = MetadataAgent(core_agent=core_agent)
 
 # 3. 应用 YAML 定义
 result = await metadata_agent.apply_yaml(
-    "metadata/tables/payment_recognition.yaml",
+    "ninebot-project/metadata/tables/payment_recognition.yaml",
     {}
 )
 

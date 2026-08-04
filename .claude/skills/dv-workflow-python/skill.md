@@ -6,7 +6,7 @@ description: 用 framework_power（Python 优先）跨阶段编排开发工作�
 # Dataverse 开发工作流编排（Python 优先 / framework_power）
 
 本技能是 **framework_power** 的 **跨阶段编排入口（Phase 9）**。把 Phase 1–8 的孤立 deploy 命令
-串成一条按依赖顺序的开发链，由**一个显式清单** `metadata_py/project.py` 驱动，跨**两个解决方案**。
+串成一条按依赖顺序的开发链，由**一个显式清单** `ninebot-project/metadata_py/project.py` 驱动，跨**两个解决方案**。
 
 ## 核心事实
 
@@ -41,7 +41,7 @@ description: 用 framework_power（Python 优先）跨阶段编排开发工作�
   ⚠️ `deploy_table`/`deploy_role` 的 `solution=` 是 Phase 9 **加法式新增形参**，默认 `None` = 旧行为不变。
   `sync_optionsets` 是 Phase 9 **新增**的包装（optionset 此前是唯一没有 `*_sync.py` 的组件类型）。
 
-## 清单 `metadata_py/project.py`
+## 清单 `ninebot-project/metadata_py/project.py`
 
 ```python
 from framework_power import Project, Publisher
@@ -53,14 +53,14 @@ PROJECT = Project(
     ribbon_solution="new_RibbonSoln",
     publisher=PUBLISHER,
     version="1.0.0.0",                       # 必须 X.Y.Z.W
-    optionsets=["new_category"],             # stems → metadata_py/optionsets/<stem>.py（新目录）
-    tables=["new_order", "new_customer"],    # 名称引用 → metadata_py/tables/（按依赖序）
-    webresources=True,                       # bool：同步整个 webresources/ 目录进主解决方案
-    plugins=["plugins/Smoke"],               # 工程目录（含 plugin_def.py；dotnet 构建）
-    forms=["new_order__Main"],               # stems → metadata_py/forms/<stem>.py（{entity}__{Name}）
-    views=["new_order__Active"],             # stems → metadata_py/views/<stem>.py
-    ribbons=["new_order"],                   # stems → metadata_py/ribbons/<stem>.py
-    roles=[],                                # 名称引用 → metadata_py/roles/（opt-in 阶段）
+    optionsets=["new_category"],             # stems → ninebot-project/metadata_py/optionsets/<stem>.py（新目录）
+    tables=["new_order", "new_customer"],    # 名称引用 → ninebot-project/metadata_py/tables/（按依赖序）
+    webresources=True,                       # bool：同步整个 ninebot-project/webresources/ 目录进主解决方案
+    plugins=["ninebot-project/plugins/Smoke"],               # 工程目录（含 plugin_def.py；dotnet 构建）
+    forms=["new_order__Main"],               # stems → ninebot-project/metadata_py/forms/<stem>.py（{entity}__{Name}）
+    views=["new_order__Active"],             # stems → ninebot-project/metadata_py/views/<stem>.py
+    ribbons=["new_order"],                   # stems → ninebot-project/metadata_py/ribbons/<stem>.py
+    roles=[],                                # 名称引用 → ninebot-project/metadata_py/roles/（opt-in 阶段）
 )
 ```
 
@@ -87,7 +87,7 @@ python -m framework_power workflow deploy --env dev --project path/to/project.py
 
 ## 关键约束 / 踩坑
 
-- **全局 optionset 文件是新约定**：`metadata_py/optionsets/<stem>.py` 导出 `OPTIONSET = GlobalOptionSet(...)`
+- **全局 optionset 文件是新约定**：`ninebot-project/metadata_py/optionsets/<stem>.py` 导出 `OPTIONSET = GlobalOptionSet(...)`
   （此前 optionset 只能内联进 Solution，没有独立文件）。optionset 是 create-only——选项变了报
   `manual_update_required`（用 maker 门户 / InsertOptionValue）。
 - **非破坏 + 幂等**：各阶段只 create/update/add；标准（非 `new_` 前缀）组件跳过；form/view 在结构化模型上

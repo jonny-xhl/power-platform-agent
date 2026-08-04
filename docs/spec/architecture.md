@@ -157,7 +157,7 @@ power-platform-agent/
 │
 ├── framework_power/       # 现代化 Python-first 框架
 │   ├── __init__.py       # 公共 API 导出
-│   ├── __main__.py       # python -m framework_power 入口
+│   ├── __main__.py       # pp 入口
 │   ├── cli.py            # CLI 入口
 │   ├── models.py         # 类型化数据模型 (Table, Column, Label...)
 │   ├── serializer.py     # 模型序列化器
@@ -234,7 +234,7 @@ power-platform-agent/
 ├── docs/                 # 文档层
 │   ├── spec/             # 规范文档
 │   ├── guides/           # 使用指南
-│   └── data_dictionary/  # Git hook自动生成
+│   └── data_dictionary/  # Workspace 产物，从云端同步或脚本生成
 │
 ├── scripts/              # 脚本层
 │   ├── generate_data_dictionary.py
@@ -261,7 +261,7 @@ power-platform-agent/
 - **metadata_py/** - framework_power 的元数据定义（Python 而非 YAML）
 - **sources/** - 按内容生命周期分层 (源文件 → 转换 → 元数据 → 文档)
 - **metadata/** - 遗留 YAML 元数据定义，按类型组织
-- **docs/data_dictionary/** - Git hook 自动生成，无需手动维护
+- **docs/data_dictionary/** - Workspace 产物，从 Dataverse 云端同步（MCP 工具）或本地脚本生成（仅 Gen 1 YAML）
 
 ## 核心组件
 
@@ -323,8 +323,8 @@ MCP 服务器是整个系统的入口点，负责：
 
 **Git Hook 集成**：
 - 触发时机：Pre-commit
-- 处理范围：仅变更的文件
-- 自动更新：docs/data_dictionary/
+- 处理范围：仅变更的文件（仅 Gen 1 YAML `metadata/` 路径）
+- 自动更新：docs/data_dictionary/（Workspace 产物）
 
 ## framework_power 核心模块
 
@@ -620,19 +620,22 @@ custom_handlers:
 ### Git Hook 触发流程
 
 ```
-1. 开发者修改 metadata/tables/*.yaml 或 metadata_py/tables/*.py
+1. 开发者修改 metadata/tables/*.yaml（Gen 1 YAML，Legacy）
    ↓
 2. git add 添加文件到暂存区
    ↓
 3. git commit 触发 pre-commit hook
    ↓
-4. generate_data_dictionary.py 执行
+4. generate_data_dictionary.py 执行（读取 Gen 1 YAML）
    ↓
-5. 更新 docs/data_dictionary/
+5. 更新 docs/data_dictionary/（Workspace 产物）
    ↓
 6. 将生成的文档添加到本次提交
    ↓
 7. 提交完成
+
+注意：metadata_py/tables/*.py（Gen 2 Python 定义）的变更不触发此 hook。
+如需从 Python 定义同步数据字典，请使用 MCP 工具 metadata_export_dictionary 从云端导出。
 ```
 
 ## 安全考虑

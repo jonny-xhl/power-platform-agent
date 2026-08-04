@@ -1,0 +1,34 @@
+# Power Platform Agent Workspace Manifest
+# This file marks the workspace root. The engine discovers it automatically
+# by searching from CWD upward (like .git directory).
+#
+# Generate with: pp workspace init
+
+name: __WORKSPACE_NAME__
+description: ""
+
+# --- Publisher ---
+publisher: __PUBLISHER__
+publisher_prefix: __PREFIX__
+publisher_display_name: ""
+
+# --- Solutions ---
+main_solution: __MAIN_SOLUTION__
+ribbon_solution: __RIBBON_SOLUTION__
+version: "1.0.0.0"
+
+# --- Directory layout (all relative to this file; optional overrides) ---
+# If omitted, engine uses standard defaults.
+# dirs:
+#   tables: metadata_py/tables
+#   forms: metadata_py/forms
+#   views: metadata_py/views
+#   ribbons: metadata_py/ribbons
+#   roles: metadata_py/roles
+#   optionsets: metadata_py/optionsets
+#   solutions: metadata_py/solutions
+#   project: metadata_py/project.py
+#   webresources: webresources
+#   plugins: plugins
+#   config: config
+#   sources: sources

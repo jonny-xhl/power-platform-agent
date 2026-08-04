@@ -94,11 +94,11 @@ docs/data_dictionary/
   - environment: "dev" (可选)
 ```
 
-## 与 metadata/ 的区别
+## 与 ninebot-project/metadata/ 的区别
 
 | 目录 | 用途 | 数据来源 |
 |------|------|----------|
-| `metadata/` | 元数据 YAML 源文件，用于声明式定义 Dataverse 表结构 | 手动编写/设计 |
+| `ninebot-project/metadata/` | 元数据 YAML 源文件，用于声明式定义 Dataverse 表结构 | 手动编写/设计 |
 | `docs/data_dictionary/` | 数据字典文档，用于查阅云端实际结构 | 从 Dataverse 云端同步 |
 
 ## 更新策略

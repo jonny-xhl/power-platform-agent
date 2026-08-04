@@ -1,17 +1,17 @@
 ---
 name: dv-reverse-metadata
-description: 将 Dataverse 环境中已有表的结构逆向导出为本地 Python 定义文件（metadata_py/tables/<schema>.py），用于直观查看表结构、对比差异、约束 AI 生成。当用户需要"导出表结构"、"逆向生成表定义"、"从环境拉取表元数据"、"对比环境与本地差异"、"查看 contact/account 等表的字段"时使用此技能。关键词：逆向、导出、reverse、export、表结构、字段清单、metadata snapshot。
+description: 将 Dataverse 环境中已有表的结构逆向导出为本地 Python 定义文件（ninebot-project/metadata_py/tables/<schema>.py），用于直观查看表结构、对比差异、约束 AI 生成。当用户需要"导出表结构"、"逆向生成表定义"、"从环境拉取表元数据"、"对比环境与本地差异"、"查看 contact/account 等表的字段"时使用此技能。关键词：逆向、导出、reverse、export、表结构、字段清单、metadata snapshot。
 ---
 
 # 逆向导出表元数据（Dataverse 环境 → 本地 Python 定义）
 
 将 Dataverse 环境中**已存在**的表逆向导出为 `framework_power` 的 Python 定义文件
-`metadata_py/tables/<schema>.py`，作为本地参考、差异对比与 AI 生成约束。
+`ninebot-project/metadata_py/tables/<schema>.py`，作为本地参考、差异对比与 AI 生成约束。
 `pac modelbuilder` 只支持 VB/C#，本流程直接产出可读、可双向使用的 Python 定义。
 
 ## 单文件、双向（核心契约）
 
-逆向导出与正向同步共用**同一个** `metadata_py/tables/<schema>.py` 文件：
+逆向导出与正向同步共用**同一个** `ninebot-project/metadata_py/tables/<schema>.py` 文件：
 
 - **逆向 `reverse`**：从环境拉取**全量快照**（自定义 + 标准字段/关系，过滤虚拟/主键/`*_base`/
   系统查找类型），覆盖写入该文件 → 真实结构可见、AI 不超出真实字段。
@@ -23,11 +23,11 @@ description: 将 Dataverse 环境中已有表的结构逆向导出为本地 Pyth
 ## 命令
 
 ```bash
-# 逆向导出（全量快照，覆盖 metadata_py/tables/<name>.py）
+# 逆向导出（全量快照，覆盖 ninebot-project/metadata_py/tables/<name>.py）
 python -m framework_power reverse contact --env dev
 
 # 指定输出文件
-python -m framework_power reverse contact --env dev -o metadata_py/tables/contact.py
+python -m framework_power reverse contact --env dev -o ninebot-project/metadata_py/tables/contact.py
 
 # 导出后：校验（标准字段会有命名 warning，属正常）、只读预览
 python -m framework_power lint contact
@@ -56,8 +56,8 @@ python -m framework_power plan contact --env dev     # 标准字段显示 would_
 
 - **测试仅限 `contact` 表**：开发验证只能对 `contact` 执行逆向，不得导出其他任何表。
 - **脱敏**：逆向文件仅含表结构（不含 token/URL/GUID 等机密）。提交前需复查
-  `metadata_py/tables/contact.py`，剥离任何环境特定标识；代码中不得硬编码凭据
-  （认证复用 `get_client` → `config/environments.yaml` + `.env`）。
+  `ninebot-project/metadata_py/tables/contact.py`，剥离任何环境特定标识；代码中不得硬编码凭据
+  （认证复用 `get_client` → `ninebot-project/config/environments.yaml` + `.env`）。
 
 ## 参考文档
 

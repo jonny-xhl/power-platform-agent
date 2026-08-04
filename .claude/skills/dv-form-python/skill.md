@@ -119,7 +119,7 @@ python -m framework_power form reverse <entity> --env dev [--forms-dir DIR]
 
 ```
 逆向参考：framework_power form reverse new_order --env dev
-  → metadata_py/forms/new_order__*.py（每窗体一个，结构化模型 + 完整 attrs，无损）
+  → ninebot-project/metadata_py/forms/new_order__*.py（每窗体一个，结构化模型 + 完整 attrs，无损）
 新建/编辑：
   from framework_power import form_xml as fx
   from framework_power.models import Column, AttributeType, Label

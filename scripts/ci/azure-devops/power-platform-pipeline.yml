@@ -1,0 +1,174 @@
+# azure-devops/power-platform-pipeline.yml
+# Azure DevOps Pipeline for Power Platform — uses power-platform-agent workspace engine
+#
+# Three stages:
+#   1. DeployDev:  Source mode (develop/feature/hotfix → DEV)
+#   2. PromoteUAT: Promote mode (release/* → export from DEV → import to UAT)
+#   3. PromotePROD: Promote mode (main → export managed from UAT → import to PROD)
+#
+# Prerequisites:
+#   - This template is designed for EXTERNAL solution repos (not the engine repo)
+#   - Solution repo must have pp-workspace.yaml at root (run `pp workspace init`)
+#   - Variable groups: DevEnv, TestEnv, ProdEnv (with TENANT_ID, CLIENT_ID, CLIENT_SECRET, ENVIRONMENT_ID)
+#   - pac CLI installed on build agents
+#   - config/pipeline.yaml + config/environments.yaml in workspace root
+#
+# Installation:
+#   External repos use `pip install power-platform-agent` (no clone needed)
+#   For engine development, replace with: pip install -e ".[dev]"
+
+trigger:
+  branches:
+    include:
+      - develop
+      - main
+      - release/*
+      - hotfix/*
+      - feature/*
+
+variables:
+  pythonVersion: '3.11'
+  dotnetVersion: '8.0.x'
+
+stages:
+  # ============================================================
+  # Stage 1: Source mode — deploy source code to DEV
+  # ============================================================
+  - stage: DeployDev
+    displayName: 'Deploy to DEV (Source Mode)'
+    condition: |
+      or(
+        startsWith(variables['Build.SourceBranchName'], 'develop'),
+        startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'),
+        startsWith(variables['Build.SourceBranch'], 'refs/heads/hotfix/')
+      )
+    jobs:
+      - job: SourceDeploy
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: self
+            fetchDepth: 0
+
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+
+          - task: UseDotNet@2
+            inputs:
+              packageType: 'sdk'
+              version: '$(dotnetVersion)'
+
+          - script: |
+              pip install power-platform-agent
+            displayName: 'Install power-platform-agent'
+
+          - script: |
+              pp workspace validate
+            displayName: 'Validate workspace'
+
+          - script: |
+              pp pipeline run --branch $(Build.SourceBranchName)
+            displayName: 'Run Source Pipeline (DEV)'
+            env:
+              DEV_TENANT_ID: $(DEV_TENANT_ID)
+              DEV_CLIENT_ID: $(DEV_CLIENT_ID)
+              DEV_CLIENT_SECRET: $(DEV_CLIENT_SECRET)
+              DEV_ENVIRONMENT_ID: $(DEV_ENVIRONMENT_ID)
+
+  # ============================================================
+  # Stage 2: Promote mode — export from DEV → import to UAT
+  # ============================================================
+  - stage: PromoteUAT
+    displayName: 'Promote to UAT (Export from DEV)'
+    condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
+    dependsOn: DeployDev
+    jobs:
+      - job: PromoteToUAT
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: self
+            fetchDepth: 0
+
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(pythonVersion)'
+
+          - task: UseDotNet@2
+            inputs:
+              packageType: 'sdk'
+              version: '$(dotnetVersion)'
+
+          - script: |
+              pip install power-platform-agent
+              dotnet tool install -g Microsoft.PowerApps.CLI.Tool
+            displayName: 'Install dependencies'
+
+          - script: |
+              pp workspace validate
+            displayName: 'Validate workspace'
+
+          - script: |
+              pp pipeline promote --branch $(Build.SourceBranchName)
+            displayName: 'Promote to UAT (DEV → UAT)'
+            env:
+              DEV_TENANT_ID: $(DEV_TENANT_ID)
+              DEV_CLIENT_ID: $(DEV_CLIENT_ID)
+              DEV_CLIENT_SECRET: $(DEV_CLIENT_SECRET)
+              DEV_ENVIRONMENT_ID: $(DEV_ENVIRONMENT_ID)
+              TEST_TENANT_ID: $(TEST_TENANT_ID)
+              TEST_CLIENT_ID: $(TEST_CLIENT_ID)
+              TEST_CLIENT_SECRET: $(TEST_CLIENT_SECRET)
+              TEST_ENVIRONMENT_ID: $(TEST_ENVIRONMENT_ID)
+
+  # ============================================================
+  # Stage 3: Promote mode — export managed from UAT → import to PROD
+  # Sequential chain: PROD gets the tested artifact from UAT
+  # ============================================================
+  - stage: PromotePROD
+    displayName: 'Promote to PROD (Export managed from UAT)'
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+    dependsOn: PromoteUAT
+    jobs:
+      - deployment: PromoteToProd
+        environment: 'production'  # Azure DevOps environment with approval gate
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  fetchDepth: 0
+
+                - task: UsePythonVersion@0
+                  inputs:
+                    versionSpec: '$(pythonVersion)'
+
+                - task: UseDotNet@2
+                  inputs:
+                    packageType: 'sdk'
+                    version: '$(dotnetVersion)'
+
+                - script: |
+                    pip install power-platform-agent
+                    dotnet tool install -g Microsoft.PowerApps.CLI.Tool
+                  displayName: 'Install dependencies'
+
+                - script: |
+                    pp workspace validate
+                  displayName: 'Validate workspace'
+
+                - script: |
+                    pp pipeline promote --branch main
+                  displayName: 'Promote to PROD (UAT → PROD, managed)'
+                  env:
+                    TEST_TENANT_ID: $(TEST_TENANT_ID)
+                    TEST_CLIENT_ID: $(TEST_CLIENT_ID)
+                    TEST_CLIENT_SECRET: $(TEST_CLIENT_SECRET)
+                    TEST_ENVIRONMENT_ID: $(TEST_ENVIRONMENT_ID)
+                    PROD_TENANT_ID: $(PROD_TENANT_ID)
+                    PROD_CLIENT_ID: $(PROD_CLIENT_ID)
+                    PROD_CLIENT_SECRET: $(PROD_CLIENT_SECRET)
+                    PROD_ENVIRONMENT_ID: $(PROD_ENVIRONMENT_ID)

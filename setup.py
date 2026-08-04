@@ -40,14 +40,21 @@ setup(
     keywords="power-platform dataverse mcp microsoft dynamics crm",
     python_requires=">=3.9",
 
-    # 包发现
-    packages=find_packages(exclude=["tests*", "docs*", ".pp-local*", "metadata*", "config*", "plugins*"]),
+    # 包发现 — exclude all workspace data; engine ships as pure tooling
+    packages=find_packages(exclude=[
+        "tests*", "test*", "docs*", "metadata*", "metadata_py*",
+        "config*", "plugins*", "webresources*", "sources*",
+        "scripts*", "transformers*", "build_and_validate*",
+    ]),
 
     # 入口点
     entry_points={
         "console_scripts": [
             "power-platform-mcp=framework.mcp_serve:main",
             "pp-mcp=framework.mcp_serve:main",
+            # CLI entry point for framework_power (enables `pp` command)
+            "pp=framework_power.cli:main",
+            "pp-agent=framework_power.cli:main",
         ],
     },
 
@@ -55,6 +62,7 @@ setup(
     include_package_data=True,
     package_data={
         "": ["*.yaml", "*.md", "*.json"],
+        "framework_power": ["templates/*"],
     },
 
     # 依赖项

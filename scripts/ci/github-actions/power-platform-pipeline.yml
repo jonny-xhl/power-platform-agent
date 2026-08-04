@@ -1,0 +1,161 @@
+# .github/workflows/power-platform-pipeline.yml
+# Power Platform CI/CD Pipeline — uses power-platform-agent workspace engine
+#
+# Three jobs:
+#   1. deploy-dev:  Source mode (develop/feature/hotfix → DEV)
+#   2. promote-uat: Promote mode (release/* → export from DEV → import to UAT)
+#   3. promote-prod: Promote mode (main → export managed from UAT → import to PROD)
+#
+# Prerequisites:
+#   - This template is designed for EXTERNAL solution repos (not the engine repo)
+#   - Solution repo must have pp-workspace.yaml at root (run `pp workspace init`)
+#   - Repository secrets: DEV_*, TEST_*, PROD_* (TENANT_ID, CLIENT_ID, CLIENT_SECRET)
+#   - pac CLI installed (via dotnet tool)
+#   - config/pipeline.yaml + config/environments.yaml in workspace root
+#
+# Installation:
+#   External repos use `pip install power-platform-agent` (no clone needed)
+#   For engine development, replace with: pip install -e ".[dev]"
+
+name: Power Platform Pipeline
+
+on:
+  push:
+    branches: [develop, main, 'release/*', 'hotfix/*', 'feature/*']
+  workflow_dispatch:  # manual trigger for PROD promotion
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  # ============================================================
+  # Source mode: deploy source code to DEV
+  # ============================================================
+  deploy-dev:
+    if: |
+      startsWith(github.ref_name, 'develop') ||
+      startsWith(github.ref_name, 'feature/') ||
+      startsWith(github.ref_name, 'hotfix/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for git tags (versioning)
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install power-platform-agent
+        run: |
+          pip install power-platform-agent
+
+      - name: Validate workspace
+        run: |
+          pp workspace validate
+
+      - name: Run Source Pipeline
+        env:
+          DEV_TENANT_ID: ${{ secrets.DEV_TENANT_ID }}
+          DEV_CLIENT_ID: ${{ secrets.DEV_CLIENT_ID }}
+          DEV_CLIENT_SECRET: ${{ secrets.DEV_CLIENT_SECRET }}
+          DEV_ENVIRONMENT_ID: ${{ secrets.DEV_ENVIRONMENT_ID }}
+        run: |
+          pp pipeline run --branch ${{ github.ref_name }}
+
+  # ============================================================
+  # Promote mode: export from DEV → import to UAT
+  # ============================================================
+  promote-uat:
+    if: startsWith(github.ref_name, 'release/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install power-platform-agent + pac CLI
+        run: |
+          pip install power-platform-agent
+          dotnet tool install -g Microsoft.PowerApps.CLI.Tool
+
+      - name: Validate workspace
+        run: |
+          pp workspace validate
+
+      - name: Promote to UAT (export from DEV → import to UAT)
+        env:
+          DEV_TENANT_ID: ${{ secrets.DEV_TENANT_ID }}
+          DEV_CLIENT_ID: ${{ secrets.DEV_CLIENT_ID }}
+          DEV_CLIENT_SECRET: ${{ secrets.DEV_CLIENT_SECRET }}
+          DEV_ENVIRONMENT_ID: ${{ secrets.DEV_ENVIRONMENT_ID }}
+          TEST_TENANT_ID: ${{ secrets.TEST_TENANT_ID }}
+          TEST_CLIENT_ID: ${{ secrets.TEST_CLIENT_ID }}
+          TEST_CLIENT_SECRET: ${{ secrets.TEST_CLIENT_SECRET }}
+          TEST_ENVIRONMENT_ID: ${{ secrets.TEST_ENVIRONMENT_ID }}
+        run: |
+          pp pipeline promote --branch ${{ github.ref_name }}
+
+  # ============================================================
+  # Promote mode: export managed from UAT → import to PROD
+  # Sequential chain: PROD gets the exact artifact tested in UAT
+  # ============================================================
+  promote-prod:
+    if: github.ref_name == 'main'
+    environment: production  # GitHub environment with required reviewers (approval gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install power-platform-agent + pac CLI
+        run: |
+          pip install power-platform-agent
+          dotnet tool install -g Microsoft.PowerApps.CLI.Tool
+
+      - name: Validate workspace
+        run: |
+          pp workspace validate
+
+      - name: Promote to PROD (export managed from UAT → import to PROD)
+        env:
+          # Export from UAT (test) — the tested artifact
+          TEST_TENANT_ID: ${{ secrets.TEST_TENANT_ID }}
+          TEST_CLIENT_ID: ${{ secrets.TEST_CLIENT_ID }}
+          TEST_CLIENT_SECRET: ${{ secrets.TEST_CLIENT_SECRET }}
+          TEST_ENVIRONMENT_ID: ${{ secrets.TEST_ENVIRONMENT_ID }}
+          # Import to PROD (production)
+          PROD_TENANT_ID: ${{ secrets.PROD_TENANT_ID }}
+          PROD_CLIENT_ID: ${{ secrets.PROD_CLIENT_ID }}
+          PROD_CLIENT_SECRET: ${{ secrets.PROD_CLIENT_SECRET }}
+          PROD_ENVIRONMENT_ID: ${{ secrets.PROD_ENVIRONMENT_ID }}
+        run: |
+          pp pipeline promote --branch main

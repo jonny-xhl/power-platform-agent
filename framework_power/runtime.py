@@ -54,6 +54,19 @@ def get_client(environment: Optional[str] = None, *, config_path: str = CONFIG_P
     return client
 
 
+def get_client_from_workspace(ws, environment: Optional[str] = None) -> DataverseClient:
+    """Build an authenticated client using a workspace's environments config.
+
+    Args:
+        ws: A :class:`framework_power.workspace.Workspace` instance.
+        environment: Environment name. Defaults to config's ``current``.
+
+    Returns:
+        An authenticated ``DataverseClient``.
+    """
+    return get_client(environment, config_path=str(ws.environments_config))
+
+
 def argparse_env(description: str = "Deploy Dataverse metadata") -> str:
     """Parse a ``--env`` argument (default: from config / ``dev``) and return it."""
     parser = argparse.ArgumentParser(description=description)

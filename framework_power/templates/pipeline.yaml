@@ -1,0 +1,38 @@
+# CI/CD Pipeline Configuration
+# Maps git branches to environments and deployment strategies.
+#
+# ALM Model (sequential promotion):
+#   develop  -> DEV  (source mode: framework_power deploy, unmanaged)
+#   release/* -> UAT (promote mode: export from DEV, import unmanaged)
+#   main      -> PROD (promote mode: export managed from UAT)
+
+branches:
+  develop:
+    environment: dev
+    deploy_strategy: source
+    auto_run: true
+
+  "release/*":
+    environment: test
+    deploy_strategy: promote
+    source_environment: dev
+    managed: false
+    require_approval: true
+
+  main:
+    environment: production
+    deploy_strategy: promote
+    source_environment: test
+    managed: true
+    require_approval: true
+
+# Solution splitting
+solution:
+  strategy: two_solution
+  main_template: "{publisher}_{project}"
+  ribbon_template: "{publisher}_{project}_Ribbon"
+
+# Versioning
+versioning:
+  strategy: manual
+  default_version: "1.0.0.0"

@@ -380,9 +380,9 @@ table = Table(
 ### 编写后校验
 
 ```bash
-python -m framework_power lint new_projectbudget          # 离线；必须 0 错误
-python -m framework_power plan new_projectbudget --env dev    # 只读差异预览
-python -m framework_power deploy new_projectbudget --env dev  # 实际同步
+pp lint new_projectbudget          # 离线；必须 0 错误
+pp plan new_projectbudget --env dev    # 只读差异预览
+pp deploy new_projectbudget --env dev  # 实际同步
 ```
 
 `lint` 是约束入口：在 `plan`/`deploy` 之前必须报告 **0 错误**。
@@ -446,7 +446,7 @@ python -m framework_power deploy new_projectbudget --env dev  # 实际同步
 
 ### 结构规则（lint 强制执行）
 
-`python -m framework_power lint` 在部署前进行离线校验，以下规则零容忍：
+`pp lint` 在部署前进行离线校验，以下规则零容忍：
 
 - **有且仅有一个主名称**：一个 `String` 列设置 `is_primary_name=True`（或设置
   `Table.primary_name_column`）。若未指定，自动选取第一个 String 列。零个 String 列为错误。
@@ -479,9 +479,9 @@ Relationship(
 ### 编写后校验
 
 ```bash
-python -m framework_power lint new_projectbudget         # 离线；必须 0 错误
-python -m framework_power plan new_projectbudget --env dev    # 只读差异预览
-python -m framework_power deploy new_projectbudget --env dev  # 实际同步
+pp lint new_projectbudget         # 离线；必须 0 错误
+pp plan new_projectbudget --env dev    # 只读差异预览
+pp deploy new_projectbudget --env dev  # 实际同步
 ```
 
 `lint` 是部署入口：必须报告 **0 错误** 才能执行 `plan`/`deploy`。
@@ -841,7 +841,7 @@ power-platform-agent/
 ├── docs/                  # 文档层
 │   ├── spec/              # 规范文档
 │   ├── guides/            # 使用指南
-│   └── data_dictionary/   # Git hook自动生成
+│   └── data_dictionary/   # Workspace 产物，从云端同步或脚本生成
 │
 ├── scripts/               # 脚本层
 │   ├── generate_data_dictionary.py
@@ -872,9 +872,18 @@ $schema: "../_schema/table_schema.yaml"
 
 ### 自动生成
 
-项目配置了 Git pre-commit hook，在提交元数据变更时自动生成数据字典。
+项目配置了 Git pre-commit hook，在提交 Gen 1 YAML 元数据（`metadata/`）变更时自动生成数据字典。`metadata_py/`（Gen 2 Python 定义）的变更不触发此 hook。
 
 ### 手动生成
+
+**路径 1：MCP 工具（推荐，从 Dataverse 云端导出）**
+
+```
+调用工具: metadata_export_dictionary
+参数: output_dir="docs/data_dictionary", environment="dev"
+```
+
+**路径 2：本地脚本（Legacy，从 Gen 1 YAML 生成）**
 
 ```bash
 # 生成所有文档
@@ -883,6 +892,8 @@ python scripts/generate_data_dictionary.py --all
 # 生成指定文件
 python scripts/generate_data_dictionary.py --files metadata/tables/account.yaml
 ```
+
+> 注意：此脚本读取 `metadata/*.yaml`（Gen 1 YAML），不适用于 `metadata_py/` Python 定义。
 
 ### 生成内容
 
@@ -1143,7 +1154,7 @@ relationships:
 - [架构文档](architecture.md) - 系统架构设计
 - [元数据部署](../metadata-deploy.md) - 完整部署工作流和 MCP 工具参考
 - [快速开始](../guides/getting-started.md) - 详细入门指南
-- [数据字典](../data_dictionary/index.md) - 生成的数据字典索引
+- [数据字典](../data_dictionary/index.md) - Workspace 产物，从 Dataverse 云端同步的数据字典索引
 
 ## framework_power API 参考
 

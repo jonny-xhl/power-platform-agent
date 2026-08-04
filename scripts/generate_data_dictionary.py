@@ -3,18 +3,22 @@
 """
 数据字典生成脚本
 
-从 metadata/ 自动生成数据字典 Markdown 文档
+支持两种数据源：
 
-功能:
-1. 解析 metadata/tables/*.yaml
-2. 解析 metadata/optionsets/*.yaml
-3. 过滤虚拟字段
-4. 生成 Markdown 文档
-5. 更新汇总索引
+  1. **Gen 2 Python 定义（推荐）** — 从 ``metadata_py/tables/*.py`` 读取。
+     使用 ``framework_power.data_dictionary`` 模块，与 deploy 走同一套数据模型，
+     保证数据字典与实际部署一致。无需网络连接。
 
-使用:
-    python scripts/generate_data_dictionary.py --all              # 生成所有
-    python scripts/generate_data_dictionary.py --files file1.yaml  # 生成指定文件
+     python scripts/generate_data_dictionary.py --metadata-py
+     python scripts/generate_data_dictionary.py --metadata-py --files new_projectbudget.py
+
+  2. **Gen 1 YAML 元数据（Legacy）** — 从 ``metadata/tables/*.yaml`` 读取。
+     仅用于历史兼容，不适用于新项目。
+
+     python scripts/generate_data_dictionary.py --all
+     python scripts/generate_data_dictionary.py --files metadata/tables/account.yaml
+
+如果同时存在 ``metadata_py/`` 和 ``metadata/``，默认使用 Gen 2 Python 路径。
 """
 
 import argparse
@@ -544,54 +548,110 @@ class MarkdownGenerator:
         return output_path
 
 
+def generate_from_python(project_root: Path, output_dir: Path, tables_dir: Path, files: Optional[List[str]] = None) -> int:
+    """Generate data dictionary from Gen 2 Python definitions (metadata_py/).
+
+    Uses ``framework_power.data_dictionary`` which reads the same typed model
+    that ``deploy`` uses — no Dataverse connection needed.
+    """
+    # Add project root to path so framework_power can be imported
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    try:
+        from framework_power.data_dictionary import generate_table_docs, table_to_markdown
+        from framework_power.registry import discover_definitions, get_definition
+    except ImportError as e:
+        print(f"❌ Cannot import framework_power: {e}")
+        print("   Ensure framework_power is installed or the project root is in PYTHONPATH.")
+        return 1
+
+    if not tables_dir.exists():
+        print(f"❌ Tables directory not found: {tables_dir}")
+        return 1
+
+    # Discover all definitions
+    all_defs = discover_definitions(tables_dir)
+
+    if files:
+        # Filter to only requested files
+        selected = {}
+        for f in files:
+            stem = Path(f).stem
+            if stem in all_defs:
+                selected[stem] = all_defs[stem]
+            else:
+                # Try loading directly
+                try:
+                    selected[stem] = get_definition(stem, tables_dir)
+                except (KeyError, Exception):
+                    print(f"  ⚠️ Skipping {f}: not found or failed to load")
+        defs = selected
+    else:
+        defs = all_defs
+
+    if not defs:
+        print(f"⚠️  No table definitions found in {tables_dir}/")
+        return 1
+
+    # Use the relative path for source links
+    try:
+        rel_source = str(tables_dir.relative_to(project_root)).replace("\\", "/")
+    except ValueError:
+        rel_source = str(tables_dir).replace("\\", "/")
+
+    written = generate_table_docs(defs, output_dir=output_dir, source_dir=rel_source)
+    for p in written:
+        print(f"  [ok] {p}")
+    print(f"\n[OK] Done! Generated {len(defs)} table docs from Python definitions.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description='生成数据字典')
-    parser.add_argument('--all', action='store_true', help='生成所有文档')
+    parser.add_argument('--all', action='store_true', help='生成所有文档 (Gen 1 YAML)')
+    parser.add_argument('--metadata-py', action='store_true',
+                        help='使用 Gen 2 Python 定义 (metadata_py/) — 推荐')
     parser.add_argument('--files', nargs='+', help='指定要处理的文件')
     parser.add_argument('--output', default='docs/data_dictionary', help='输出目录')
-    parser.add_argument('--metadata', default='metadata', help='元数据目录')
+    parser.add_argument('--metadata', default='metadata', help='Gen 1 YAML 元数据目录')
+    parser.add_argument('--metadata-py-dir', default='metadata_py/tables',
+                        help='Gen 2 Python 表定义目录 (default: metadata_py/tables)')
 
     args = parser.parse_args()
 
     # 获取项目根目录
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
-    metadata_dir = project_root / args.metadata
     output_dir = project_root / args.output
 
-    tables_dir = metadata_dir / 'tables'
-    optionsets_dir = metadata_dir / 'optionsets'
+    # Auto-detect: if metadata_py/ exists and --metadata-py not specified but --all is given,
+    # prefer Gen 2 Python path
+    py_tables_dir = project_root / args.metadata_py_dir
+    yaml_tables_dir = project_root / args.metadata / 'tables'
 
-    generator = MarkdownGenerator(output_dir)
-
-    if args.all:
-        # 生成所有文档
-        print("正在生成所有文档...")
-
-        tables = YamlParser.load_all_tables(tables_dir)
-        optionsets = YamlParser.load_all_optionsets(optionsets_dir)
-
-        for table in tables:
-            path = generator.generate_table_doc(table)
-            print(f"  [OK] {path}")
-
-        for opt in optionsets:
-            path = generator.generate_optionset_doc(opt)
-            print(f"  [OK] {path}")
-
-        generator.generate_all_tables_doc(tables)
-        print(f"  [OK] {output_dir}/all_tables.md")
-
-        generator.generate_all_optionsets_doc(optionsets)
-        print(f"  [OK] {output_dir}/all_optionsets.md")
-
-        generator.generate_index(tables, optionsets)
-        print(f"  [OK] {output_dir}/index.md")
-
-        print(f"\n[OK] Done! Generated {len(tables)} table docs and {len(optionsets)} optionset files.")
+    if args.metadata_py or (py_tables_dir.exists() and not yaml_tables_dir.exists() and not args.files):
+        # Gen 2 Python path (preferred)
+        print("📖 使用 Gen 2 Python 定义生成数据字典...")
+        files = None
+        if args.files:
+            files = args.files
+        sys.exit(generate_from_python(project_root, output_dir, py_tables_dir, files))
 
     elif args.files:
-        # 生成指定文件
+        # Check if the files are .py or .yaml
+        first_file = Path(args.files[0])
+        if first_file.suffix == '.py':
+            print("📖 检测到 Python 文件，使用 Gen 2 路径...")
+            sys.exit(generate_from_python(project_root, output_dir, py_tables_dir, args.files))
+
+        # Otherwise fall through to YAML path
+        metadata_dir = project_root / args.metadata
+        tables_dir = metadata_dir / 'tables'
+        optionsets_dir = metadata_dir / 'optionsets'
+
+        generator = MarkdownGenerator(output_dir)
+
         print(f"正在处理指定文件: {args.files}")
 
         for file_path in args.files:
@@ -630,9 +690,63 @@ def main():
 
         print("\n[OK] Done!")
 
+    elif args.all:
+        # Gen 1 YAML path (legacy)
+        metadata_dir = project_root / args.metadata
+        tables_dir = metadata_dir / 'tables'
+        optionsets_dir = metadata_dir / 'optionsets'
+
+        generator = MarkdownGenerator(output_dir)
+
+        print("⚠️  使用 Gen 1 YAML 路径 (Legacy)...")
+        print("    推荐使用 --metadata-py 从 Python 定义生成。")
+        print("正在生成所有文档...")
+
+        tables = YamlParser.load_all_tables(tables_dir)
+        optionsets = YamlParser.load_all_optionsets(optionsets_dir)
+
+        for table in tables:
+            path = generator.generate_table_doc(table)
+            print(f"  [OK] {path}")
+
+        for opt in optionsets:
+            path = generator.generate_optionset_doc(opt)
+            print(f"  [OK] {path}")
+
+        generator.generate_all_tables_doc(tables)
+        print(f"  [OK] {output_dir}/all_tables.md")
+
+        generator.generate_all_optionsets_doc(optionsets)
+        print(f"  [OK] {output_dir}/all_optionsets.md")
+
+        generator.generate_index(tables, optionsets)
+        print(f"  [OK] {output_dir}/index.md")
+
+        print(f"\n[OK] Done! Generated {len(tables)} table docs and {len(optionsets)} optionset files.")
+
     else:
-        parser.print_help()
-        sys.exit(1)
+        # No args: auto-detect
+        if py_tables_dir.exists():
+            print("📖 自动检测到 metadata_py/，使用 Gen 2 Python 路径...")
+            sys.exit(generate_from_python(project_root, output_dir, py_tables_dir, None))
+        elif yaml_tables_dir.exists():
+            print("📖 自动检测到 metadata/，使用 Gen 1 YAML 路径...")
+            metadata_dir = project_root / args.metadata
+            optionsets_dir = metadata_dir / 'optionsets'
+            generator = MarkdownGenerator(output_dir)
+            tables = YamlParser.load_all_tables(yaml_tables_dir)
+            optionsets = YamlParser.load_all_optionsets(optionsets_dir)
+            for table in tables:
+                generator.generate_table_doc(table)
+            for opt in optionsets:
+                generator.generate_optionset_doc(opt)
+            generator.generate_all_tables_doc(tables)
+            generator.generate_all_optionsets_doc(optionsets)
+            generator.generate_index(tables, optionsets)
+            print(f"\n[OK] Done! Generated {len(tables)} table docs.")
+        else:
+            parser.print_help()
+            sys.exit(1)
 
 
 if __name__ == '__main__':

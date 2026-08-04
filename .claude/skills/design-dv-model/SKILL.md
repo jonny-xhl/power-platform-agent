@@ -8,9 +8,9 @@ description: 生成Microsoft Dataverse实体模型设计Excel模板。当用户�
 此技能用于生成Microsoft Dataverse实体模型的综合Excel模板，包括实体定义、视图配置、表单布局、选项集和业务规则。
 
 **重要提示**:
-1. 始终参考标准模板 `sources/templates/excel/ba_system_design_template.xlsx` 以保持结构、格式和命名约定的一致性
-2. **生成的文件必须放在 `sources/features/` 下的功能迭代目录中**
-3. **命名规则遵循 `config/naming_rules.yaml` 配置**：
+1. 始终参考标准模板 `ninebot-project/sources/templates/excel/ba_system_design_template.xlsx` 以保持结构、格式和命名约定的一致性
+2. **生成的文件必须放在 `ninebot-project/sources/features/` 下的功能迭代目录中**
+3. **命名规则遵循 `ninebot-project/config/naming_rules.yaml` 配置**：
    - 自定义实体 Schema Name: `{prefix}_{name}` (如 `new_payment_recognition`)
    - 自定义字段 Schema Name: `{prefix}_{lowercase_name}` (如 `new_payment_amount`)
    - 关系名称 Schema Name: `{prefix}_{relationship_name}` (如 `new_payment_customer`)
@@ -28,7 +28,7 @@ description: 生成Microsoft Dataverse实体模型设计Excel模板。当用户�
 
 ## 参考模板
 
-**标准模板位置**: `sources/templates/excel/ba_system_design_template.xlsx`
+**标准模板位置**: `ninebot-project/sources/templates/excel/ba_system_design_template.xlsx`
 
 这是包含标准结构、格式和示例数据的参考模板。生成新模板时，请先读取此文件以确保一致性。
 
@@ -37,7 +37,7 @@ description: 生成Microsoft Dataverse实体模型设计Excel模板。当用户�
 **重要**: 生成的Excel文件必须放置在功能迭代目录结构中：
 
 ```
-sources/features/
+ninebot-project/sources/features/
 └── feature-xxx/              # 功能迭代目录 (如: feature-customer-management)
     ├── 01-requirements/      # 需求文档 (BRD/PRD/流程图)
     └── 02-designs/           # 设计文档
@@ -54,7 +54,7 @@ sources/features/
 
 **目录创建流程**:
 1. 确认功能迭代名称 (feature-xxx)
-2. 检查/创建 `sources/features/feature-xxx/02-designs/entities/` 目录
+2. 检查/创建 `ninebot-project/sources/features/feature-xxx/02-designs/entities/` 目录
 3. 在该目录下生成设计文件
 
 ## 模板结构
@@ -110,14 +110,14 @@ Excel模板包含7个工作表：
 
 读取标准模板以了解结构：
 ```
-读取 sources/templates/excel/ba_system_design_template.xlsx
+读取 ninebot-project/sources/templates/excel/ba_system_design_template.xlsx
 ```
 
 ### 步骤3：创建目标目录
 
 确认/创建目标目录：
 ```
-sources/features/{feature_name}/02-designs/entities/
+ninebot-project/sources/features/{feature_name}/02-designs/entities/
 ```
 
 ### 步骤4：生成实体设计文件
@@ -162,7 +162,7 @@ sources/features/{feature_name}/02-designs/entities/
 | 必填字段 | 放在 Tab 顶部、靠左位置 |
 | Lookup 字段 | 与普通字段放在同一 Section |
 
-设计完成后，通过 `dv-model-to-yaml` 将 Excel 表单设计转换为 `metadata/forms/{entity}_main.yaml`，再通过 `/dv-sync` 同步到 Dataverse。窗体 YAML 格式和同步策略详见 `dv-model-to-yaml` skill。
+设计完成后，通过 `dv-model-to-yaml` 将 Excel 表单设计转换为 `ninebot-project/metadata/forms/{entity}_main.yaml`，再通过 `/dv-sync` 同步到 Dataverse。窗体 YAML 格式和同步策略详见 `dv-model-to-yaml` skill。
 
 ## 视图设计
 
@@ -194,7 +194,7 @@ sources/features/{feature_name}/02-designs/entities/
 | 排序 | 通常按第一列或关键字段排序 |
 | 必含列 | 建议包含主字段和状态字段 |
 
-设计完成后，通过 `dv-model-to-yaml` 将 Excel 视图设计转换为 `metadata/views/{entity}_{view}.yaml`，再通过 `/dv-sync` 同步到 Dataverse。视图 YAML 格式详见 `dv-model-to-yaml` skill。
+设计完成后，通过 `dv-model-to-yaml` 将 Excel 视图设计转换为 `ninebot-project/metadata/views/{entity}_{view}.yaml`，再通过 `/dv-sync` 同步到 Dataverse。视图 YAML 格式详见 `dv-model-to-yaml` skill。
 
 ## 工作流程示例
 
@@ -203,11 +203,11 @@ sources/features/{feature_name}/02-designs/entities/
       ↓
 LLM: 确认功能迭代名称为 feature-customer-management
       ↓
-LLM: 创建目录 sources/features/feature-customer-management/02-designs/entities/
+LLM: 创建目录 ninebot-project/sources/features/feature-customer-management/02-designs/entities/
       ↓
-LLM: 读取标准模板 sources/templates/excel/ba_system_design_template.xlsx
+LLM: 读取标准模板 ninebot-project/sources/templates/excel/ba_system_design_template.xlsx
       ↓
-LLM: 生成文件 sources/features/feature-customer-management/02-designs/entities/customer_management_entity_design.xlsx
+LLM: 生成文件 ninebot-project/sources/features/feature-customer-management/02-designs/entities/customer_management_entity_design.xlsx
       ↓
 LLM: 填充客户实体数据到02_实体模型工作表
 ```

@@ -28,9 +28,9 @@ description: 用 framework_power（Python 优先）构建 .NET plugin 程序集�
 ```bash
 # 1. 写 .NET 工程（net462, IPlugin）+ plugin_def.py（导出 PROJECT = PluginProject(...)）
 # 2. 构建并部署（NuGet 包优先）
-python -m framework_power plugin deploy plugins/<dir> plugins/<dir>/plugin_def.py --env dev [--plugin-solution new_PluginSoln]
+python -m framework_power plugin deploy ninebot-project/plugins/<dir> ninebot-project/plugins/<dir>/plugin_def.py --env dev [--plugin-solution new_PluginSoln]
 # 只构建预览（离线）
-python -m framework_power plugin build  plugins/<dir> plugins/<dir>/plugin_def.py
+python -m framework_power plugin build  ninebot-project/plugins/<dir> ninebot-project/plugins/<dir>/plugin_def.py
 # 列环境里的 plugin / 反向
 python -m framework_power plugin list --env dev
 python -m framework_power plugin reverse <assembly-name> --env dev

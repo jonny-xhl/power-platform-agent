@@ -1,6 +1,6 @@
 将 YAML 元数据同步到 Dataverse（完整流程：验证 → 计划 → 确认 → 应用 → 验证）。
 
-参数: `$ARGUMENTS`（YAML 文件路径，如 `metadata/tables/payment_recognition.yaml`）
+参数: `$ARGUMENTS`（YAML 文件路径，如 `ninebot-project/metadata/tables/payment_recognition.yaml`）
 
 ## 执行流程
 
@@ -29,7 +29,7 @@ except Exception as e:
 
 ### Step 2: 发现并验证 YAML
 
-1. 解析 `$ARGUMENTS` 获取目标 YAML 文件路径。如果 `$ARGUMENTS` 为空，列出 `metadata/tables/` 下所有可用的 YAML 文件让用户选择。
+1. 解析 `$ARGUMENTS` 获取目标 YAML 文件路径。如果 `$ARGUMENTS` 为空，列出 `ninebot-project/metadata/tables/` 下所有可用的 YAML 文件让用户选择。
 2. 确认文件存在。如果文件不存在，**停止执行**。
 3. 验证 YAML 格式（同 `/dv-plan` Step 2）：
 
@@ -243,14 +243,14 @@ asyncio.run(apply())
 
 #### 5.5.1 发现窗体 YAML
 
-从实体名推导窗体 YAML 路径：`metadata/forms/{entity_name}_main.yaml`
+从实体名推导窗体 YAML 路径：`ninebot-project/metadata/forms/{entity_name}_main.yaml`
 
 ```python
 python -c "
 import os, json
 from pathlib import Path
 
-forms_dir = Path('metadata/forms')
+forms_dir = Path('ninebot-project/metadata/forms')
 entity_name = 'new_payment_recognition'  # 从 Step 5 的实体名推导
 
 candidates = [
@@ -273,7 +273,7 @@ print(json.dumps({'found': found}, ensure_ascii=False))
 python -c "
 import yaml, json
 
-yaml_path = 'metadata/forms/payment_recognition_main.yaml'
+yaml_path = 'ninebot-project/metadata/forms/payment_recognition_main.yaml'
 with open(yaml_path, 'r', encoding='utf-8') as f:
     data = yaml.safe_load(f)
 
@@ -309,7 +309,7 @@ async def sync_form():
 
     core = CoreAgent()
     meta = MetadataAgent(core_agent=core)
-    result = await meta.update_form('metadata/forms/payment_recognition_main.yaml')
+    result = await meta.update_form('ninebot-project/metadata/forms/payment_recognition_main.yaml')
     print(result)
 
 asyncio.run(sync_form())
@@ -365,14 +365,14 @@ asyncio.run(verify())
 
 #### 5.6.1 发现视图 YAML
 
-从实体名推导视图 YAML 路径：`metadata/views/{entity_name}_active.yaml`
+从实体名推导视图 YAML 路径：`ninebot-project/metadata/views/{entity_name}_active.yaml`
 
 ```python
 python -c "
 import os, json
 from pathlib import Path
 
-views_dir = Path('metadata/views')
+views_dir = Path('ninebot-project/metadata/views')
 entity_name = 'new_payment_recognition'  # 从 Step 5 的实体名推导
 
 # 移除 new_ 前缀进行匹配
@@ -448,7 +448,7 @@ async def create_view():
 
     core = CoreAgent()
     meta = MetadataAgent(core_agent=core)
-    result = await meta.create_view('metadata/views/payment_recognition_active.yaml', mode='create')
+    result = await meta.create_view('ninebot-project/metadata/views/payment_recognition_active.yaml', mode='create')
     print(result)
 
 asyncio.run(create_view())
@@ -477,7 +477,7 @@ async def update_view():
     meta = MetadataAgent(core_agent=core)
 
     # 读取原始 YAML
-    yaml_path = 'metadata/views/payment_recognition_active.yaml'
+    yaml_path = 'ninebot-project/metadata/views/payment_recognition_active.yaml'
     with open(yaml_path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
 

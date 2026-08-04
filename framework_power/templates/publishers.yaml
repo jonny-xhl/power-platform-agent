@@ -1,0 +1,9 @@
+# Publisher Configuration
+# Defines the publisher used when creating solutions in Dataverse.
+
+current: __PUBLISHER__
+
+publishers:
+  __PUBLISHER__:
+    display_name: "__PUBLISHER_DISPLAY__"
+    prefix: "__PREFIX__"

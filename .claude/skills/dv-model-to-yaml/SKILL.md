@@ -9,8 +9,8 @@ description: 将Excel实体设计转换为YAML元数据文件。当用户需要�
 
 **重要提示**:
 1. 始终参考 `metadata/_schema/table_schema.yaml` 确保生成的YAML符合规范
-2. 生成的YAML文件必须放在 `metadata/tables/` 目录下
-3. 选项集需要独立管理，放在 `metadata/optionsets/` 目录
+2. 生成的YAML文件必须放在 `ninebot-project/metadata/tables/` 目录下
+3. 选项集需要独立管理，放在 `ninebot-project/metadata/optionsets/` 目录
 4. 生成的 YAML `display_name` 必须与 Excel 数据字典中的值完全一致
 5. 复杂转换逻辑可以借助 `transformers/` 层的能力
 
@@ -45,7 +45,7 @@ with open('temp.txt', 'w', encoding='utf-8') as f:
 
 ## 命名规则处理
 
-根据 `config/naming_rules.yaml` 配置，YAML中的name字段应直接使用符合规则的Schema Name：
+根据 `ninebot-project/config/naming_rules.yaml` 配置，YAML中的name字段应直接使用符合规则的Schema Name：
 
 ### 命名规则配置
 
@@ -132,13 +132,13 @@ relationships:
 
 ### 表定义
 ```
-metadata/tables/
+ninebot-project/metadata/tables/
 └── {table_name}.yaml          # 表YAML文件
 ```
 
 ### 选项集
 ```
-metadata/optionsets/
+ninebot-project/metadata/optionsets/
 ├── global_optionsets.yaml     # 全局选项集
 └── {table_name}_{field_name}_options.yaml  # 本地选项集
 ```
@@ -147,10 +147,10 @@ metadata/optionsets/
 
 | Excel工作表 | YAML输出 | 说明 |
 |-------------|----------|------|
-| 02_实体模型 | metadata/tables/{entity}.yaml | 表定义 |
-| 05_枚举选项集 | metadata/optionsets/*.yaml | 选项集定义 |
-| 03_视图定义 | metadata/views/{entity}_{view}.yaml | 视图定义 |
-| 04_表单设计 | metadata/forms/{entity}_main.yaml | 窗体 YAML |
+| 02_实体模型 | ninebot-project/metadata/tables/{entity}.yaml | 表定义 |
+| 05_枚举选项集 | ninebot-project/metadata/optionsets/*.yaml | 选项集定义 |
+| 03_视图定义 | ninebot-project/metadata/views/{entity}_{view}.yaml | 视图定义 |
+| 04_表单设计 | ninebot-project/metadata/forms/{entity}_main.yaml | 窗体 YAML |
 
 ## 数据类型映射
 
@@ -247,7 +247,7 @@ options:
 
 ## 窗体 YAML 转换
 
-从 Excel "04_表单设计" 工作表提取 Tab/Section/字段布局，生成 `metadata/forms/{entity}_main.yaml`。
+从 Excel "04_表单设计" 工作表提取 Tab/Section/字段布局，生成 `ninebot-project/metadata/forms/{entity}_main.yaml`。
 
 ### Excel → 窗体 YAML 映射
 
@@ -325,7 +325,7 @@ tabs:
 
 ## 视图 YAML 转换
 
-从 Excel "03_视图定义" 工作表提取视图配置，生成 `metadata/views/{entity}_{view}.yaml`。
+从 Excel "03_视图定义" 工作表提取视图配置，生成 `ninebot-project/metadata/views/{entity}_{view}.yaml`。
 
 ### Dataverse 视图类型
 
@@ -424,15 +424,15 @@ columns:
 ```bash
 # 转换所有内容（实体 + 选项集 + 视图）
 python .claude/skills/dv-model-to-yaml/scripts/convert_excel_to_yaml.py \
-  sources/features/xxx/02-designs/design.xlsx --include-views
+  ninebot-project/sources/features/xxx/02-designs/design.xlsx --include-views
 
 # 指定输出目录
 python .claude/skills/dv-model-to-yaml/scripts/convert_excel_to_yaml.py \
-  sources/features/xxx/02-designs/design.xlsx -o metadata/ --include-views
+  ninebot-project/sources/features/xxx/02-designs/design.xlsx -o ninebot-project/metadata/ --include-views
 
 # 仅转换视图
 python .claude/skills/dv-model-to-yaml/scripts/convert_excel_to_yaml.py \
-  sources/features/xxx/02-designs/design.xlsx --views-only
+  ninebot-project/sources/features/xxx/02-designs/design.xlsx --views-only
 ```
 
 ### 关系类型转换
@@ -498,7 +498,7 @@ relationships:
 
 确认Excel文件位置，通常在：
 ```
-sources/features/{feature-name}/02-designs/entities/{design_file}.xlsx
+ninebot-project/sources/features/{feature-name}/02-designs/entities/{design_file}.xlsx
 ```
 
 ### 步骤2：读取Excel工作表
@@ -516,14 +516,14 @@ sources/features/{feature-name}/02-designs/entities/{design_file}.xlsx
 
 生成符合Schema规范的YAML文件，保存到：
 ```
-metadata/tables/{table_schema_name}.yaml
+ninebot-project/metadata/tables/{table_schema_name}.yaml
 ```
 
 ### 步骤5：处理选项集
 
 如包含选项集，生成独立的选项集YAML文件：
 ```
-metadata/optionsets/{table_name}_{field_name}_options.yaml
+ninebot-project/metadata/optionsets/{table_name}_{field_name}_options.yaml
 ```
 
 ### 步骤6：处理表单（可选）
@@ -536,7 +536,7 @@ python .claude/skills/dv-model-to-yaml/scripts/convert_excel_to_yaml.py \
 
 生成的窗体YAML保存到：
 ```
-metadata/forms/{entity}_main.yaml
+ninebot-project/metadata/forms/{entity}_main.yaml
 ```
 
 ## CLI 命令用法
@@ -555,7 +555,7 @@ python scripts/convert_excel_to_yaml.py design.xlsx --include-views
 python scripts/convert_excel_to_yaml.py design.xlsx --include-forms --include-views
 
 # 指定输出目录
-python scripts/convert_excel_to_yaml.py design.xlsx -o metadata/
+python scripts/convert_excel_to_yaml.py design.xlsx -o ninebot-project/metadata/
 
 # 仅转换窗体
 python scripts/convert_excel_to_yaml.py design.xlsx --forms-only

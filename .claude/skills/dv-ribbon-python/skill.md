@@ -25,7 +25,7 @@ customizations.xml 的 <RibbonDiffXml> → ImportSolution`（Ribbon Workbench �
 python -m framework_power webresource sync webresources --env dev
 
 # 2. 编写 ribbon 定义（Python），再部署
-python -m framework_power ribbon deploy metadata_py/ribbons/new_order.py --env dev
+python -m framework_power ribbon deploy ninebot-project/metadata_py/ribbons/new_order.py --env dev
 ```
 
 ribbon 定义示例：
@@ -110,7 +110,7 @@ function shouldShowBulk(selectedControl, selectedCount) {  // + SelectedControlS
   （自定义按钮 `false`=藏，OOB customise `true`=保留默认）。
 - **点击 `JavaScriptFunction` 不需要返回值**。
 - **绑 JS 前 webresource 必须 sync+publish**（Phase 4），否则 CustomRule 回退 `Default`（藏/失效）。
-- 参考实例：`webresources/js/fpsmoke/ribbon.js`（formContext 用法注释）。
+- 参考实例：`ninebot-project/webresources/js/fpsmoke/ribbon.js`（formContext 用法注释）。
 
 ## 隐藏/覆盖 OOB 按钮（"自定义 D365 自带 ribbon"）—— 两种语义，别用错
 

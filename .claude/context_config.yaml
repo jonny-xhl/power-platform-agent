@@ -86,11 +86,14 @@ code_generation:
 
 # ========== 元数据路径配置 ==========
 metadata_paths:
-  tables: "metadata/tables"
-  forms: "metadata/forms"
-  views: "metadata/views"
-  optionsets: "metadata/optionsets"
-  webresources: "metadata/webresources"
+  tables: "ninebot-project/metadata_py/tables"
+  forms: "ninebot-project/metadata_py/forms"
+  views: "ninebot-project/metadata_py/views"
+  roles: "ninebot-project/metadata_py/roles"
+  solutions: "ninebot-project/metadata_py/solutions"
+  ribbons: "ninebot-project/metadata_py/ribbons"
+  legacy_tables: "ninebot-project/metadata/tables"
+  legacy_optionsets: "ninebot-project/metadata/optionsets"
 
 # ========== 虚拟字段过滤规则 ==========
 virtual_field_detection:

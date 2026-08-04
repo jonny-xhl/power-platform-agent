@@ -1,6 +1,6 @@
 ---
 name: dv-webresource-sync
-description: 用 framework_power（Python 优先）把本地 web 资源目录（尤其 JS）批量同步/发布到 Dataverse，支持加入解决方案、按前缀逆向。当用户需要"同步 web 资源/js/css"、"频繁更新 JS 并发布"、"webresource 目录同步"、"逆向 web 资源到本地"时使用此技能。短语如"framework_power webresource sync/reverse/publish"、"webresources/"、"new_/js/..."。
+description: 用 framework_power（Python 优先）把本地 web 资源目录（尤其 JS）批量同步/发布到 Dataverse，支持加入解决方案、按前缀逆向。当用户需要"同步 web 资源/js/css"、"频繁更新 JS 并发布"、"webresource 目录同步"、"逆向 web 资源到本地"时使用此技能。短语如"framework_power webresource sync/reverse/publish"、"ninebot-project/webresources/"、"new_/js/..."。
 ---
 
 # Dataverse Web 资源目录同步（Python 优先 / framework_power）
@@ -46,13 +46,13 @@ python -m framework_power webresource plan   [<dir>] --env dev              # �
 python -m framework_power webresource sync   [<dir>] --env dev [--solution NAME] [--no-publish]
 python -m framework_power webresource reverse [<dir>] --env dev [--name-prefix PREFIX]
 python -m framework_power webresource publish <name> [<name>...] --env dev  # 按名解析 id → 精准发布
-# <dir> 默认 webresources/；全局可改根目录
+# <dir> 默认 ninebot-project/webresources/；全局可改根目录
 ```
 
 ## 工作流
 
 ```
-本地 webresources/（按 type/module 组织，如 js/order/test.js）
+本地 ninebot-project/webresources/（按 type/module 组织，如 js/order/test.js）
   → framework_power webresource scan           （离线：核对将生成的名字）
   → framework_power webresource plan           （只读预演）
   → framework_power webresource sync           （create/update + 自动精准发布）

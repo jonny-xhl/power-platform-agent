@@ -25,7 +25,7 @@ description: |
 ### 1. 在表单中添加库引用
 
 ```yaml
-# metadata/forms/your_entity.yaml
+# ninebot-project/metadata/forms/your_entity.yaml
 events:
   - schema_name: "onload"
     handlers:
@@ -434,11 +434,11 @@ XRM.Common.Util.retry(
 
 | 文件 | 路径 | 说明 |
 |------|------|------|
-| 核心库 | `webresources/shared/js/XRM.Common.debug.js` | 完整注释版 |
-| 生产库 | `webresources/shared/js/XRM.Common.js` | 压缩版 |
-| 类型定义 | `webresources/shared/js/XRM.Common.d.ts` | TypeScript 支持 |
-| 样式文件 | `webresources/shared/css/XRM.Common.css` | 配套样式 |
-| YAML配置 | `metadata/webresources/xrm_common.yaml` | 部署配置 |
+| 核心库 | `ninebot-project/webresources/shared/js/XRM.Common.debug.js` | 完整注释版 |
+| 生产库 | `ninebot-project/webresources/shared/js/XRM.Common.js` | 压缩版 |
+| 类型定义 | `ninebot-project/webresources/shared/js/XRM.Common.d.ts` | TypeScript 支持 |
+| 样式文件 | `ninebot-project/webresources/shared/css/XRM.Common.css` | 配套样式 |
+| YAML配置 | `ninebot-project/metadata/ninebot-project/webresources/xrm_common.yaml` | 部署配置 |
 
 ---
 
@@ -605,7 +605,7 @@ tabs:
 
 ### 表单 YAML 示例
 
-完整示例参考：`metadata/forms/account_main.yaml`
+完整示例参考：`ninebot-project/metadata/forms/account_main.yaml`
 
 ```yaml
 $schema: "../_schema/form_schema.yaml"
@@ -714,7 +714,7 @@ events:
 
 ### 视图 YAML 示例
 
-完整示例参考：`metadata/views/account_active.yaml`
+完整示例参考：`ninebot-project/metadata/views/account_active.yaml`
 
 ```yaml
 $schema: "../_schema/view_schema.yaml"
@@ -824,7 +824,7 @@ function handleFormLoad(executionContext) {
 }
 ```
 
-完整示例参考：`webresources/js/account_handler.js`
+完整示例参考：`ninebot-project/webresources/js/account_handler.js`
 
 ### CSS 样式规范
 
@@ -869,7 +869,7 @@ span { }
 }
 ```
 
-完整示例参考：`webresources/css/account_form.css`
+完整示例参考：`ninebot-project/webresources/css/account_form.css`
 
 ### HTML Web Resource 设计
 
@@ -893,7 +893,7 @@ span { }
 ### 依赖管理
 
 ```yaml
-# metadata/webresources/my_entity.yaml
+# ninebot-project/metadata/ninebot-project/webresources/my_entity.yaml
 resources:
   - schema_name: "entity_handler"
     type: "js"
@@ -1048,7 +1048,7 @@ function toggleFieldsByStatus(status) {
 
 ### Schema Name 命名规则
 
-基于 `config/naming_rules.yaml` 的转换规则：
+基于 `ninebot-project/config/naming_rules.yaml` 的转换规则：
 
 ```yaml
 naming:
@@ -1087,7 +1087,7 @@ CustomerEmail → new_customer_email
 ### 代码组织规范
 
 ```
-webresources/
+ninebot-project/webresources/
 ├── shared/              # 共享库
 │   ├── underscore.js
 │   ├── jquery.min.js
@@ -1122,7 +1122,7 @@ naming_validate --name "new_customer_number" --type schema_name
    └── 确定字段、Tab、Section 布局
 
 2. YAML 定义
-   └── 创建 metadata/forms/{entity}_main.yaml
+   └── 创建 ninebot-project/metadata/forms/{entity}_main.yaml
 
 3. 本地验证
    └── metadata_validate(form_yaml, schema="form_schema")
@@ -1145,7 +1145,7 @@ naming_validate --name "new_customer_number" --type schema_name
    └── 确定列、排序、过滤条件
 
 2. YAML 定义
-   └── 创建 metadata/views/{entity}_{view}.yaml
+   └── 创建 ninebot-project/metadata/views/{entity}_{view}.yaml
 
 3. FetchXML 编写
    └── 定义查询和过滤
@@ -1161,10 +1161,10 @@ naming_validate --name "new_customer_number" --type schema_name
 
 ```
 1. 源文件开发
-   └── webresources/js/*.js, webresources/css/*.css
+   └── ninebot-project/webresources/js/*.js, ninebot-project/webresources/css/*.css
 
 2. YAML 配置
-   └── metadata/webresources/{entity}.yaml
+   └── ninebot-project/metadata/ninebot-project/webresources/{entity}.yaml
 
 3. 依赖声明
    └── 指定依赖的 Web Resources
@@ -1282,12 +1282,12 @@ resources:
 | 表单 Schema | `metadata/_schema/form_schema.yaml` | 表单元数据验证 |
 | 视图 Schema | `metadata/_schema/view_schema.yaml` | 视图元数据验证 |
 | WebResource Schema | `metadata/_schema/webresource_schema.yaml` | Web Resource 元数据验证 |
-| 表单示例 | `metadata/forms/account_main.yaml` | 表单 YAML 示例 |
-| 视图示例 | `metadata/views/account_active.yaml` | 视图 YAML 示例 |
-| WebResource 示例 | `metadata/webresources/account_form.yaml` | Web Resource 配置示例 |
-| JS 示例 | `webresources/js/account_handler.js` | 表单脚本示例 |
-| CSS 示例 | `webresources/css/account_form.css` | 样式文件示例 |
-| 命名规则 | `config/naming_rules.yaml` | 命名转换配置 |
+| 表单示例 | `ninebot-project/metadata/forms/account_main.yaml` | 表单 YAML 示例 |
+| 视图示例 | `ninebot-project/metadata/views/account_active.yaml` | 视图 YAML 示例 |
+| WebResource 示例 | `ninebot-project/metadata/ninebot-project/webresources/account_form.yaml` | Web Resource 配置示例 |
+| JS 示例 | `ninebot-project/webresources/js/account_handler.js` | 表单脚本示例 |
+| CSS 示例 | `ninebot-project/webresources/css/account_form.css` | 样式文件示例 |
+| 命名规则 | `ninebot-project/config/naming_rules.yaml` | 命名转换配置 |
 
 ## 相关 MCP 工具
 
