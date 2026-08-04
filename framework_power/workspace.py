@@ -332,6 +332,11 @@ class Workspace:
         return self.config_dir / "naming_rules.yaml"
 
     @property
+    def env_file(self) -> Path:
+        """Path to the workspace-level ``.env`` file (Dataverse credentials, etc.)."""
+        return self.root / ".env"
+
+    @property
     def manifest_path(self) -> Path:
         return self.root / MANIFEST_FILENAME
 

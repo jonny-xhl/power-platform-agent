@@ -3,6 +3,14 @@ Environment configuration utilities (self-contained copy for framework_power).
 
 Loads ``.env`` and expands ``${VAR}`` references in YAML config files. Only the
 helpers needed by the metadata deploy runtime are copied here.
+
+Env file loading priority (workspace-aware):
+
+1. Explicit ``env_file`` argument (always wins)
+2. Workspace ``.env`` — ``ws.root / .env`` (per-project Dataverse credentials)
+3. User-level ``.env`` — ``~/.power-platform-agent/.env`` (LLM API keys, etc.)
+4. CWD ``.env`` — backward compatibility
+5. Parent search — walk up 3 levels from CWD (legacy fallback)
 """
 
 import os
@@ -11,40 +19,74 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+# User-level .env location for cross-project settings (LLM keys, etc.).
+_USER_ENV_DIR = Path.home() / ".power-platform-agent"
+
+
 def load_env_file(env_file: Optional[str] = None) -> None:
-    """Load environment variables from a ``.env`` file.
+    """Load environment variables from ``.env`` files (workspace-aware).
+
+    Loading order (later files do NOT override already-set variables, matching
+    python-dotenv's default ``override=False`` semantics):
+
+    1. ``env_file`` — explicit path if provided
+    2. Workspace ``.env`` — discovered via ``pp-workspace.yaml`` upward search
+    3. User-level ``.env`` — ``~/.power-platform-agent/.env``
+    4. CWD ``.env`` — backward compatibility
+    5. Parent search — walk up 3 levels from CWD (legacy)
 
     Args:
-        env_file: Explicit path to a ``.env`` file. If ``None``, the project
-            root is searched (cwd, then parents up to 3 levels).
+        env_file: Explicit path to a ``.env`` file. Takes precedence over all
+            automatic discovery.
     """
     try:
         from dotenv import load_dotenv
     except ImportError:
         return
 
+    candidates: list[Path] = []
+
     if env_file:
-        load_dotenv(env_file)
-        return
+        candidates.append(Path(env_file))
+    else:
+        # 2. Workspace .env — find pp-workspace.yaml upward from CWD
+        ws_env = _find_workspace_env()
+        if ws_env:
+            candidates.append(ws_env)
 
-    current_dir = Path.cwd()
-    if (current_dir / ".env").exists():
-        load_dotenv(current_dir / ".env")
-        return
+        # 3. User-level .env (cross-project LLM keys, etc.)
+        user_env = _USER_ENV_DIR / ".env"
+        candidates.append(user_env)
 
-    parent_dir = current_dir.parent
-    if (parent_dir / ".env").exists():
-        load_dotenv(parent_dir / ".env")
-        return
+        # 4. CWD .env (backward compat)
+        candidates.append(Path.cwd() / ".env")
 
-    search_dir = current_dir
-    for _ in range(3):
-        if (search_dir / ".env").exists():
-            load_dotenv(search_dir / ".env")
-            return
-        search_dir = search_dir.parent
-        if search_dir == search_dir.parent:
-            break
+        # 5. Parent search (legacy — walk up 3 levels)
+        search_dir = Path.cwd()
+        for _ in range(3):
+            candidates.append(search_dir / ".env")
+            search_dir = search_dir.parent
+            if search_dir == search_dir.parent:
+                break
+
+    for candidate in candidates:
+        if candidate.exists():
+            load_dotenv(candidate, override=False)
+
+
+def _find_workspace_env() -> Optional[Path]:
+    """Find the ``.env`` in the nearest workspace root (has ``pp-workspace.yaml``).
+
+    Returns ``None`` if no workspace is found.
+    """
+    cwd = Path.cwd()
+    for d in [cwd, *cwd.parents]:
+        if (d / "pp-workspace.yaml").exists():
+            env_path = d / ".env"
+            if env_path.exists():
+                return env_path
+            return None  # Found workspace but no .env — don't search parents
+    return None
 
 
 def expand_env_vars(value: Any) -> Any:

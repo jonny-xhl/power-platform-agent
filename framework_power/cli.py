@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from .client.env_config import load_env_file
 from .deployer import deploy_table, plan_table
 from .lint import ERROR, INFO, WARNING, has_errors, lint_table
 from .registry import DEFAULT_DEFINITIONS_DIR, deploy_order, discover_definitions, get_definition
@@ -179,6 +180,9 @@ def _get_client_ws(args: argparse.Namespace, env: Optional[str] = None):
     """Build authenticated client using workspace config or CWD fallback."""
     ws = _try_workspace(args)
     if ws is not None:
+        # load_env_file() is workspace-aware, but we pass the explicit path
+        # for clarity and to avoid redundant discovery.
+        load_env_file(str(ws.env_file))
         return get_client(env, config_path=str(ws.environments_config))
     return get_client(env)
 
@@ -304,6 +308,13 @@ def cmd_workspace_init(args: argparse.Namespace) -> int:
             (_TEMPLATES_DIR / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8"
         )
 
+    # .env.example (workspace-level Dataverse credentials template)
+    env_example = target / ".env.example"
+    if not env_example.exists() or args.force:
+        env_example.write_text(
+            (_TEMPLATES_DIR / ".env.example").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
     # requirements.txt
     req_path = target / "requirements.txt"
     if not req_path.exists() or args.force:
@@ -324,9 +335,10 @@ def cmd_workspace_init(args: argparse.Namespace) -> int:
     print(f"  ribbon_solution: {ribbon_sol}")
     print(f"\nNext steps:")
     print(f"  1. Edit {target / 'config' / 'environments.yaml'} with your Dataverse URLs")
-    print(f"  2. Set env vars: DEV_TENANT_ID, DEV_CLIENT_ID, DEV_CLIENT_SECRET")
-    print(f"  3. Create table definitions in {ws.tables_dir}")
-    print(f"  4. Run: pp list")
+    print(f"  2. Copy .env.example to .env and fill in Dataverse credentials")
+    print(f"  3. (Optional) Put LLM API keys in ~/.power-platform-agent/.env")
+    print(f"  4. Create table definitions in {ws.tables_dir}")
+    print(f"  5. Run: pp list")
     return 0
 
 
