@@ -460,17 +460,35 @@ def _parse_table_markdown(path: Path) -> dict:
     return info
 
 
+def _schema_prefix(schema: str) -> str:
+    """Return the publisher prefix of a custom schema name, or '' if none.
+
+    Dataverse convention: custom entities are ``<prefix>_<suffix>`` (publisher prefix
+    is 2-8 chars), while standard entities are single tokens with no underscore.
+    """
+    m = re.match(r"^([^_]+)_", schema)
+    return m.group(1) if m else ""
+
+
 def generate_index_from_dir(dict_dir: str | Path, *, prefix: str = "new") -> Path:
     """Scan ``<dict_dir>/tables/*.md`` and write a grouped ``index.md``.
 
     This is the reverse-path counterpart to :func:`generate_index`: it derives the
     index from the Markdown files that ``pp reverse --all --dictionary`` already
     wrote, so the index reflects exactly what is on disk. Tables are grouped into
-    standard vs. custom (``{prefix}_``) with a statistics header.
+    standard vs. custom with a statistics header.
+
+    Custom vs. standard classification keys off the Dataverse convention that custom
+    entity names contain ``_`` (publisher prefix + ``_`` + suffix), while standard
+    entities are single tokens (account, contact, systemuser, ...). This is
+    publisher-agnostic, so multiple prefixes (``new_``, ``eden_``, ...) coexist
+    correctly. ``prefix`` is retained for backward-compat callers but no longer
+    drives classification; the distinct prefixes found are listed in the stats.
 
     Args:
         dict_dir: Data dictionary root (containing ``tables/``).
-        prefix: Publisher prefix used to split custom vs. standard tables.
+        prefix: Deprecated — kept so existing callers keep working. Classification
+            now auto-detects every publisher prefix present.
 
     Returns:
         Path to the written ``index.md``.
@@ -482,10 +500,23 @@ def generate_index_from_dir(dict_dir: str | Path, *, prefix: str = "new") -> Pat
         for md_path in sorted(tables_dir.glob("*.md")):
             rows.append(_parse_table_markdown(md_path))
 
-    custom = [r for r in rows if r["schema"].lower().startswith(f"{prefix}_")]
-    standard = [r for r in rows if not r["schema"].lower().startswith(f"{prefix}_")]
+    def _is_custom(schema: str) -> bool:
+        return "_" in schema.lower()
+
+    custom = [r for r in rows if _is_custom(r["schema"])]
+    standard = [r for r in rows if not _is_custom(r["schema"])]
     custom.sort(key=lambda r: r["schema"].lower())
     standard.sort(key=lambda r: r["schema"].lower())
+
+    # Lowercase so the same publisher's casing variants (New_ / new_) collapse.
+    custom_prefixes = sorted(
+        {_schema_prefix(r["schema"]).lower() for r in custom if _schema_prefix(r["schema"])},
+        key=str.lower,
+    )
+    if custom_prefixes:
+        prefixes_label = ", ".join(f"`{p}_`" for p in custom_prefixes)
+    else:
+        prefixes_label = "无"
 
     lines: list[str] = [
         "# 数据字典索引",
@@ -499,7 +530,7 @@ def generate_index_from_dir(dict_dir: str | Path, *, prefix: str = "new") -> Pat
         "## 统计",
         "",
         f"- 表总数: {len(rows)}",
-        f"- 自定义表 (`{prefix}_`): {len(custom)}",
+        f"- 自定义表: {len(custom)}（前缀: {prefixes_label}）",
         f"- 标准表: {len(standard)}",
         "",
         "---",
@@ -518,7 +549,7 @@ def generate_index_from_dir(dict_dir: str | Path, *, prefix: str = "new") -> Pat
         lines.extend(["", "---", ""])
 
     _emit_group("标准表", standard)
-    _emit_group(f"自定义表 (`{prefix}_`)", custom)
+    _emit_group("自定义表", custom)
 
     optionsets_dir = out / "optionsets"
     if optionsets_dir.is_dir() and any(optionsets_dir.glob("*.md")):

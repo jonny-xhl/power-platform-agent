@@ -578,13 +578,34 @@ class TestGenerateIndexFromDir:
             idx = generate_index_from_dir(tmpdir, prefix="new")
             content = idx.read_text(encoding="utf-8")
             assert "表总数: 2" in content
-            assert "自定义表 (`new_`): 1" in content
+            assert "自定义表: 1" in content
+            assert "`new_`" in content  # detected prefix listed in stats
             assert "标准表: 1" in content
             # custom and standard land in separate grouped sections
             assert "## 标准表" in content
-            assert "## 自定义表 (`new_`)" in content
+            assert "## 自定义表" in content
             assert "new_Alpha" in content
             assert "account" in content
+
+    def test_multiple_custom_prefixes_grouped_together(self):
+        """eden_ and new_ tables both classify as custom (multi-publisher safe)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tables_dir = Path(tmpdir) / "tables"
+            tables_dir.mkdir()
+            (tables_dir / "new_Alpha.md").write_text(
+                "# A (`new_Alpha`)\n\n## 元数据\n\n- **字段数**: 1\n- **关系数**: 0\n", encoding="utf-8")
+            (tables_dir / "eden_Beta.md").write_text(
+                "# B (`eden_Beta`)\n\n## 元数据\n\n- **字段数**: 2\n- **关系数**: 0\n", encoding="utf-8")
+            (tables_dir / "account.md").write_text(
+                "# C (`account`)\n\n## 元数据\n\n- **字段数**: 3\n- **关系数**: 0\n", encoding="utf-8")
+            content = generate_index_from_dir(tmpdir, prefix="new").read_text(encoding="utf-8")
+            # both custom prefixes counted together; both prefixes listed in stats
+            assert "自定义表: 2" in content
+            assert "`new_`" in content and "`eden_`" in content
+            assert "标准表: 1" in content
+            # eden_ is NOT misfiled under standard
+            standard_section = content.split("## 标准表")[1].split("## 自定义表")[0]
+            assert "eden_Beta" not in standard_section
 
     def test_includes_optionsets_section_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
