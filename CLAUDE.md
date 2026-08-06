@@ -401,10 +401,10 @@ async with stdio_server() as (read_stream, write_stream):
 | 文件 | 用途 |
 |------|------|
 | `environments.yaml` | Dataverse 环境 URL 和凭据（支持 `${ENV_VAR}` 变量展开） |
-| `naming_rules.yaml` | Schema Name 前缀、风格、分隔符、受保护实体 |
-| `documentation_rules.yaml` | 文档自动更新监控目录 |
-| `settings.yaml` | Agent 性能与日志设置 |
-| `hermes_profile.yaml` | Agent 配置文件和 MCP 工具元数据 |
+| `publishers.yaml` | 发布商配置 + 命名规则（schema name 风格、受保护实体列表、验证规则） |
+| `pipeline.yaml` | CI/CD 流水线（分支→环境→部署策略） |
+| `environment_settings.yaml` | 部署后环境变量与连接引用配置 |
+| `hermes_profile.yaml` | Agent 配置文件和 MCP 工具元数据（legacy，待废弃） |
 
 ### Dataverse API 关键模式
 

@@ -294,13 +294,6 @@ def cmd_workspace_init(args: argparse.Namespace) -> int:
             _render_template("publishers.yaml", replacements), encoding="utf-8"
         )
 
-    # naming_rules.yaml
-    naming_path = config_dir / "naming_rules.yaml"
-    if not naming_path.exists() or args.force:
-        naming_path.write_text(
-            _render_template("naming_rules.yaml", replacements), encoding="utf-8"
-        )
-
     # .gitignore
     gitignore = target / ".gitignore"
     if not gitignore.exists() or args.force:
@@ -462,6 +455,9 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
     defn = get_definition(args.name, tables_dir)
     client = _get_client_ws(args, args.env)
+    fields = None
+    if args.fields:
+        fields = [f.strip() for f in args.fields.split(",") if f.strip()]
     _print_json(
         deploy_table(
             client,
@@ -469,6 +465,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
             prefix=_effective_prefix(args),
             solution=args.solution,
             solution_clean=args.solution_clean,
+            fields=fields,
         )
     )
     return 0
@@ -571,7 +568,46 @@ def _cmd_reverse_all(args: argparse.Namespace) -> int:
     else:
         _batch_reverse_sequential(args, client, logical_names)
 
+    if getattr(args, "dictionary", False):
+        _generate_dictionary_extras(args, client, prefix)
+
     return 0
+
+
+def _generate_dictionary_extras(
+    args: argparse.Namespace, client, prefix_with_underscore: str
+) -> None:
+    """After a batch ``--dictionary`` reverse, write ``optionsets/`` docs + ``index.md``.
+
+    Closes the historical gap where ``pp reverse --all --dictionary`` wrote only
+    per-table Markdown and never produced an index (or any global-optionset docs).
+    Optionset generation is best-effort: a failure there must not fail the batch.
+    """
+    from .data_dictionary import (
+        DEFAULT_DICTIONARY_DIR,
+        generate_index_from_dir,
+        write_optionset_docs,
+    )
+
+    ws = _try_workspace(args)
+    dict_dir = DEFAULT_DICTIONARY_DIR
+    if ws is not None and not Path(dict_dir).is_absolute():
+        dict_dir = str(ws.root / dict_dir)
+
+    # Global optionsets (custom prefix only, matching table-reverse semantics)
+    try:
+        raw = client.list_global_optionsets(prefix=prefix_with_underscore)
+        if raw:
+            written = write_optionset_docs(raw, dict_dir)
+            print(f"[ok] optionsets: {len(written)} -> {Path(dict_dir) / 'optionsets'}")
+        else:
+            print(f"[info] no global optionsets with prefix '{prefix_with_underscore}'")
+    except Exception as e:  # best-effort: never fail the batch for optionset docs
+        print(f"[warn] optionset docs skipped: {e}")
+
+    # Index generated AFTER optionsets so the 全局选项集 section count is accurate
+    idx = generate_index_from_dir(dict_dir, prefix=prefix_with_underscore.rstrip("_"))
+    print(f"[ok] index -> {idx}")
 
 
 def _batch_reverse_sequential(
@@ -1793,6 +1829,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="With --solution: add the entity as a SHELL + only its custom fields (code 2), "
         "not all OOB sub-components — keeps the solution portable (only self-authored content).",
+    )
+    p_dep.add_argument(
+        "--fields",
+        default=None,
+        help="Comma-separated schema names to deploy incrementally (e.g. new_field1,new_lookup1). "
+        "Deploys only these fields; skips entity-level sync, other columns, and relationships. "
+        "Lookup fields (stored in relationships) are auto-resolved.",
     )
     p_dep.set_defaults(func=cmd_deploy)
 

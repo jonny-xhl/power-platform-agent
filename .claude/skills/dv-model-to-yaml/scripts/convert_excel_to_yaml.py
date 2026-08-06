@@ -2,7 +2,7 @@
 Excel实体设计转YAML元数据转换器
 
 将Excel中的Dataverse实体设计转换为符合Schema规范的YAML元数据文件
-支持根据naming_rules.yaml配置自动转换schema name
+支持根据publishers.yaml配置自动转换schema name
 
 中文编码提醒：
 - openpyxl 读取 Excel 时中文内容正确（UTF-8）
@@ -761,7 +761,7 @@ def convert_excel_to_yaml(
     if config_path is None:
         current_path = Path(excel_path).parent
         while current_path.parent != current_path:
-            config_file = current_path / 'config' / 'naming_rules.yaml'
+            config_file = current_path / 'config' / 'publishers.yaml'
             if config_file.exists():
                 config_path = str(config_file)
                 break

@@ -152,7 +152,7 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 ## 7. 工作流（需求 → 定义 → 同步）
 
 ```
-需求 (sources/features/<feature>/01-prd)
+需求 (docs/features/<feature>/01-prd)
   → design-dv-model → Excel 设计
   → dv-model-to-python → metadata_py/tables/<schema>.py     （AI 按契约生成）
   → framework_power lint          （离线门，0 errors）

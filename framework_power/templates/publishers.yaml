@@ -7,3 +7,112 @@ publishers:
   __PUBLISHER__:
     display_name: "__PUBLISHER_DISPLAY__"
     prefix: "__PREFIX__"
+
+# ============================================================
+# Naming rules (consolidated from former naming_rules.yaml)
+# ============================================================
+naming:
+  schema_name:
+    style: "lowercase"
+    separator: "_"
+    auto_prefix: true
+
+  standard_entities:
+    - "account"
+    - "contact"
+    - "systemuser"
+    - "team"
+    - "businessunit"
+    - "role"
+    - "privilege"
+    - "transactioncurrency"
+    - "calendar"
+    - "kbarticle"
+    - "kbarticlecomment"
+    - "knowledgearticle"
+    - "lead"
+    - "opportunity"
+    - "competitor"
+    - "quote"
+    - "salesorder"
+    - "invoice"
+    - "opportunityproduct"
+    - "quotedetail"
+    - "salesorderdetail"
+    - "invoicedetail"
+    - "activitypointer"
+    - "email"
+    - "appointment"
+    - "task"
+    - "phonecall"
+    - "letter"
+    - "fax"
+    - "activityparty"
+    - "annotation"
+    - "attachment"
+    - "incident"
+    - "case"
+    - "activitymimeattachment"
+    - "bulkoperation"
+    - "campaign"
+    - "campaignresponse"
+    - "list"
+    - "campaignactivity"
+    - "workflow"
+    - "template"
+    - "process"
+    - "processstage"
+    - "processsession"
+    - "userquery"
+    - "savedquery"
+    - "userform"
+    - "systemform"
+    - "visualization"
+    - "chart"
+    - "dashboard"
+    - "connection"
+    - "customeraddress"
+    - "customeropportunityrole"
+    - "customerrelationship"
+    - "feedback"
+    - "post"
+    - "postrole"
+    - "postcomment"
+    - "article"
+    - "bulkdeleteoperation"
+    - "import"
+    - "importfile"
+    - "importmap"
+    - "importlog"
+    - "asyncoperation"
+    - "duplicaterule"
+    - "duplicaterulecondition"
+    - "site"
+    - "sitemap"
+    - "appmodule"
+    - "webresource"
+    - "ribboncommand"
+    - "ribboncontextgroup"
+    - "ribbondiff"
+    - "ribbonrule"
+    - "ribbontab"
+    - "principalobjectaccess"
+    - "principalattributeaccessset"
+    - "fieldsecurityprofile"
+    - "fieldpermission"
+
+  webresource:
+    prefix: "new_"
+    naming_pattern: "{prefix}{category}/{name}.{ext}"
+
+  validation:
+    schema_name:
+      max_length: 100
+      min_length: 2
+      forbidden_chars: [" ", "-", "."]
+      must_start_with: "letter"
+      allowed_pattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+    webresource_name:
+      max_length: 256
+      forbidden_chars: [" "]
+      allowed_pattern: "^[a-zA-Z0-9_./-]+$"

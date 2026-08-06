@@ -71,7 +71,6 @@ fi
 # ==================== 2. 文档自律更新 ====================
 
 # 检测需要触发文档更新的变更文件
-# 匹配规则参考 config/documentation_rules.yaml
 DOC_TRIGGER_FILES=$(echo "$STAGED_FILES" | grep -E \
     '^framework_power/.*\.py$|'\
 '^framework/agents/.*\.py$|'\

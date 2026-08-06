@@ -97,6 +97,12 @@ pp reverse --all --dictionary --parallel auto
 pp reverse --all --dictionary --parallel 4
 ```
 
+> **批量导出会自动连带生成**：① `index.md`（从已写的 `tables/*.md` 汇总，含标准/自定义分组
+> 与统计）② `optionsets/*.md`（从环境拉取 `new_` 前缀全局选项集）。即一条命令产出完整数据
+> 字典。选项集生成是 best-effort，失败不会中断表导出。单表 `pp reverse <name> --dictionary`
+> 不触发这两步（仅写单表文档）。
+
+
 ### 导出指定表（含标准表）
 
 ```bash

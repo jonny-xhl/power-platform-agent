@@ -344,3 +344,152 @@ def test_deploy_table_no_solution_unchanged():
     result = deploy_table(client, _basic_table(), config=NO_DELAY)
     assert "solution" not in result
     assert client.calls["add_solution_component"] == []
+
+
+# ---------------------------------------------------------------------------
+# Incremental (--fields) deploy tests
+# ---------------------------------------------------------------------------
+
+
+def test_deploy_fields_regular_column_entity_exists():
+    """Deploy only one regular column when entity already exists."""
+    existing_attrs = [_str_existing("new_name")]  # new_name exists
+    client = FakeClient(table_exists=True, existing_attributes=existing_attrs)
+    result = deploy_table(
+        client, _basic_table(), config=NO_DELAY,
+        fields=["new_Amount"],
+    )
+    # Entity sync skipped in fields mode.
+    assert result["entity"]["action"] == "already_exists"
+    assert client.calls["update_entity"] == []
+    # Only new_Amount is deployed (created since it didn't exist).
+    actions = {a["attribute"]: a["action"] for a in result["attributes"]}
+    assert "new_Name" not in actions
+    assert actions["new_Amount"] == "created"
+    assert len(client.calls["create_attribute"]) == 1
+    # No relationships deployed.
+    assert result["relationships"] == []
+
+
+def test_deploy_fields_regular_column_entity_not_exists():
+    """Entity doesn't exist → empty shell created → only the named fields are deployed."""
+    client = FakeClient(table_exists=False)
+    result = deploy_table(
+        client, _basic_table(), config=NO_DELAY,
+        fields=["new_Name"],
+    )
+    # Entity created as empty shell (no attributes).
+    assert result["entity"]["action"] == "created"
+    assert result["entity"]["mode"] == "shell"
+    create_payload = client.calls["create_entity"][0]
+    assert "Attributes" not in create_payload  # empty shell
+    # Only new_Name is deployed.
+    actions = {a["attribute"]: a["action"] for a in result["attributes"]}
+    assert "new_Name" in actions
+    assert "new_Amount" not in actions
+    # One attribute created independently (not via entity payload).
+    assert len(client.calls["create_attribute"]) == 1
+
+
+def test_deploy_fields_lookup():
+    """Deploy a Lookup field via --fields."""
+    client = FakeClient(table_exists=True)
+    result = deploy_table(
+        client, _basic_table(), config=NO_DELAY,
+        fields=["new_AccountId"],
+    )
+    # Entity sync skipped.
+    assert result["entity"]["action"] == "already_exists"
+    # No regular attributes deployed.
+    assert result["attributes"] == []
+    # Lookup relationship created.
+    assert len(result["relationships"]) == 1
+    assert result["relationships"][0]["action"] == "created"
+    assert len(client.calls["create_relationship_from_json"]) == 1
+
+
+def test_deploy_fields_mixed_regular_and_lookup():
+    """Deploy both a regular column and a Lookup field in one call."""
+    client = FakeClient(table_exists=True)
+    result = deploy_table(
+        client, _basic_table(), config=NO_DELAY,
+        fields=["new_Name", "new_AccountId"],
+    )
+    # Regular attribute deployed.
+    attr_actions = {a["attribute"]: a["action"] for a in result["attributes"]}
+    assert attr_actions["new_Name"] == "created"
+    assert len(client.calls["create_attribute"]) == 1
+    # Lookup relationship deployed.
+    assert len(result["relationships"]) == 1
+    assert result["relationships"][0]["action"] == "created"
+    assert len(client.calls["create_relationship_from_json"]) == 1
+
+
+def test_deploy_fields_unknown_raises():
+    """Unknown field name raises ValueError before any API calls."""
+    client = FakeClient(table_exists=True)
+    with pytest.raises(ValueError, match="Unknown field"):
+        deploy_table(
+            client, _basic_table(), config=NO_DELAY,
+            fields=["new_BogusField"],
+        )
+    # No API calls were made.
+    assert client.calls["create_attribute"] == []
+    assert client.calls["create_relationship_from_json"] == []
+
+
+def test_deploy_fields_solution_clean_adds_only_named_fields():
+    """--solution-clean with --fields adds only the named fields to the solution."""
+    attrs = [
+        {"LogicalName": "new_name", "MetadataId": "mid-name"},
+        {"LogicalName": "new_amount", "MetadataId": "mid-amount"},
+    ]
+    client = FakeClient(table_exists=True, existing_attributes=attrs)
+    result = deploy_table(
+        client, _basic_table(), config=NO_DELAY,
+        fields=["new_Name"],
+        solution="new_MainSoln", solution_clean=True,
+    )
+    sol = result["solution"]
+    assert sol["mode"] == "clean"
+    # Only new_Name is added as a solution member.
+    member_attrs = {m["attribute"]: m["action"] for m in sol["members"]}
+    assert member_attrs == {"new_Name": "added"}
+    assert "new_Amount" not in member_attrs
+
+
+def test_deploy_fields_lookup_already_exists_skipped():
+    """Lookup field already present → skipped."""
+    rels = [{"SchemaName": "new_ProjectBudget_Account"}]
+    client = FakeClient(table_exists=True, existing_relationships=rels)
+    result = deploy_table(
+        client, _basic_table(), config=NO_DELAY,
+        fields=["new_AccountId"],
+    )
+    assert result["relationships"][0]["action"] == "skipped"
+    assert client.calls["create_relationship_from_json"] == []
+
+
+def test_deploy_fields_idempotent_retry():
+    """Re-running --fields after a successful deploy skips everything."""
+    existing_attrs = [_str_existing("new_name")]
+    client = FakeClient(table_exists=True, existing_attributes=existing_attrs)
+    # First run: creates new_Amount.
+    result1 = deploy_table(
+        client, _basic_table(), config=NO_DELAY,
+        fields=["new_Amount"],
+    )
+    assert result1["attributes"][0]["action"] == "created"
+    # Second run: new_Amount now exists → skipped.
+    # Simulate it existing now.
+    client._existing_attributes = [
+        _str_existing("new_name"),
+        _money_existing("new_amount"),
+    ]
+    result2 = deploy_table(
+        client, _basic_table(), config=NO_DELAY,
+        fields=["new_Amount"],
+    )
+    assert result2["attributes"][0]["action"] == "skipped"
+    # No create_attribute calls on second run.
+    assert len(client.calls["create_attribute"]) == 1  # only from first run

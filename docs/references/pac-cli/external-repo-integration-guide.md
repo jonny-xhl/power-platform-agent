@@ -100,11 +100,10 @@ my-cpq-solution/
 ├── config/
 │   ├── environments.yaml       # Dataverse environment URLs + auth
 │   ├── pipeline.yaml           # CI/CD branch→env mapping
-│   ├── publishers.yaml         # publisher config
-│   └── naming_rules.yaml       # naming conventions
+│   ├── publishers.yaml         # publisher + naming rules
 ├── plugins/                    # .NET plugin projects
 ├── webresources/               # JS/CSS/HTML
-├── sources/                    # requirements, design docs
+├── docs/                        # requirements, design docs, templates, data dictionary
 └── .pp/                        # engine-managed state (gitignored)
     ├── state/                  # deployment history
     ├── cache/                  # reverse-export cache

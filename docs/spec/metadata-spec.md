@@ -307,8 +307,8 @@ table = Table(
 ### 开发流水线
 
 ```
-需求 (sources/features/<feature>/01-prd)
-  → design-dv-model → Excel 设计 (sources/features/<feature>/02-designs)
+需求 (docs/features/<feature>/01-prd)
+  → design-dv-model → Excel 设计 (docs/features/<feature>/02-designs)
   → dv-model-to-python  → metadata_py/tables/<schema>.py   （AI 生成步骤）
   → framework_power lint          （离线入口校验）
   → framework_power plan --env    （只读预演）
@@ -397,8 +397,8 @@ pp deploy new_projectbudget --env dev  # 实际同步
 ### 开发流水线
 
 ```
-需求 (sources/features/<feature>/01-prd)
-  → design-dv-model → Excel 设计 (sources/features/<feature>/02-designs)
+需求 (docs/features/<feature>/01-prd)
+  → design-dv-model → Excel 设计 (docs/features/<feature>/02-designs)
   → dv-model-to-python  → metadata_py/tables/<schema>.py   （AI 生成步骤）
   → framework_power lint          （离线入口校验）
   → framework_power plan --env    （只读预演）
@@ -775,7 +775,7 @@ Lookup 字段和关系通过 Deep Insert 一次性创建：
 
 销售相关：`lead`, `opportunity`, `competitor`, `quote`, `salesorder`, `invoice`
 
-完整列表请参考 `config/naming_rules.yaml`。
+完整列表请参考 `config/publishers.yaml` 中的 `naming.standard_entities`。
 
 ---
 
@@ -833,15 +833,12 @@ power-platform-agent/
 │   ├── ribbon/            # 命令栏定义
 │   └── sitemap/           # 应用导航定义
 │
-├── sources/               # 源文件层
-│   ├── templates/         # Excel/Word/PPT模板
-│   ├── features/          # 按功能迭代组织
-│   └── library/           # 需求文档模板库 (PRD/实体设计模板)
-│
 ├── docs/                  # 文档层
+│   ├── features/          # 按功能迭代组织（PRD/设计/输出）
+│   ├── templates/         # 需求文档模板库 (PRD/实体设计/Excel)
+│   ├── data_dictionary/   # Workspace 产物，从云端同步或脚本生成
 │   ├── spec/              # 规范文档
-│   ├── guides/            # 使用指南
-│   └── data_dictionary/   # Workspace 产物，从云端同步或脚本生成
+│   └── guides/            # 使用指南
 │
 ├── scripts/               # 脚本层
 │   ├── generate_data_dictionary.py
@@ -915,9 +912,9 @@ docs/data_dictionary/
 
 项目提供多种复用机制，减少重复定义：
 
-### 需求文档模板 (sources/library)
+### 需求文档模板 (docs/templates)
 
-位于 `sources/library/templates/`，为 Feature 需求编写提供标准化模板：
+位于 `docs/templates/`，为 Feature 需求编写提供标准化模板：
 
 | 模板文件 | 用途 |
 |---------|------|
@@ -925,7 +922,7 @@ docs/data_dictionary/
 | `PRD_TEMPLATE.md` | PRD 主模板（背景、流程、实体设计、业务规则、实现计划等 9 个章节） |
 | `ENTITY_DESIGN.md` | Dataverse 实体设计模板（字段、Picklist、Lookup、Python 实现参考） |
 
-创建新 Feature 时，复制对应模板到 `sources/features/{feature-name}/` 后填写即可。
+创建新 Feature 时，复制对应模板到 `docs/features/{feature-name}/` 后填写即可。
 
 ### Python 组合复用 (framework_power)
 

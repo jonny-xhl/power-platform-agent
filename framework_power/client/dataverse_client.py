@@ -383,6 +383,33 @@ class DataverseClient:
         response.raise_for_status()
         return response.json()
 
+    def list_global_optionsets(self, prefix: Optional[str] = None) -> list[dict[str, Any]]:
+        """List all global optionsets, optionally filtered by name prefix.
+
+        ``GlobalOptionSetDefinitions`` is a metadata collection that does NOT support
+        ``$filter`` (405), so publisher-prefix filtering is done client-side after
+        pagination (mirrors :meth:`list_entities`). ``Options`` (value/label/color)
+        are included in each item so callers can render docs without a second fetch.
+
+        Args:
+            prefix: If given, keep only optionsets whose ``Name`` starts with this
+                string (case-insensitive). Pass the full prefix including the trailing
+                underscore, e.g. ``"new_"``.
+        """
+        url = self.get_api_url("GlobalOptionSetDefinitions")
+        items: list[dict[str, Any]] = []
+        while url:
+            response = self.session.get(url)
+            response.raise_for_status()
+            data = response.json()
+            batch = data.get("value", [])
+            if prefix:
+                pfx = prefix.lower()
+                batch = [o for o in batch if (o.get("Name") or "").lower().startswith(pfx)]
+            items.extend(batch)
+            url = data.get("@odata.nextLink", "")
+        return items
+
     @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
     def create_global_optionset(self, payload: dict[str, Any]) -> dict[str, Any]:
         """POST a serialized global-optionset payload to ``GlobalOptionSetDefinitions``."""

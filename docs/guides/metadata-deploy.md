@@ -101,7 +101,7 @@ relationships:
 
 ### 3. 命名转换
 
-`NamingConverter` 从 `config/naming_rules.yaml` 和 `config/publishers.yaml`
+`NamingConverter` 从 `config/publishers.yaml`（包含 publishers + naming 两个顶级键）
 读取规则，自动：
 
 - 将 display_name 转换为 schema_name（如 "AccountNumber" → `new_account_number`）

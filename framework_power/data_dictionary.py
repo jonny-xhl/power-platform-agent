@@ -406,3 +406,229 @@ def generate_table_docs(
     written.append(index_path)
 
     return written
+
+
+# ----------------------------------------------------------------- reverse-path support
+#
+# The ``pp reverse --all --dictionary`` path writes one ``tables/<schema>.md`` per
+# table but historically never produced an ``index.md`` (the local ``cmd_dictionary``
+# path did, via ``generate_table_docs`` above). The helpers below close that gap by
+# deriving the index directly from the already-written table Markdown files, and add
+# global-optionset documentation (``optionsets/*.md``) which was never implemented.
+#
+# They depend only on the on-disk Markdown / raw Dataverse dicts — no Table models,
+# no client import — so this module stays a leaf renderer.
+
+
+# H1 format produced by table_to_markdown: "# {display} (`{schema}`)" — note the
+# literal parentheses around the backticked schema name.
+_TABLE_H1_RE = re.compile(r"^# (.+) \(`([^`]+)`\)$")
+_DESC_RE = re.compile(r"^\*\*说明\*\*:\s*(.*)$")
+_FIELDS_RE = re.compile(r"^- \*\*字段数\*\*:\s*(\d+)")
+_RELS_RE = re.compile(r"^- \*\*关系数\*\*:\s*(\d+)")
+
+
+def _parse_table_markdown(path: Path) -> dict:
+    """Extract {schema, display, description, fields, rels} from a table doc.
+
+    Best-effort regex parse against the format produced by :func:`table_to_markdown`.
+    Missing fields degrade gracefully (empty string / 0) so a partially-written file
+    never breaks index generation.
+    """
+    info: dict = {"schema": path.stem, "display": path.stem, "description": "", "fields": 0, "rels": 0}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return info
+    for line in text.splitlines():
+        m = _TABLE_H1_RE.match(line)
+        if m:
+            info["display"] = m.group(1).strip()
+            info["schema"] = m.group(2).strip()
+            continue
+        m = _DESC_RE.match(line)
+        if m:
+            info["description"] = m.group(1).strip()
+            continue
+        m = _FIELDS_RE.match(line)
+        if m:
+            info["fields"] = int(m.group(1))
+            continue
+        m = _RELS_RE.match(line)
+        if m:
+            info["rels"] = int(m.group(1))
+    return info
+
+
+def generate_index_from_dir(dict_dir: str | Path, *, prefix: str = "new") -> Path:
+    """Scan ``<dict_dir>/tables/*.md`` and write a grouped ``index.md``.
+
+    This is the reverse-path counterpart to :func:`generate_index`: it derives the
+    index from the Markdown files that ``pp reverse --all --dictionary`` already
+    wrote, so the index reflects exactly what is on disk. Tables are grouped into
+    standard vs. custom (``{prefix}_``) with a statistics header.
+
+    Args:
+        dict_dir: Data dictionary root (containing ``tables/``).
+        prefix: Publisher prefix used to split custom vs. standard tables.
+
+    Returns:
+        Path to the written ``index.md``.
+    """
+    out = Path(dict_dir)
+    tables_dir = out / "tables"
+    rows: list[dict] = []
+    if tables_dir.is_dir():
+        for md_path in sorted(tables_dir.glob("*.md")):
+            rows.append(_parse_table_markdown(md_path))
+
+    custom = [r for r in rows if r["schema"].lower().startswith(f"{prefix}_")]
+    standard = [r for r in rows if not r["schema"].lower().startswith(f"{prefix}_")]
+    custom.sort(key=lambda r: r["schema"].lower())
+    standard.sort(key=lambda r: r["schema"].lower())
+
+    lines: list[str] = [
+        "# 数据字典索引",
+        "",
+        f"*自动生成于: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+        "",
+        "> 从 `docs/data_dictionary/tables/` 反向导出的表文档汇总（Gen 2 / framework_power）",
+        "",
+        "---",
+        "",
+        "## 统计",
+        "",
+        f"- 表总数: {len(rows)}",
+        f"- 自定义表 (`{prefix}_`): {len(custom)}",
+        f"- 标准表: {len(standard)}",
+        "",
+        "---",
+        "",
+    ]
+
+    def _emit_group(title: str, group: list[dict]) -> None:
+        lines.extend([f"## {title}", ""])
+        lines.append("| 表名 | Schema Name | 字段数 | 关系数 | 说明 |")
+        lines.append("|------|-------------|--------|--------|------|")
+        for r in group:
+            lines.append(
+                f"| [{r['display']}](tables/{r['schema']}.md) | `{r['schema']}` | "
+                f"{r['fields']} | {r['rels']} | {r['description']} |"
+            )
+        lines.extend(["", "---", ""])
+
+    _emit_group("标准表", standard)
+    _emit_group(f"自定义表 (`{prefix}_`)", custom)
+
+    optionsets_dir = out / "optionsets"
+    if optionsets_dir.is_dir() and any(optionsets_dir.glob("*.md")):
+        count = len(list(optionsets_dir.glob("*.md")))
+        lines.extend([
+            "## 全局选项集",
+            "",
+            f"见 [optionsets/](optionsets/) 目录（{count} 个）。",
+            "",
+        ])
+
+    lines.extend([
+        "## 快速导航",
+        "",
+        "- 单表数据字典: `tables/<schema>.md`",
+        "- 全局选项集: `optionsets/<name>.md`",
+        "",
+    ])
+
+    index_path = out / "index.md"
+    index_path.write_text("\n".join(lines), encoding="utf-8")
+    return index_path
+
+
+# ----------------------------------------------------------------- global optionset docs
+
+
+def _raw_label_text(label_obj: Optional[dict], lang_code: int) -> str:
+    """Extract a single-language string from a raw Dataverse Label object."""
+    if not label_obj:
+        return ""
+    for loc in label_obj.get("LocalizedLabels") or []:
+        if loc.get("LanguageCode") == lang_code and loc.get("Label"):
+            return loc["Label"]
+    ull = label_obj.get("UserLocalizedLabel")
+    if ull and ull.get("Label"):
+        return ull["Label"]
+    locs = label_obj.get("LocalizedLabels") or []
+    return locs[0].get("Label", "") if locs else ""
+
+
+def optionset_to_markdown(raw: dict) -> str:
+    """Render a raw global-optionset Dataverse dict into ``optionsets/<name>.md``.
+
+    ``raw`` is the JSON returned by ``GlobalOptionSetDefinitions``: ``Name``,
+    ``DisplayName``, optional ``Description``, and ``Options`` (each ``Value`` /
+    ``Label`` / ``Color``).
+    """
+    name = raw.get("Name") or ""
+    display_zh = _raw_label_text(raw.get("DisplayName"), LANGUAGE_ZH_CN)
+    display_en = _raw_label_text(raw.get("DisplayName"), LANGUAGE_EN_US)
+    if display_zh and display_en and display_zh != display_en:
+        display = f"{display_zh} / {display_en}"
+    else:
+        display = display_zh or display_en or name
+    description_zh = _raw_label_text(raw.get("Description"), LANGUAGE_ZH_CN)
+    description_en = _raw_label_text(raw.get("Description"), LANGUAGE_EN_US)
+    description = description_zh or description_en
+
+    lines: list[str] = [
+        f"# {display} (`{name}`)",
+        "",
+    ]
+    if description:
+        lines.append(f"**说明**: {description}")
+        lines.append("")
+
+    lines.extend(["---", "", "## 选项列表", ""])
+    lines.append("| 值 | 中文标签 | 英文标签 | 颜色 |")
+    lines.append("|----|----------|----------|------|")
+
+    options = raw.get("Options") or []
+    for opt in options:
+        value = opt.get("Value")
+        zh = _raw_label_text(opt.get("Label"), LANGUAGE_ZH_CN)
+        en = _raw_label_text(opt.get("Label"), LANGUAGE_EN_US)
+        color = opt.get("Color") or ""
+        lines.append(f"| {value} | {zh} | {en} | {color} |")
+
+    lines.extend(["", "---", "", "## 元数据", ""])
+    lines.append(f"- **Schema Name**: `{name}`")
+    lines.append("- **生成方式**: 从 Dataverse 环境逆向导出")
+    lines.append(f"- **生成时间**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`")
+    lines.append(f"- **选项数**: {len(options)}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def write_optionset_docs(optionsets_raw: list[dict], dict_dir: str | Path) -> list[Path]:
+    """Write ``optionsets/<name>.md`` for each raw global-optionset dict.
+
+    Args:
+        optionsets_raw: Raw Dataverse dicts (e.g. from a client list call).
+        dict_dir: Data dictionary root (``optionsets/`` is created under it).
+
+    Returns:
+        List of file paths written.
+    """
+    out = Path(dict_dir)
+    optionsets_out = out / "optionsets"
+    optionsets_out.mkdir(parents=True, exist_ok=True)
+
+    written: list[Path] = []
+    for raw in optionsets_raw:
+        name = raw.get("Name") or ""
+        if not name:
+            continue
+        md = optionset_to_markdown(raw)
+        file_path = optionsets_out / f"{name}.md"
+        file_path.write_text(md, encoding="utf-8")
+        written.append(file_path)
+    return written

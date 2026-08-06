@@ -16,22 +16,18 @@ logger = logging.getLogger(__name__)
 class NamingConverter:
     """命名转换器"""
 
-    def __init__(self, config_path: str = None, publishers_path: str = None):
+    def __init__(self, config_path: str = None):
         """
         初始化命名转换器
 
         Args:
-            config_path: 命名规则配置文件路径
-            publishers_path: 发布商配置文件路径
+            config_path: 配置文件路径（默认 config/publishers.yaml，包含 publishers + naming 两个顶级键）
         """
-        self.config_path = config_path or "config/naming_rules.yaml"
-        self.publishers_path = publishers_path or "config/publishers.yaml"
+        self.config_path = config_path or "config/publishers.yaml"
         self._config = None
-        self._publishers_config = None
         self._standard_entities = set()
 
         self._load_config()
-        self._load_publishers_config()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -42,22 +38,12 @@ class NamingConverter:
 
     @property
     def prefix(self) -> str:
-        """获取发布商前缀
-
-        优先级：
-        1. 如果 naming.use_publisher_prefix = true，从 publishers.yaml 读取
-        2. 否则使用 naming_rules.yaml 中的 prefix 配置
-        """
-        naming_config = self.config.get("naming", {})
-        use_publisher = naming_config.get("use_publisher_prefix", True)
-
-        if use_publisher and self._publishers_config:
-            current_publisher = self._publishers_config.get("current", "default")
-            publishers = self._publishers_config.get("publishers", {})
-            if current_publisher in publishers:
-                return publishers[current_publisher].get("prefix", "new")
-
-        return naming_config.get("prefix", "new")
+        """获取发布商前缀，始终从 publishers 配置中读取当前发布商的 prefix。"""
+        current_publisher = self.config.get("current", "default")
+        publishers = self.config.get("publishers", {})
+        if current_publisher in publishers:
+            return publishers[current_publisher].get("prefix", "new")
+        return "new"
 
     @property
     def schema_name_style(self) -> str:
@@ -77,7 +63,7 @@ class NamingConverter:
     # ==================== 配置加载 ====================
 
     def _load_config(self) -> None:
-        """加载命名规则配置文件"""
+        """加载配置文件（publishers.yaml，包含 publishers + naming 两个顶级键）"""
         config_file = Path(self.config_path)
         if config_file.exists():
             with open(config_file, "r", encoding="utf-8") as f:
@@ -87,17 +73,8 @@ class NamingConverter:
             standard_entities = self.config.get("naming", {}).get("standard_entities", [])
             self._standard_entities = set(standard_entities)
         else:
-            self._config = {"naming": {}}
+            self._config = {"naming": {}, "publishers": {}}
             self._standard_entities = set()
-
-    def _load_publishers_config(self) -> None:
-        """加载发布商配置文件"""
-        publishers_file = Path(self.publishers_path)
-        if publishers_file.exists():
-            with open(publishers_file, "r", encoding="utf-8") as f:
-                self._publishers_config = yaml.safe_load(f)
-        else:
-            self._publishers_config = None
 
     # ==================== Schema Name 转换 ====================
 
@@ -453,11 +430,11 @@ class NamingConverter:
         Returns:
             发布商信息字典，包含 name, display_name, prefix, description
         """
-        if not self._publishers_config:
+        if not self.config.get("publishers"):
             return None
 
-        key = publisher_key or self._publishers_config.get("current", "default")
-        publishers = self._publishers_config.get("publishers", {})
+        key = publisher_key or self.config.get("current", "default")
+        publishers = self.config.get("publishers", {})
 
         return publishers.get(key)
 
@@ -492,9 +469,9 @@ class NamingConverter:
         Returns:
             发布商字典 {key: publisher_info}
         """
-        if not self._publishers_config:
+        if not self.config.get("publishers"):
             return {}
-        return self._publishers_config.get("publishers", {})
+        return self.config.get("publishers", {})
 
 
 class NamingValidator:
@@ -599,8 +576,4 @@ class NamingValidator:
         Returns:
             发布商字典 {key: publisher_info}
         """
-        if not self._publishers_config:
-            return {}
-        return self._publishers_config.get("publishers", {})
-
-        return warnings
+        return self.converter.list_publishers()

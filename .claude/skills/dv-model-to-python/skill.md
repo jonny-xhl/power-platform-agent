@@ -32,7 +32,7 @@ description: 将Excel实体设计转换为 framework_power 的 Python 表定义�
 ## 输入 / 输出
 
 - **输入**: Excel 设计文件，通常位于
-  `ninebot-project/sources/features/{feature-name}/02-designs/entities/{design}.xlsx`
+  `ninebot-project/docs/features/{feature-name}/02-designs/entities/{design}.xlsx`
   关键工作表 `02_实体模型`（实体/字段）、`05_枚举选项集`（选项集）。
 - **输出**: `ninebot-project/metadata_py/tables/{schema_lowercase}.py`，文件内 `TABLE: Table = Table(...)`。
   文件名 stem 即 CLI 的定义名（如 `new_projectbudget`）。
@@ -110,7 +110,7 @@ TABLE: Table = Table(
 
 ## 转换步骤
 
-1. **定位 Excel**：`ninebot-project/sources/features/{feature}/02-designs/entities/{design}.xlsx`。
+1. **定位 Excel**：`ninebot-project/docs/features/{feature}/02-designs/entities/{design}.xlsx`。
    Windows 终端读中文可能乱码——写入 UTF-8 临时文件后用 Read 查看（见 dv-model-to-yaml 的编码处理）。
 2. **读取 `02_实体模型`**：提取实体名、字段（名称/显示名/英文名/类型/长度/必填/主字段/选项）、关系（关联实体/关联类型）。
 3. **按契约生成 `Table`**：PascalCase + 前缀；双语 `Label.bilingual`；每个表有且仅有一个 String 主字段；

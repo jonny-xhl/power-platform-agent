@@ -214,7 +214,7 @@ power-platform-agent/
 │   └── img/<feature>/*.svg
 ├── plugins/                # C# .NET 插件工程（net462）
 ├── metadata/               # （遗留）YAML 元数据
-├── config/                 # environments.yaml / naming_rules.yaml / publishers.yaml ...
+├── config/                 # environments.yaml / publishers.yaml / pipeline.yaml ...
 ├── .claude/skills/         # dv-* 技能（dv-form-python / dv-frontend ...）
 ├── test/                   # pytest（test/unit/test_framework_power/）
 └── docs/                   # 指南 + 规范
@@ -287,5 +287,4 @@ power-platform-agent/
 | 视图 XML 解析/序列化 | `framework_power/view_xml.py` |
 | Ribbon XML 解析/序列化 | `framework_power/ribbon_xml.py` |
 | 前端开发技能 | `.claude/skills/dv-frontend/SKILL.md` |
-| 命名规则 | `config/naming_rules.yaml` |
-| 发布商前缀 | `config/publishers.yaml` |
+| 发布商 + 命名规则 | `config/publishers.yaml` |

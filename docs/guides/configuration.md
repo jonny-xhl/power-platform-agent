@@ -8,10 +8,13 @@ The project uses a **layered configuration approach**:
 
 | File | Purpose | Contains |
 |------|---------|----------|
-| `.env` | **Secrets only** | API keys, credentials |
-| `config/environments.yaml` | **Environment config** | Dataverse URLs, settings (references `.env`) |
-| `config/hermes_profile.yaml` | **Project settings** | Naming rules, LLM config, defaults |
-| `config/naming_rules.yaml` | **Naming conventions** | Schema name patterns |
+| `.env` | **Secrets only** (workspace-level) | Dataverse credentials |
+| `~/.power-platform-agent/.env` | **Secrets only** (user-level) | LLM API keys |
+| `config/environments.yaml` | **Environment config** | Dataverse URLs, settings |
+| `config/publishers.yaml` | **Publisher + naming** | Publisher prefix, naming rules, validation |
+| `config/pipeline.yaml` | **CI/CD pipeline** | Branch→environment→strategy mapping |
+| `config/environment_settings.yaml` | **Post-deploy config** | Connection refs, env variables |
+| `config/hermes_profile.yaml` | **Agent config** (legacy) | MCP tools, LLM profile |
 
 ## Quick Setup
 

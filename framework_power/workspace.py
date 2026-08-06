@@ -54,7 +54,7 @@ DEFAULT_DIRS: dict[str, str] = {
     "webresources": "webresources",
     "plugins": "plugins",
     "config": "config",
-    "sources": "sources",
+    "docs": "docs",
     "state": ".pp/state",
     "cache": ".pp/cache",
     "logs": ".pp/logs",
@@ -294,8 +294,8 @@ class Workspace:
         return self.path("config")
 
     @property
-    def sources_dir(self) -> Path:
-        return self.path("sources")
+    def docs_dir(self) -> Path:
+        return self.path("docs")
 
     @property
     def state_dir(self) -> Path:
@@ -326,10 +326,6 @@ class Workspace:
     @property
     def environment_settings_config(self) -> Path:
         return self.config_dir / "environment_settings.yaml"
-
-    @property
-    def naming_rules_config(self) -> Path:
-        return self.config_dir / "naming_rules.yaml"
 
     @property
     def env_file(self) -> Path:

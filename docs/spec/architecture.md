@@ -20,7 +20,7 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
 ```
 源文件层 → 转换层 → 元数据层 → 部署层
     ↓          ↓          ↓          ↓
-  sources/  transformers/ metadata/  Dataverse
+  docs/      transformers/ metadata/  Dataverse
 ```
 
 ### framework_power 设计原则
@@ -218,23 +218,20 @@ power-platform-agent/
 │   ├── ribbons/         # Ribbon 定义
 │   └── optionsets/       # 选项集定义
 │
-├── sources/              # 源文件层 (legacy)
-│   ├── templates/        # Excel/Word/PPT模板
-│   ├── features/         # 按功能迭代组织
-│   └── library/          # 可复用YAML片段
-│
+├── docs/                 # 文档层
+│   ├── features/         # 按功能迭代组织（PRD/设计/输出）
+│   ├── templates/        # 需求文档模板库 (PRD/实体设计/Excel)
+│   ├── data_dictionary/  # Workspace 产物，从云端同步或脚本生成
+│   ├── spec/             # 规范文档
+│   └── guides/           # 使用指南
+
 ├── transformers/         # 转换器层 (架构保留，暂不实现)
-│
+
 ├── metadata/             # 元数据层 (legacy YAML)
 │   ├── _schema/          # Schema定义
 │   ├── tables/          # 表定义YAML
 │   ├── forms/           # 表单定义
 │   └── ...
-│
-├── docs/                 # 文档层
-│   ├── spec/             # 规范文档
-│   ├── guides/           # 使用指南
-│   └── data_dictionary/  # Workspace 产物，从云端同步或脚本生成
 │
 ├── scripts/              # 脚本层
 │   ├── generate_data_dictionary.py
@@ -259,7 +256,7 @@ power-platform-agent/
 - **framework/** - 遗留框架代码，便于迁移参考
 - **framework_power/** - 现代化 Python-first 框架，独立部署库
 - **metadata_py/** - framework_power 的元数据定义（Python 而非 YAML）
-- **sources/** - 按内容生命周期分层 (源文件 → 转换 → 元数据 → 文档)
+- **docs/** - 按内容生命周期分层 (PRD/设计 → 模板 → 产物)，所有文档类输入输出统一管理
 - **metadata/** - 遗留 YAML 元数据定义，按类型组织
 - **docs/data_dictionary/** - Workspace 产物，从 Dataverse 云端同步（MCP 工具）或本地脚本生成（仅 Gen 1 YAML）
 
@@ -538,32 +535,15 @@ def lint(model, *, prefix): ...
 
 ### 自定义处理器 (legacy framework)
 
-在 `config/extensions.yaml` 中注册自定义处理器：
-
-```yaml
-custom_handlers:
-  - name: "customAttributeValidator"
-    type: "attribute"
-    module: "extensions.custom_validators"
-    class: "CustomAttributeValidator"
-    enabled: true
-```
-
-### 钩子点
-
-支持的钩子：
-- `before_apply` - 应用前执行
-- `after_apply` - 应用后执行
-- `on_error` - 错误时执行
+在 `config/publishers.yaml` 的 `naming` 部分配置命名规则和验证器。
 
 ## 配置文件
 
-- `config/hermes_profile.yaml` - Hermes Agent 配置
 - `config/environments.yaml` - 环境配置 (dev/test/prod)
-- `config/naming_rules.yaml` - 命名规则
-- `config/extensions.yaml` - 扩展配置
-- `config/settings.yaml` - 工具设置
-- `config/publishers.yaml` - 发布商配置
+- `config/publishers.yaml` - 发布商 + 命名规则
+- `config/pipeline.yaml` - CI/CD 流水线
+- `config/environment_settings.yaml` - 环境变量与连接引用
+- `config/hermes_profile.yaml` - Hermes Agent 配置 (legacy)
 - `.claude/context_config.yaml` - LLM 上下文配置
 - `metadata/optionsets/global_optionsets.yaml` - 全局选项集定义
 

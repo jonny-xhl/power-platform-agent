@@ -251,7 +251,7 @@ pp plugin deploy --project-dir plugins/MyPlugin --env dev
 
 ```
 错误: A component with that name already exists
-解决: 使用 pp lint 检查命名，确保遵循 config/naming_rules.yaml 规则
+解决: 使用 pp lint 检查命名，确保遵循 config/publishers.yaml 中的 naming 规则
 ```
 
 ---

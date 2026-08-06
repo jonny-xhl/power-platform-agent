@@ -171,9 +171,9 @@ YAML 中定义的属性类型与 Dataverse AttributeMetadata 类型的完整映�
 
 > 参考实现：`framework/utils/dataverse_client.py` 中的 `_convert_attribute_metadata()` 方法
 
-# 七、命名规则（基于 naming_rules.yaml）
+# 七、命名规则（基于 publishers.yaml）
 
-命名转换由 `NamingConverter` 类自动处理，配置文件为 `ninebot-project/config/naming_rules.yaml`。
+命名转换由 `NamingConverter` 类自动处理，配置文件为 `ninebot-project/config/publishers.yaml`（naming 段）。
 
 ## 核心规则
 
@@ -206,7 +206,7 @@ YAML 中定义的属性类型与 Dataverse AttributeMetadata 类型的完整映�
 
 模式：`{prefix}{category}/{name}.{ext}`，例如 `new_css/account.css`、`new_js/form.js`
 
-> 参考实现：`framework/utils/naming_converter.py`、`config/naming_rules.yaml`
+> 参考实现：`framework/utils/naming_converter.py`、`config/publishers.yaml`
 
 # 八、Deep Insert 模式
 

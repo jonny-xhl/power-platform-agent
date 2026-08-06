@@ -55,6 +55,40 @@ def _is_custom(schema_name: str | None, prefix: str) -> bool:
     return schema_name.lower().startswith(f"{prefix}_")
 
 
+def _resolve_fields(table: Table, fields: list[str]) -> dict[str, Any]:
+    """Resolve user-supplied field names to the actual Column / Relationship objects.
+
+    A field name may refer to either a plain ``Column`` (in ``table.columns``) or a
+    ``Relationship.lookup`` (a LookupColumn stored inside a relationship).  Both paths
+    are checked independently so ``--fields new_LookupId`` behaves the same regardless
+    of how the column is stored in the table model.
+
+    Returns:
+        ``{"regular": [Column, …], "lookups": [Relationship, …], "unknown": [str, …]}``.
+        If ``unknown`` is non-empty the caller SHOULD bail before any API writes.
+    """
+    col_map: dict[str, Column] = {c.schema_name.lower(): c for c in table.columns}  # type: ignore[assignment]
+    rel_map: dict[str, Relationship] = {}  # type: ignore[assignment]
+    for rel in table.relationships:
+        if rel.lookup:
+            rel_map[rel.lookup.schema_name.lower()] = rel
+
+    regular: list[Column] = []  # type: ignore[assignment]
+    lookups: list[Relationship] = []  # type: ignore[assignment]
+    unknown: list[str] = []
+
+    for f in fields:
+        key = f.strip().lower()
+        if key in col_map:
+            regular.append(col_map[key])
+        elif key in rel_map:
+            lookups.append(rel_map[key])
+        else:
+            unknown.append(f)
+
+    return {"regular": regular, "lookups": lookups, "unknown": unknown}
+
+
 def deploy_table(
     client: Any,
     table: Table,
@@ -63,12 +97,19 @@ def deploy_table(
     prefix: str = "new",
     solution: str | None = None,
     solution_clean: bool = False,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Deploy (create or sync) a ``Table`` to Dataverse.
 
     Standard/system columns and relationships (those without the publisher ``prefix``) are
     **skipped** — they are reference-only (e.g. from a reverse snapshot) and left to the
     environment. Only custom (prefixed) items are created/synced.
+
+    **Incremental mode** (``fields`` is not ``None``):
+    Only the named fields are deployed. A field may be a plain column or a Lookup (resolved
+    from both ``table.columns`` and ``table.relationships[].lookup``).  When the entity does
+    not yet exist an *empty shell* entity is created first (no attributes) so that subsequent
+    attribute/relationship creation works identically to the entity-already-exists path.
 
     Args:
         client: A ``DataverseClient`` (authenticated).
@@ -84,6 +125,9 @@ def deploy_table(
             forms/views/fields). ``True`` adds the entity as a SHELL plus only its CUSTOM columns
             as individual attributes (code 2), so the solution holds only self-authored content
             (portable/regressable). Select per the solution portability principle.
+        fields: Optional list of schema names to deploy incrementally.  When provided the
+            entity-level sync (DisplayName, HasNotes, …) is skipped, other columns and
+            relationships are left untouched, and only the named fields are deployed.
 
     Returns:
         A result dict with ``entity``/``attributes``/``relationships`` action summaries, plus an
@@ -99,13 +143,47 @@ def deploy_table(
         "relationships": [],
     }
 
-    entity_created = _deploy_entity(client, table, logical, cfg, result, prefix)
-    _deploy_attributes(client, table, logical, entity_created, result, prefix)
-    _deploy_relationships(client, table, logical, cfg, result, prefix)
+    # -- resolve incremental fields ------------------------------------------------
+    resolved: dict[str, Any] | None = None
+    if fields:
+        resolved = _resolve_fields(table, fields)
+        unknown = resolved["unknown"]
+        if unknown:
+            raise ValueError(
+                f"Unknown field(s): {', '.join(unknown)}. "
+                f"Available: {', '.join(c.schema_name for c in table.columns)}"
+                + (
+                    f", {', '.join(r.lookup.schema_name for r in table.relationships if r.lookup)}"
+                    if any(r.lookup for r in table.relationships)
+                    else ""
+                )
+            )
 
+    # -- entity -------------------------------------------------------------------
+    entity_created = _deploy_entity(client, table, logical, cfg, result, prefix,
+                                     empty_shell=resolved is not None)
+
+    # -- attributes ----------------------------------------------------------------
+    if resolved is not None:
+        # Incremental: always run the attribute loop (even when entity was just
+        # created as an empty shell).  The entity has no attributes yet.
+        _deploy_attributes(client, table, logical, False, result, prefix,
+                           columns=resolved["regular"])
+    else:
+        _deploy_attributes(client, table, logical, entity_created, result, prefix)
+
+    # -- relationships -------------------------------------------------------------
+    if resolved is not None:
+        _deploy_relationships(client, table, logical, cfg, result, prefix,
+                              relationships=resolved["lookups"])
+    else:
+        _deploy_relationships(client, table, logical, cfg, result, prefix)
+
+    # -- solution membership -------------------------------------------------------
     if solution:
         result["solution"] = _add_entity_to_solution(
-            client, solution, logical, clean=solution_clean, table=table, prefix=prefix
+            client, solution, logical, clean=solution_clean, table=table, prefix=prefix,
+            field_names=fields,
         )
 
     return result
@@ -119,6 +197,7 @@ def _add_entity_to_solution(
     clean: bool = False,
     table: Optional[Table] = None,
     prefix: str = "new",
+    field_names: list[str] | None = None,
 ) -> dict[str, Any]:
     """Add the entity (code 1) to ``solution`` (idempotent). Assumes the solution exists.
 
@@ -126,6 +205,9 @@ def _add_entity_to_solution(
     every OOB form/view/field). ``clean=True`` adds the entity as a SHELL
     (``do_not_include_subcomponents``) plus only its CUSTOM columns as individual attributes
     (code 2), so the solution carries only self-authored content.
+
+    When ``field_names`` is provided with ``clean=True``, only those named fields are added
+    as individual solution members (code 2) instead of the full set of custom columns.
     """
     try:
         mid = client.get_entity_metadata(logical).get("MetadataId")
@@ -159,10 +241,14 @@ def _add_entity_to_solution(
             result["members"].append({"action": "failed", "error": f"get_attributes: {e}"})
             return result
         # Custom attributes = plain columns + lookup columns from custom relationships.
-        custom_attrs: list[str] = [c.schema_name for c in table.columns if _is_custom(c.schema_name, prefix)]
-        for rel in table.relationships:
-            if rel.lookup and _is_custom(rel.lookup.schema_name, prefix):
-                custom_attrs.append(rel.lookup.schema_name)
+        if field_names:
+            # Incremental: only the requested fields.
+            custom_attrs: list[str] = [f for f in field_names if _is_custom(f, prefix)]
+        else:
+            custom_attrs = [c.schema_name for c in table.columns if _is_custom(c.schema_name, prefix)]
+            for rel in table.relationships:
+                if rel.lookup and _is_custom(rel.lookup.schema_name, prefix):
+                    custom_attrs.append(rel.lookup.schema_name)
         for schema in custom_attrs:
             aid = attr_ids.get(schema.lower())
             entry: dict[str, Any] = {"attribute": schema}
@@ -264,17 +350,33 @@ def _deploy_entity(
     cfg: DeployConfig,
     result: dict[str, Any],
     prefix: str,
+    *,
+    empty_shell: bool = False,
 ) -> bool:
-    """Create the entity if missing, else PATCH updatable entity props. Returns entity_created."""
+    """Create the entity if missing, else PATCH updatable entity props.
+
+    When ``empty_shell=True`` (incremental deploy): create an entity body WITHOUT any
+    attributes so that the calling code can deploy only the requested fields through
+    the normal attribute/relationship paths — identical to the entity-already-exists
+    code path.  Entity-level property sync (DisplayName, HasNotes, …) is also skipped;
+    the entity shell carries only the schema name.
+    """
     if not client.entity_exists(logical):
         try:
             payload = serialize_table_for_create(table)
-            # Fresh create only sends custom (prefixed) attributes; system ones are auto-created.
-            payload["Attributes"] = [
-                a for a in payload.get("Attributes", []) if _is_custom(a.get("SchemaName"), prefix)
-            ]
+            if empty_shell:
+                # Strip all attributes — the caller will create only the requested fields.
+                payload.pop("Attributes", None)
+            else:
+                # Fresh create only sends custom (prefixed) attributes; system ones are auto-created.
+                payload["Attributes"] = [
+                    a for a in payload.get("Attributes", []) if _is_custom(a.get("SchemaName"), prefix)
+                ]
             client.create_entity(payload)
-            result["entity"] = {"action": "created"}
+            result["entity"] = {
+                "action": "created",
+                **({"mode": "shell"} if empty_shell else {}),
+            }
             cfg.sleep(cfg.after_entity_create_delay)  # propagation wait per dv-metadata
             return True
         except Exception as e:  # noqa: BLE001
@@ -283,6 +385,11 @@ def _deploy_entity(
                 return False
             result["entity"] = {"action": "failed", "error": str(e)}
             raise
+
+    # Entity already exists.
+    if empty_shell:
+        result["entity"] = {"action": "already_exists"}
+        return False
 
     # Entity exists -> sync entity-level properties.
     try:
@@ -309,13 +416,22 @@ def _deploy_attributes(
     client: Any,
     table: Table,
     logical: str,
-    entity_created: bool,
+    entity_created_or_result: Any,  # backwards-compat: bool | dict
     result: dict[str, Any],
     prefix: str,
+    *,
+    columns: list[Column] | None = None,  # type: ignore[valid-type]
 ) -> None:
-    """Create missing attributes and PATCH changed updatable props (only when entity pre-existed)."""
-    if entity_created:
-        # Attributes rode along inside the entity create payload; nothing to sync.
+    """Create missing attributes and PATCH changed updatable props.
+
+    When ``columns`` is specified (incremental deploy) only those columns are processed
+    and the ``entity_created`` skip is ignored — the entity may be a fresh empty shell.
+    """
+    if columns is not None:
+        # Incremental mode: always process the specified columns.
+        pass
+    elif isinstance(entity_created_or_result, bool) and entity_created_or_result:
+        # Full mode: Attributes rode along inside the entity create payload.
         return
 
     try:
@@ -324,7 +440,8 @@ def _deploy_attributes(
         result["attributes"].append({"action": "failed", "error": f"get_attributes: {e}"})
         return
 
-    for col in table.columns:
+    iter_cols = columns if columns is not None else table.columns
+    for col in iter_cols:
         if not _is_custom(col.schema_name, prefix):
             # Standard/system column (e.g. from a reverse snapshot) -> reference-only, skip.
             result["attributes"].append(
@@ -375,9 +492,16 @@ def _deploy_relationships(
     cfg: DeployConfig,
     result: dict[str, Any],
     prefix: str,
+    *,
+    relationships: list[Relationship] | None = None,  # type: ignore[valid-type]
 ) -> None:
-    """Create relationships (create-only; skip if already present or standard)."""
-    if not table.relationships:
+    """Create relationships (create-only; skip if already present or standard).
+
+    When ``relationships`` is specified (incremental deploy) only those relationships
+    are processed.
+    """
+    iter_rels = relationships if relationships is not None else table.relationships
+    if not iter_rels:
         return
 
     try:
@@ -388,7 +512,7 @@ def _deploy_relationships(
 
     existing_names = {r.get("SchemaName") for r in existing_rels}
 
-    for rel in table.relationships:
+    for rel in iter_rels:
         entry: dict[str, Any] = {"relationship": rel.schema_name, "type": rel.type}
 
         if not _is_custom(rel.schema_name, prefix):

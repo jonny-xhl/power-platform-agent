@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "将 sources/features/feature-customer/02-designs/entities/customer_design.xlsx 中的实体定义转换为YAML元数据",
+      "prompt": "将 docs/features/feature-customer/02-designs/entities/customer_design.xlsx 中的实体定义转换为YAML元数据",
       "expected_output": "在 metadata/tables/ 目录下生成对应实体的YAML文件，包含schema、attributes等完整结构",
       "files": []
     },

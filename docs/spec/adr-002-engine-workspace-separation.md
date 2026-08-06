@@ -7,7 +7,7 @@ Accepted
 
 The power-platform-agent repository originally served a **dual purpose**:
 1. The engine source code (`framework_power/`, `framework/`)
-2. A reference workspace with project metadata (`metadata_py/`, `config/`, `webresources/`, `plugins/`, `sources/`)
+2. A reference workspace with project metadata (`metadata_py/`, `config/`, `webresources/`, `plugins/`, `docs/`)
 
 A root-level `pp-workspace.yaml` marked the entire repo as a workspace. This created several problems:
 
@@ -26,18 +26,18 @@ The workspace feature (`pp workspace init`) was implemented but could not be pro
 
 1. **Created `ninebot-project/` workspace** via `pp workspace init --path ./ninebot-project --name ninebot-project`
    - Scaffolded by the CLI itself (tests the init flow end-to-end)
-   - Contains: `pp-workspace.yaml`, `metadata_py/`, `config/`, `webresources/`, `plugins/`, `sources/`, `.gitignore`
+   - Contains: `pp-workspace.yaml`, `metadata_py/`, `config/`, `webresources/`, `plugins/`, `docs/`, `.gitignore`
 
 2. **Migrated all workspace data** from root to `ninebot-project/`:
    - `metadata_py/` (table, form, view, solution definitions)
    - `config/` (environments.yaml, pipeline.yaml, publishers.yaml, etc.)
    - `webresources/` (JS, CSS, HTML, images)
    - `plugins/` (C# plugin projects)
-   - `sources/` (feature specs, PRDs, templates)
+   - `docs/` (feature specs, PRDs, templates, data dictionary)
 
 3. **Removed root `pp-workspace.yaml`** — the engine repo is no longer a workspace
 
-4. **Updated root `.gitignore`** — `ninebot-project/` and all root-level workspace data directories (`metadata_py/`, `metadata/`, `config/`, `webresources/`, `plugins/`, `sources/`) are now gitignored
+4. **Updated root `.gitignore`** — `ninebot-project/` and all root-level workspace data directories (`metadata_py/`, `metadata/`, `config/`, `webresources/`, `plugins/`, `docs/`) are now gitignored
 
 5. **Untracked 80 files** from git index via `git rm --cached` (metadata, config, webresources, plugins, sources — all workspace data)
 

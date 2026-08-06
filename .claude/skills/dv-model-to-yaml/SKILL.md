@@ -45,7 +45,7 @@ with open('temp.txt', 'w', encoding='utf-8') as f:
 
 ## 命名规则处理
 
-根据 `ninebot-project/config/naming_rules.yaml` 配置，YAML中的name字段应直接使用符合规则的Schema Name：
+根据 `ninebot-project/config/publishers.yaml` 配置（naming 段），YAML中的name字段应直接使用符合规则的Schema Name：
 
 ### 命名规则配置
 
@@ -424,15 +424,15 @@ columns:
 ```bash
 # 转换所有内容（实体 + 选项集 + 视图）
 python .claude/skills/dv-model-to-yaml/scripts/convert_excel_to_yaml.py \
-  ninebot-project/sources/features/xxx/02-designs/design.xlsx --include-views
+  ninebot-project/docs/features/xxx/02-designs/design.xlsx --include-views
 
 # 指定输出目录
 python .claude/skills/dv-model-to-yaml/scripts/convert_excel_to_yaml.py \
-  ninebot-project/sources/features/xxx/02-designs/design.xlsx -o ninebot-project/metadata/ --include-views
+  ninebot-project/docs/features/xxx/02-designs/design.xlsx -o ninebot-project/metadata/ --include-views
 
 # 仅转换视图
 python .claude/skills/dv-model-to-yaml/scripts/convert_excel_to_yaml.py \
-  ninebot-project/sources/features/xxx/02-designs/design.xlsx --views-only
+  ninebot-project/docs/features/xxx/02-designs/design.xlsx --views-only
 ```
 
 ### 关系类型转换
@@ -498,7 +498,7 @@ relationships:
 
 确认Excel文件位置，通常在：
 ```
-ninebot-project/sources/features/{feature-name}/02-designs/entities/{design_file}.xlsx
+ninebot-project/docs/features/{feature-name}/02-designs/entities/{design_file}.xlsx
 ```
 
 ### 步骤2：读取Excel工作表

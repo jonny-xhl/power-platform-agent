@@ -1048,7 +1048,7 @@ function toggleFieldsByStatus(status) {
 
 ### Schema Name 命名规则
 
-基于 `ninebot-project/config/naming_rules.yaml` 的转换规则：
+基于 `ninebot-project/config/publishers.yaml` 的转换规则（naming 段）：
 
 ```yaml
 naming:
@@ -1287,7 +1287,7 @@ resources:
 | WebResource 示例 | `ninebot-project/metadata/ninebot-project/webresources/account_form.yaml` | Web Resource 配置示例 |
 | JS 示例 | `ninebot-project/webresources/js/account_handler.js` | 表单脚本示例 |
 | CSS 示例 | `ninebot-project/webresources/css/account_form.css` | 样式文件示例 |
-| 命名规则 | `ninebot-project/config/naming_rules.yaml` | 命名转换配置 |
+| 命名规则 | `ninebot-project/config/publishers.yaml` | 命名转换配置（naming 段） |
 
 ## 相关 MCP 工具
 

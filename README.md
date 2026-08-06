@@ -83,9 +83,8 @@ my-cpq-solution/
 ├── pp-workspace.yaml           ← 工作区清单
 ├── config/
 │   ├── environments.yaml       ← Dataverse 环境 URL + 凭据
-│   ├── publishers.yaml         ← 发布商配置
+│   ├── publishers.yaml         ← 发布商 + 命名规则
 │   ├── pipeline.yaml           ← CI/CD 分支→环境映射
-│   ├── naming_rules.yaml       ← 命名规则
 │   └── environment_settings.yaml
 ├── metadata_py/
 │   ├── tables/                 ← Python 表定义（每文件导出 TABLE）
@@ -337,7 +336,7 @@ my-cpq-solution/                 # ← Workspace（独立 Git 仓库）
 
 > **本仓库自身也是一个 workspace**（根目录有 `pp-workspace.yaml`），用于功能测试和参考。
 
-> **需求到代码的完整链路**：`sources/features/<feature>/` → Excel 设计 → `dv-model-to-python`（AI 生成）→ `metadata_py/tables/` → `pp lint/plan/deploy` → Dataverse。`so-model` 是这一管线的完整参考案例。
+> **需求到代码的完整链路**：`docs/features/<feature>/` → Excel 设计 → `dv-model-to-python`（AI 生成）→ `metadata_py/tables/` → `pp lint/plan/deploy` → Dataverse。`so-model` 是这一管线的完整参考案例。
 
 ---
 
@@ -348,9 +347,9 @@ my-cpq-solution/                 # ← Workspace（独立 Git 仓库）
 | 文件 | 用途 |
 |------|------|
 | `environments.yaml` | 多环境 URL 和认证方式，支持 `${ENV_VAR}` 变量展开 |
-| `naming_rules.yaml` | Schema Name 风格（lowercase/PascalCase）、前缀、标准实体保护列表 |
-| `publishers.yaml` | 发布商名称和前缀（默认 `new`） |
-| `settings.yaml` | 请求超时、日志级别、并发控制 |
+| `publishers.yaml` | 发布商名称、前缀 + 命名规则（schema name 风格、标准实体保护列表、验证规则） |
+| `pipeline.yaml` | CI/CD 分支→环境映射与部署策略 |
+| `environment_settings.yaml` | 部署后环境变量与连接引用 |
 
 ---
 

@@ -104,7 +104,7 @@ class ProjectValidator:
         required_structure = {
             "agents": ["core_agent.py", "metadata_agent.py", "plugin_agent.py", "solution_agent.py"],
             "utils": ["dataverse_client.py", "yaml_parser.py", "schema_validator.py", "naming_converter.py"],
-            "config": ["environments.yaml", "naming_rules.yaml", "settings.yaml"],
+            "config": ["environments.yaml", "publishers.yaml"],
             "metadata/_schema": ["table_schema.yaml", "form_schema.yaml", "view_schema.yaml"],
         }
 

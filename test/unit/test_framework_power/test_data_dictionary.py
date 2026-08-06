@@ -17,8 +17,11 @@ from framework_power.data_dictionary import (
     DEFAULT_DICTIONARY_DIR,
     generate_all_tables_summary,
     generate_index,
+    generate_index_from_dir,
     generate_table_docs,
+    optionset_to_markdown,
     table_to_markdown,
+    write_optionset_docs,
 )
 from framework_power.models import (
     AttributeType,
@@ -506,3 +509,146 @@ class TestEdgeCases:
         md = table_to_markdown(table, source_name="m2m")
         assert "多对多关系" in md
         assert "new_test_m2m" in md
+
+
+# ----------------------------------------------------------------- reverse-path: index from dir
+
+
+def _make_raw_optionset(
+    name: str = "new_status",
+    zh: str = "状态",
+    en: str = "Status",
+    options=None,
+) -> dict:
+    """Build a raw Dataverse global-optionset dict for render/write tests."""
+    def label(z: str, e: str) -> dict:
+        return {"LocalizedLabels": [
+            {"Label": z, "LanguageCode": 2052},
+            {"Label": e, "LanguageCode": 1033},
+        ]}
+    if options is None:
+        options = [
+            {"Value": 1, "Label": label("草稿", "Draft"), "Color": "#FF0000"},
+            {"Value": 2, "Label": label("已批准", "Approved"), "Color": ""},
+        ]
+    return {"Name": name, "DisplayName": label(zh, en), "Options": options}
+
+
+class TestParseTableMarkdown:
+    """Test the regex parser that derives index rows from table docs on disk."""
+
+    def test_parses_generated_doc(self):
+        table = _make_full_table()
+        md = table_to_markdown(table, source_name=None)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir) / "tables" / "new_ProjectBudget.md"
+            p.parent.mkdir(parents=True)
+            p.write_text(md, encoding="utf-8")
+            from framework_power.data_dictionary import _parse_table_markdown
+            info = _parse_table_markdown(p)
+            assert info["schema"] == "new_ProjectBudget"
+            assert info["display"] == "项目预算 / Project Budget"
+            assert info["fields"] == 7
+            assert info["rels"] == 1
+            assert "项目预算主表" in info["description"]
+
+    def test_missing_file_degrades_gracefully(self):
+        from framework_power.data_dictionary import _parse_table_markdown
+        info = _parse_table_markdown(Path("nonexistent.md"))
+        assert info["schema"] == "nonexistent"
+        assert info["fields"] == 0
+
+
+class TestGenerateIndexFromDir:
+    """Test generate_index_from_dir — reverse-path index from on-disk table docs."""
+
+    def test_writes_index_with_stats(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tables_dir = Path(tmpdir) / "tables"
+            tables_dir.mkdir()
+            # one custom + one standard
+            (tables_dir / "new_Alpha.md").write_text(
+                "# 阿尔法 / Alpha (`new_Alpha`)\n\n**说明**: 自定义表\n\n---\n\n## 元数据\n\n- **字段数**: 3\n- **关系数**: 1\n",
+                encoding="utf-8",
+            )
+            (tables_dir / "account.md").write_text(
+                "# 客户 (`account`)\n\n---\n\n## 元数据\n\n- **字段数**: 50\n- **关系数**: 5\n",
+                encoding="utf-8",
+            )
+            idx = generate_index_from_dir(tmpdir, prefix="new")
+            content = idx.read_text(encoding="utf-8")
+            assert "表总数: 2" in content
+            assert "自定义表 (`new_`): 1" in content
+            assert "标准表: 1" in content
+            # custom and standard land in separate grouped sections
+            assert "## 标准表" in content
+            assert "## 自定义表 (`new_`)" in content
+            assert "new_Alpha" in content
+            assert "account" in content
+
+    def test_includes_optionsets_section_when_present(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "tables").mkdir()
+            opt_dir = Path(tmpdir) / "optionsets"
+            opt_dir.mkdir()
+            (opt_dir / "new_status.md").write_text("# x (`new_status`)", encoding="utf-8")
+            (opt_dir / "new_type.md").write_text("# y (`new_type`)", encoding="utf-8")
+            content = generate_index_from_dir(tmpdir, prefix="new").read_text(encoding="utf-8")
+            assert "## 全局选项集" in content
+            assert "2 个" in content
+
+    def test_no_optionsets_section_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "tables").mkdir()
+            content = generate_index_from_dir(tmpdir, prefix="new").read_text(encoding="utf-8")
+            assert "## 全局选项集" not in content
+
+
+# ----------------------------------------------------------------- global optionset docs
+
+
+class TestOptionsetToMarkdown:
+
+    def test_renders_name_and_options(self):
+        md = optionset_to_markdown(_make_raw_optionset())
+        assert "# 状态 / Status (`new_status`)" in md
+        assert "| 值 | 中文标签 | 英文标签 | 颜色 |" in md
+        assert "草稿" in md and "Draft" in md
+        assert "#FF0000" in md  # color rendered
+        assert "选项数" in md
+
+    def test_single_language_display(self):
+        raw = _make_raw_optionset(zh="状态", en="状态")
+        md = optionset_to_markdown(raw)
+        # zh == en → no " / " separator
+        assert "状态 / 状态" not in md
+        assert "`new_status`" in md
+
+    def test_no_description_is_ok(self):
+        raw = _make_raw_optionset()
+        md = optionset_to_markdown(raw)
+        assert "## 选项列表" in md
+
+
+class TestWriteOptionsetDocs:
+
+    def test_writes_one_file_per_optionset(self):
+        raws = [
+            _make_raw_optionset("new_a", "甲", "A"),
+            _make_raw_optionset("new_b", "乙", "B"),
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            written = write_optionset_docs(raws, tmpdir)
+            assert len(written) == 2
+            opt_dir = Path(tmpdir) / "optionsets"
+            assert (opt_dir / "new_a.md").exists()
+            assert (opt_dir / "new_b.md").exists()
+            content = (opt_dir / "new_a.md").read_text(encoding="utf-8")
+            assert "`new_a`" in content
+
+    def test_skips_nameless_optionset(self):
+        raw = _make_raw_optionset()
+        raw["Name"] = ""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            written = write_optionset_docs([raw], tmpdir)
+            assert len(written) == 0

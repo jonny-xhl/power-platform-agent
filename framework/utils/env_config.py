@@ -220,7 +220,7 @@ class EnvConfig:
             return env_value
 
         # Check YAML config files
-        for config_file in ["environments.yaml", "hermes_profile.yaml", "naming_rules.yaml"]:
+        for config_file in ["environments.yaml", "hermes_profile.yaml", "publishers.yaml"]:
             config_path = Path(self.config_dir) / config_file
             if config_path.exists():
                 try:
@@ -255,7 +255,7 @@ class EnvConfig:
         config = {}
 
         # Load all YAML configs
-        for config_file in ["environments.yaml", "hermes_profile.yaml", "naming_rules.yaml"]:
+        for config_file in ["environments.yaml", "hermes_profile.yaml", "publishers.yaml"]:
             config_path = Path(self.config_dir) / config_file
             if config_path.exists():
                 try:

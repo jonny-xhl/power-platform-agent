@@ -17,7 +17,7 @@ This repo (`power-platform-agent`) conflates two concerns:
 | Concern | Current Location | Should Be |
 |---------|-----------------|-----------|
 | **Engine** (CLI, deployer, pipeline, MCP) | `framework_power/`, `framework/` | Stays in pip package |
-| **Workspace data** (tables, forms, configs) | `metadata_py/`, `config/`, `plugins/`, `webresources/`, `sources/` | Per-project repo |
+| **Workspace data** (tables, forms, configs) | `metadata_py/`, `config/`, `plugins/`, `webresources/`, `docs/` | Per-project repo |
 
 All default paths are **relative to CWD** with no workspace abstraction:
 
@@ -62,7 +62,7 @@ CONFIG_PATH = "config/environments.yaml"  # runtime.py
 │  config/           │  │  config/           │  │  config/           │
 │  plugins/          │  │  plugins/          │  │  plugins/          │
 │  webresources/     │  │  webresources/     │  │  webresources/     │
-│  sources/          │  │  sources/          │  │  sources/          │
+│  docs/             │  │  docs/             │  │  docs/             │
 │  .pp/ (state)      │  │  .pp/ (state)      │  │  .pp/ (state)      │
 └─────────┬──────────┘  └─────────┬──────────┘  └─────────┬──────────┘
           │ pp deploy                │ pp deploy                │ pp deploy
@@ -151,7 +151,7 @@ my-project/                     # workspace root (= external repo root)
 │   ├── publishers.yaml         # publisher registry
 │   ├── pipeline.yaml           # CI/CD branch→env mapping
 │   ├── environment_settings.yaml  # per-env connection refs/vars
-│   └── naming_rules.yaml       # naming conventions
+│   └── environment_settings.yaml  # per-env connection refs/vars
 │
 ├── plugins/                    # .NET plugin projects
 │   └── MyPlugin/
@@ -164,8 +164,10 @@ my-project/                     # workspace root (= external repo root)
 │   ├── css/
 │   └── html/
 │
-├── sources/                    # requirements, design docs, Excel specs
-│   └── features/
+├── docs/                        # requirements, design docs, templates, data dictionary
+│   ├── features/
+│   ├── templates/
+│   └── data_dictionary/
 │
 ├── .pp/                        # engine-managed state (gitignored)
 │   ├── state/                  # deployment history JSON
@@ -407,8 +409,8 @@ class Workspace:
         return self.config_dir / "environment_settings.yaml"
 
     @property
-    def naming_rules_config(self) -> Path:
-        return self.config_dir / "naming_rules.yaml"
+    def publishers_config(self) -> Path:
+        return self.config_dir / "publishers.yaml"
 
     def ensure_dirs(self) -> None:
         """Create all standard directories if missing."""
@@ -785,7 +787,7 @@ Creates:
 - `pp-workspace.yaml`
 - `metadata_py/` with all subdirectories + `__init__.py`
 - `config/` with template YAML files
-- `webresources/`, `plugins/`, `sources/` directories
+- `webresources/`, `plugins/`, `docs/` directories
 - `.gitignore` (includes `.pp/`)
 - `requirements.txt` (includes `power-platform-agent`)
 
@@ -877,7 +879,7 @@ def cmd_list(args):
 1. Create `pp-workspace.yaml` at this repo's root (so it becomes its own workspace)
 2. Move `test/` data that depends on workspace structure to a `test/fixtures/` sub-workspace
 3. Update tests to use workspace discovery or explicit workspace paths
-4. The `metadata_py/`, `config/`, `plugins/`, `webresources/`, `sources/` stay in this repo as a **reference/example workspace** — they demonstrate the standard structure
+4. The `metadata_py/`, `config/`, `plugins/`, `webresources/`, `docs/` stay in this repo as a **reference/example workspace** — they demonstrate the standard structure
 
 ### Phase 4: Clean Up Engine Package
 
