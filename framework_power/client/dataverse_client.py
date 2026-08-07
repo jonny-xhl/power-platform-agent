@@ -198,6 +198,43 @@ class DataverseClient:
         response.raise_for_status()
         return response.json().get("value", [])
 
+    def get_optionset_attributes(self, entity_name: str) -> dict[str, dict[str, Any]]:
+        """Fetch OptionSet data for all Picklist and Boolean attributes.
+
+        The polymorphic ``/Attributes`` endpoint does NOT include the ``OptionSet``
+        navigation property. We query the typed derived-type collections with
+        ``$expand=OptionSet`` to get the full option data in two batched calls.
+
+        Returns:
+            Dict keyed by attribute logical name -> ``{"OptionSet": {...}}``
+            (Picklist) or ``{"OptionSet": {...}}`` (Boolean with True/False options).
+        """
+        metadata_id = self.get_entity_metadata(entity_name).get("MetadataId")
+        if not metadata_id:
+            raise ValueError(f"Entity {entity_name} not found")
+
+        result: dict[str, dict[str, Any]] = {}
+        for derived_type, odata_type in (
+            ("PicklistAttributeMetadata", "#Microsoft.Dynamics.CRM.PicklistAttributeMetadata"),
+            ("BooleanAttributeMetadata", "#Microsoft.Dynamics.CRM.BooleanAttributeMetadata"),
+        ):
+            url = self.get_api_url(
+                f"EntityDefinitions({metadata_id})"
+                f"/Attributes/Microsoft.Dynamics.CRM.{derived_type}"
+            )
+            url += "?$expand=OptionSet&$select=LogicalName,OptionSet"
+            try:
+                response = self.session.get(url)
+                response.raise_for_status()
+                for attr in response.json().get("value", []):
+                    logical = attr.get("LogicalName")
+                    if logical and attr.get("OptionSet"):
+                        result[logical] = {"OptionSet": attr["OptionSet"]}
+            except Exception:
+                # Non-fatal: if typed query fails, attributes just lack OptionSet data
+                pass
+        return result
+
     def get_relationships(self, entity_name: str) -> list[dict[str, Any]]:
         """List all (1:N, N:1, N:N) relationships for ``entity_name``."""
         metadata_id = self.get_entity_metadata(entity_name).get("MetadataId")

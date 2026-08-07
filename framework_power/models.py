@@ -172,7 +172,8 @@ class Column:
     min_value: Optional[float] = None  # Integer, BigInt, Decimal, Double, Money
     max_value: Optional[float] = None
     default_value: Union[bool, int, str, None] = None  # Boolean->bool, Picklist/Integer->int
-    options: list[Option] = field(default_factory=list)  # Picklist
+    options: list[Option] = field(default_factory=list)  # Picklist (local/inline options)
+    optionset_name: Optional[str] = None  # Picklist: global optionset name (if referenced)
     boolean_labels: Optional[BooleanLabels] = None  # Boolean
     max_size_in_kb: Optional[int] = None  # File
 

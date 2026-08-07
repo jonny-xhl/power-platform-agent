@@ -41,12 +41,14 @@ docs/data_dictionary/
 
 ## 字段列表
 
-| Schema Name | 中文显示名称 | 类型 | 必填 | 说明 | Lookup对象 | 选项集引用 |
-|-------------|-------------|------|------|------|-----------|------------|
-| `new_account_number` | 账户编号 | `String` | 是 | 唯一账户编号 |  |  |
-| `new_balance` | 账户余额 | `Money` | 否 | 当前账户余额 |  |  |
-| `new_status` | 状态 | `Picklist` | 是 | 账户状态 |  | 活跃:100000000; 冻结:100000001; 关闭:100000002 |
-| `new_customer_id` | 客户 | `Lookup` | 是 | 关联客户 | `account` |  |
+| Schema Name | 显示名称 | 类型 | 必填 | 说明 |
+|-------------|----------|------|------|------|
+| `new_account_number` | 账户编号 | `String (max 100)` | 是 | 唯一账户编号 |
+| `new_balance` | 账户余额 | `Money (precision 2)` | 否 | 当前账户余额 |
+| `new_status` | 状态 | `Picklist` | 是 | [选项集: new_account_status](../optionsets/new_account_status.md) |
+| `new_local_type` | 类型 | `Picklist` | 否 | 类型A:1; 类型B:2; 类型C:3 |
+| `new_is_active` | 有效 | `Boolean` | 否 | True=是, False=否 |
+| `new_customer_id` | 客户 | `Lookup` | 是 | 关联客户 |
 
 ## 关系
 
@@ -148,7 +150,10 @@ pp reverse account
 
 - 除了必要的数据字典md文件，最后**不得产生其他不必要的文件**
 - 新添加的数据字典表只能添加到`index.md`的**对应标题最后**，并更新**统计**的内容
-- 如果是**Picklist**时，**选项集引用**列必须要有值，格式参考表格中的内容，标签必须使用中文
-- 如果是**Lookup**时，**Lookup对象**列必须有值
+- **Picklist（选项集）** 字段的选项信息放在**说明**列中，规则如下：
+  - **字段级（local）选项集**：直接在说明列内联列举，格式为 `标签:值; 标签:值; ...`，标签必须使用中文
+  - **全局（global）选项集**：在说明列中引用 `optionsets/` 下的文档，格式为 `[选项集: <名称>](../optionsets/<名称>.md)`；如果文档不存在，导出时会**自动从 Dataverse 拉取并生成**
+- **Boolean** 字段的 True/False 标签放在**说明**列中，格式为 `True=标签, False=标签`
+- **Lookup** 字段在"查找关系 (1:N)"小节中展示目标实体
 - 最终需要检查**index.md**中的内容是否正确
 - **切记不得随意大批量的导出数据字典，如果有，必须停下来询问**

@@ -221,25 +221,57 @@ class TestTypeFormatting:
         col = Column("x", AttributeType.String, display_name=Label.zh("x"))
         assert _format_required(col) == "否"
 
-    def test_format_options_picklist(self):
-        from framework_power.data_dictionary import _format_options
+    def test_format_picklist_note_local(self):
+        """Local Picklist options render as inline 标签:值 pairs."""
+        from framework_power.data_dictionary import _format_picklist_note
         col = Column("x", AttributeType.Picklist, display_name=Label.zh("x"),
                      options=[
                          Option(1, Label.bilingual("草稿", "Draft")),
                          Option(2, Label.bilingual("已批准", "Approved")),
                      ])
-        result = _format_options(col)
-        assert "草稿" in result
-        assert "1" in result
+        result = _format_picklist_note(col)
+        assert "草稿:1" in result
+        assert "已批准:2" in result
+        assert "; " in result
 
-    def test_format_options_boolean(self):
-        from framework_power.data_dictionary import _format_options
+    def test_format_picklist_note_global(self):
+        """Global Picklist renders as a link to optionsets/<name>.md."""
+        from framework_power.data_dictionary import _format_picklist_note
+        col = Column("x", AttributeType.Picklist, display_name=Label.zh("x"),
+                     optionset_name="new_order_status")
+        result = _format_picklist_note(col)
+        assert "[选项集: new_order_status](../optionsets/new_order_status.md)" == result
+
+    def test_format_picklist_note_empty(self):
+        """Picklist with no options and no optionset_name returns empty string."""
+        from framework_power.data_dictionary import _format_picklist_note
+        col = Column("x", AttributeType.Picklist, display_name=Label.zh("x"))
+        assert _format_picklist_note(col) == ""
+
+    def test_format_picklist_note_not_picklist(self):
+        """Non-Picklist columns return empty string."""
+        from framework_power.data_dictionary import _format_picklist_note
+        col = Column("x", AttributeType.String, display_name=Label.zh("x"))
+        assert _format_picklist_note(col) == ""
+
+    def test_format_picklist_note_all_local_shown(self):
+        """All local options shown, no truncation."""
+        from framework_power.data_dictionary import _format_picklist_note
+        opts = [Option(i, Label.bilingual(f"选项{i}", f"Opt{i}")) for i in range(10)]
+        col = Column("x", AttributeType.Picklist, display_name=Label.zh("x"), options=opts)
+        result = _format_picklist_note(col)
+        assert "选项0:0" in result
+        assert "选项9:9" in result
+        assert "..." not in result
+
+    def test_format_boolean_note(self):
+        from framework_power.data_dictionary import _format_boolean_note
         col = Column("x", AttributeType.Boolean, display_name=Label.zh("x"),
                      boolean_labels=BooleanLabels(
                          true_label=Label.bilingual("是", "Yes"),
                          false_label=Label.bilingual("否", "No"),
                      ))
-        result = _format_options(col)
+        result = _format_boolean_note(col)
         assert "True=" in result
         assert "是" in result
 
@@ -303,11 +335,27 @@ class TestTableToMarkdown:
         assert "precision" in md  # precision for Money
 
     def test_contains_picklist_options(self):
+        """Local Picklist options appear inline in the 说明 column."""
         table = _make_full_table()
         md = table_to_markdown(table, source_name="test_table")
-        assert "草稿" in md
-        assert "已批准" in md
-        assert "已关闭" in md
+        assert "草稿:1" in md
+        assert "已批准:2" in md
+        assert "已关闭:3" in md
+
+    def test_contains_global_optionset_link(self):
+        """Global Picklist renders as a Markdown link in the 说明 column."""
+        table = Table("new_T", display_name=Label.zh("T"), columns=[
+            Column("new_Global", AttributeType.Picklist, display_name=Label.zh("全局选项"),
+                   optionset_name="new_global_status"),
+        ])
+        md = table_to_markdown(table, source_name="test_table")
+        assert "[选项集: new_global_status](../optionsets/new_global_status.md)" in md
+
+    def test_table_has_no_separate_options_column(self):
+        """The old '选项集 / 布尔值' column must be gone (merged into 说明)."""
+        table = _make_full_table()
+        md = table_to_markdown(table, source_name="test_table")
+        assert "选项集 / 布尔值" not in md
 
     def test_contains_boolean_labels(self):
         table = _make_full_table()
@@ -673,3 +721,133 @@ class TestWriteOptionsetDocs:
         with tempfile.TemporaryDirectory() as tmpdir:
             written = write_optionset_docs([raw], tmpdir)
             assert len(written) == 0
+
+
+# ----------------------------------------------------------------- collect_referenced_optionsets
+
+
+class TestCollectReferencedOptionsets:
+    """Test collecting global-optionset names from Table objects."""
+
+    def test_collects_global_references(self):
+        from framework_power.data_dictionary import collect_referenced_optionsets
+        table = Table(
+            "new_T", display_name=Label.zh("T"),
+            columns=[
+                Column("new_local", AttributeType.Picklist, display_name=Label.zh("x"),
+                       options=[Option(1, Label.zh("A"))]),
+                Column("new_global", AttributeType.Picklist, display_name=Label.zh("y"),
+                       optionset_name="new_status"),
+                Column("new_global2", AttributeType.Picklist, display_name=Label.zh("z"),
+                       optionset_name="new_priority"),
+                Column("new_str", AttributeType.String, display_name=Label.zh("s")),
+            ],
+        )
+        result = collect_referenced_optionsets([table])
+        assert result == ["new_priority", "new_status"]  # sorted
+
+    def test_empty_when_no_globals(self):
+        from framework_power.data_dictionary import collect_referenced_optionsets
+        table = Table("new_T", display_name=Label.zh("T"))
+        assert collect_referenced_optionsets([table]) == []
+
+    def test_dedup_across_tables(self):
+        from framework_power.data_dictionary import collect_referenced_optionsets
+        t1 = Table("new_T1", display_name=Label.zh("T1"), columns=[
+            Column("a", AttributeType.Picklist, display_name=Label.zh("a"), optionset_name="new_shared")])
+        t2 = Table("new_T2", display_name=Label.zh("T2"), columns=[
+            Column("b", AttributeType.Picklist, display_name=Label.zh("b"), optionset_name="new_shared")])
+        assert collect_referenced_optionsets([t1, t2]) == ["new_shared"]
+
+
+# ----------------------------------------------------------------- ensure_optionset_docs
+
+
+class TestEnsureOptionsetDocs:
+    """Test auto-generating missing optionset docs."""
+
+    def test_creates_missing_docs(self):
+        from framework_power.data_dictionary import ensure_optionset_docs
+
+        class FakeClient:
+            def __init__(self):
+                self._data = {
+                    "new_status": _make_raw_optionset("new_status", "状态", "Status"),
+                    "new_priority": _make_raw_optionset("new_priority", "优先级", "Priority"),
+                }
+            def get_global_optionset_by_name(self, name):
+                return self._data.get(name.lower())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = FakeClient()
+            written = ensure_optionset_docs(["new_status", "new_priority"], tmpdir, client)
+            assert len(written) == 2
+            assert (Path(tmpdir) / "optionsets" / "new_status.md").exists()
+            assert (Path(tmpdir) / "optionsets" / "new_priority.md").exists()
+
+    def test_skips_existing_docs(self):
+        from framework_power.data_dictionary import ensure_optionset_docs
+
+        class FakeClient:
+            def get_global_optionset_by_name(self, name):
+                return _make_raw_optionset(name, "x", "X")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            opt_dir = Path(tmpdir) / "optionsets"
+            opt_dir.mkdir()
+            (opt_dir / "new_status.md").write_text("# existing", encoding="utf-8")
+            client = FakeClient()
+            written = ensure_optionset_docs(["new_status"], tmpdir, client)
+            assert len(written) == 0  # already exists, no new write
+
+    def test_handles_not_found(self):
+        from framework_power.data_dictionary import ensure_optionset_docs
+
+        class FakeClient:
+            def get_global_optionset_by_name(self, name):
+                return None  # 404
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = FakeClient()
+            written = ensure_optionset_docs(["nonexistent"], tmpdir, client)
+            assert len(written) == 0  # no crash, no write
+
+
+# ----------------------------------------------------------------- _resolve_table_optionsets_from_disk
+
+
+class TestResolveTableOptionsetsFromDisk:
+    """Test parsing optionset references from table Markdown on disk."""
+
+    def test_extracts_references(self):
+        from framework_power.data_dictionary import _resolve_table_optionsets_from_disk
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tables_dir = Path(tmpdir) / "tables"
+            tables_dir.mkdir()
+            (tables_dir / "new_order.md").write_text(
+                "# 订单 (`new_Order`)\n\n| `new_Status` | 状态 | `Picklist` | 必填 |  | [选项集: new_orderstatus](../optionsets/new_orderstatus.md) |\n",
+                encoding="utf-8",
+            )
+            result = _resolve_table_optionsets_from_disk(tables_dir)
+            assert result == ["new_orderstatus"]
+
+    def test_empty_when_no_refs(self):
+        from framework_power.data_dictionary import _resolve_table_optionsets_from_disk
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tables_dir = Path(tmpdir) / "tables"
+            tables_dir.mkdir()
+            (tables_dir / "account.md").write_text("# account", encoding="utf-8")
+            result = _resolve_table_optionsets_from_disk(tables_dir)
+            assert result == []
+
+    def test_dedup_across_files(self):
+        from framework_power.data_dictionary import _resolve_table_optionsets_from_disk
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tables_dir = Path(tmpdir) / "tables"
+            tables_dir.mkdir()
+            (tables_dir / "a.md").write_text(
+                "[选项集: new_shared](../optionsets/new_shared.md)", encoding="utf-8")
+            (tables_dir / "b.md").write_text(
+                "[选项集: new_shared](../optionsets/new_shared.md)", encoding="utf-8")
+            result = _resolve_table_optionsets_from_disk(tables_dir)
+            assert result == ["new_shared"]

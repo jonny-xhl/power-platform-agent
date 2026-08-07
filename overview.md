@@ -1,63 +1,35 @@
-# SO 实体新增字段执行报告
+# Picklist Global Option Set Resolution Fix
 
-## 任务
-给 SO 实体 (`new_spare_salesorder`) 新增一个 255 长度的字符串字段：打包备注 / Remark / `new_package_remark`，解决方案 `20260806_fix`。
+## What was done
 
-## 执行路径
+Fixed a bug where Picklist fields in reverse-exported data dictionary Markdown files showed empty option values, violating the `docs/data_dictionary/CLAUDE.md` specification.
 
-### Step 1: 查找 SO 实体
-- SO 实体不在本地 metadata_py 中，需要从远程 Dataverse 查找
-- `pp list --remote` 列出所有自定义表，搜索发现 SO = `new_spare_salesorder`（SO信息），101 列 34 关系
+## Root cause
 
-### Step 2: Reverse 实体定义
-- `pp reverse new_spare_salesorder` → 生成 `metadata_py/tables/new_spare_salesorder.py`（101 cols, 34 rels）
-- `pp reverse new_spare_salesorder --dictionary` → 生成数据字典 Markdown
+Dataverse Web API's `/Attributes` endpoint returns `OptionSet` metadata for Picklist attributes, but for **global option sets** (the common pattern for custom fields), the `Options` array is **not inlined** — only a name reference is returned. The actual options must be fetched separately via `GlobalOptionSetDefinitions(Name='...')`.
 
-### Step 3: 添加新字段定义
-- 在 `new_spare_salesorder.py` 的 columns 列表中插入一行：
-  ```python
-  Column('new_package_remark', AttributeType.String,
-         display_name=Label.bilingual('打包备注', 'Remark'),
-         max_length=255, format_name='Text', format='Text')
-  ```
-- `pp list` 确认列数从 101 → 102
-- `pp show new_spare_salesorder` 验证 JSON payload 中包含新字段，MaxLength=255
+The reverse path (`reverse_table()` in `reverse.py`) parsed the inline `Options` but never followed the global option set reference, so all global-Picklist columns ended up with empty options.
 
-### Step 4: 部署到 Dataverse
-- `pp deploy new_spare_salesorder --solution 20260806_fix --solution-clean`
-- 结果：
-  - `new_package_remark`: **action: created** ✅
-  - 其余 100 个自定义属性: action: skipped（已存在）
-  - 4 个标准属性: action: skipped_standard
-  - 34 个关系: action: skipped（已存在）
-  - 实体属性更新: skipped（Web API 不支持）
-  - 解决方案 `20260806_fix`: 所有自定义字段（含新字段）以 clean 模式添加
+## Changes
 
-### Step 5: 刷新数据字典
-- `pp reverse new_spare_salesorder --dictionary` → 更新数据字典，确认 `new_package_remark` 已出现
+### 1. `framework_power/reverse.py` — `_resolve_picklist_options()`
+New post-processing function called after columns are built:
+- Maps `schema_name → optionset_name` from raw attribute data
+- Batch-fetches unique global option sets via `client.get_global_optionset_by_name()` with caching (dedup)
+- Updates `Column.options` in-place for Picklist columns missing options
+- Best-effort: failures logged, not fatal
 
-## CLI 命令序列
-```bash
-# 1. 查找实体
-pp list --remote
+### 2. `framework_power/data_dictionary.py` — `_format_options()`
+Format aligned to CLAUDE.md spec:
+- Before: `草稿(1), 已批准(2), ... (5 total)` (comma, parens, truncated at 5)
+- After: `草稿:1; 已批准:2` (semicolon, colon, no truncation)
 
-# 2. Reverse 实体定义
-pp reverse new_spare_salesorder
-pp reverse new_spare_salesorder --dictionary
+### 3. Tests — 9 new (70 total pass)
+- `test_reverse.py`: local options preserved, global options resolved, dedup for shared option sets, not-found keeps empty, dictionary markdown includes options
+- `test_data_dictionary.py`: new format assertions, empty options, no truncation
 
-# 3. 编辑定义文件（手动添加字段）
-# metadata_py/tables/new_spare_salesorder.py
+### 4. ADR-008
+`docs/spec/adr-008-picklist-global-optionset-resolution.md`
 
-# 4. 验证
-pp list
-pp show new_spare_salesorder
-
-# 5. 部署
-pp deploy new_spare_salesorder --solution 20260806_fix --solution-clean
-
-# 6. 刷新数据字典
-pp reverse new_spare_salesorder --dictionary
-```
-
-## 结论
-字段 `new_package_remark`（打包备注 / Remark，String 255）已成功创建并加入解决方案 `20260806_fix`。引擎的 reverse → edit → deploy 流程验证通过。
+## Trade-off
+`reverse_table()` now makes additional API calls (O(K) where K = unique option sets, not O(N) Picklist columns). The `Column` model was NOT changed — option set name is derived from raw attribute data, keeping the model clean.

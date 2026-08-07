@@ -119,21 +119,33 @@ def _format_required(col: Column) -> str:
     return "否"
 
 
-def _format_options(col: Column) -> str:
-    """Format Picklist options or Boolean labels as inline text."""
-    if col.type == AttributeType.Picklist and col.options:
-        items = ", ".join(
-            f"{_label_text(opt.label)}({opt.value})" for opt in col.options[:5]
+def _format_picklist_note(col: Column) -> str:
+    """Format Picklist option info for the 说明 column.
+
+    - **Local (inline) optionset**: options listed inline as ``标签:值; 标签:值; ...``
+    - **Global optionset**: Markdown link to ``../optionsets/<name>.md``
+
+    Returns the note text (may be empty).
+    """
+    if col.type != AttributeType.Picklist:
+        return ""
+    if col.optionset_name:
+        return f"[选项集: {col.optionset_name}](../optionsets/{col.optionset_name}.md)"
+    if col.options:
+        return "; ".join(
+            f"{_label_text(opt.label)}:{opt.value}" for opt in col.options
         )
-        if len(col.options) > 5:
-            items += f", ... ({len(col.options)} total)"
-        return items
-    if col.type == AttributeType.Boolean and col.boolean_labels:
-        bl: BooleanLabels = col.boolean_labels
-        true_text = _label_text(bl.true_label)
-        false_text = _label_text(bl.false_label)
-        return f"True={true_text}, False={false_text}"
     return ""
+
+
+def _format_boolean_note(col: Column) -> str:
+    """Format Boolean True/False labels for the 说明 column."""
+    if col.type != AttributeType.Boolean or not col.boolean_labels:
+        return ""
+    bl: BooleanLabels = col.boolean_labels
+    true_text = _label_text(bl.true_label)
+    false_text = _label_text(bl.false_label)
+    return f"True={true_text}, False={false_text}"
 
 
 def _format_cascade(cascade: CascadeConfig) -> str:
@@ -201,8 +213,8 @@ def table_to_markdown(
         lines.append("")
 
     lines.extend(["---", "", "## 字段列表", ""])
-    lines.append("| Schema Name | 显示名称 | 类型 | 必填 | 默认值 | 选项集 / 布尔值 | 说明 |")
-    lines.append("|-------------|----------|------|------|--------|----------------|------|")
+    lines.append("| Schema Name | 显示名称 | 类型 | 必填 | 默认值 | 说明 |")
+    lines.append("|-------------|----------|------|------|--------|------|")
 
     for col in table.columns:
         name = col.schema_name
@@ -212,11 +224,18 @@ def table_to_markdown(
         default = ""
         if col.default_value is not None:
             default = str(col.default_value)
-        options = _format_options(col)
+        # Build 说明 = description + optionset/boolean note
         col_desc = _label_both(col.description)
+        note = _format_picklist_note(col) or _format_boolean_note(col)
+        if note and col_desc:
+            desc_full = f"{col_desc} ({note})"
+        elif note:
+            desc_full = note
+        else:
+            desc_full = col_desc
 
         lines.append(
-            f"| `{name}` | {col_display} | `{col_type}` | {required} | {default} | {options} | {col_desc} |"
+            f"| `{name}` | {col_display} | `{col_type}` | {required} | {default} | {desc_full} |"
         )
 
     # Relationships (extract lookup columns from 1:N relationships)
@@ -662,4 +681,168 @@ def write_optionset_docs(optionsets_raw: list[dict], dict_dir: str | Path) -> li
         file_path = optionsets_out / f"{name}.md"
         file_path.write_text(md, encoding="utf-8")
         written.append(file_path)
+    return written
+
+
+def collect_referenced_optionsets(tables: list[Table]) -> list[str]:
+    """Return the sorted unique list of global-optionset names referenced by ``tables``.
+
+    Scans every Picklist column with a non-empty ``optionset_name`` across all
+    tables. Used by the reverse path to know which optionset docs need to exist
+    before the table Markdown is written.
+    """
+    names: set[str] = set()
+    for table in tables:
+        for col in table.columns:
+            if col.type == AttributeType.Picklist and col.optionset_name:
+                names.add(col.optionset_name)
+    return sorted(names)
+
+
+def _option_label_to_raw(label) -> dict:
+    """Convert a ``Label`` dataclass to the raw Dataverse Label dict format.
+
+    ``optionset_to_markdown`` uses ``_raw_label_text`` to extract text from
+    ``LocalizedLabels`` and ``UserLocalizedLabel`` — we reconstruct that structure.
+    """
+    if not label or not label.localized:
+        return {}
+    localized_labels = [
+        {"LanguageCode": loc.language_code, "Label": loc.text}
+        for loc in label.localized
+    ]
+    user_label = localized_labels[0] if localized_labels else None
+    return {
+        "LocalizedLabels": localized_labels,
+        "UserLocalizedLabel": user_label,
+    }
+
+
+def build_prefetched_optionsets(tables: list[Table]) -> dict[str, dict]:
+    """Build a ``{name: raw_optionset_dict}`` map from Picklist columns.
+
+    During reverse, the typed ``PicklistAttributeMetadata?$expand=OptionSet`` query
+    already populated each Column with ``optionset_name`` and ``options``.
+    This function converts that data into the raw dict format expected by
+    :func:`optionset_to_markdown`, so ``ensure_optionset_docs`` can write
+    optionset docs without redundant ``GlobalOptionSetDefinitions`` lookups.
+
+    This is especially important for entity-bound (pseudo-global) optionsets
+    like ``new_spare_salesorder_new_approvalstatus`` which CANNOT be fetched
+    via ``GlobalOptionSetDefinitions(Name=...)`` but whose option data is
+    fully available from the typed PicklistAttributeMetadata query.
+    """
+    result: dict[str, dict] = {}
+    for table in tables:
+        for col in table.columns:
+            if col.type != AttributeType.Picklist or not col.optionset_name:
+                continue
+            name = col.optionset_name
+            if name in result:
+                continue  # already collected from another column
+            if not col.options:
+                continue  # no option data available
+            # Convert Column.options (list[Option]) to raw Dataverse format
+            raw_options = []
+            for opt in col.options:
+                raw_options.append({
+                    "Value": opt.value,
+                    "Label": _option_label_to_raw(opt.label),
+                    "Color": "",
+                })
+            result[name] = {
+                "Name": name,
+                "DisplayName": None,
+                "Description": None,
+                "Options": raw_options,
+            }
+    return result
+
+
+# Regex to extract global-optionset names from table Markdown links:
+#   [选项集: new_status](../optionsets/new_status.md)
+_OPTIONSET_LINK_RE = re.compile(r"\[选项集:\s*([^\]]+)\]\(\.\./optionsets/[^)]+\)")
+
+
+def _resolve_table_optionsets_from_disk(tables_dir: str | Path) -> list[str]:
+    """Scan table Markdown files on disk and extract referenced global-optionset names.
+
+    This is the disk-reading counterpart to :func:`collect_referenced_optionsets`:
+    used by the batch reverse path after all table docs are already written,
+    so we don't need to keep the in-memory ``Table`` objects around.
+    """
+    tables_path = Path(tables_dir)
+    if not tables_path.is_dir():
+        return []
+    names: set[str] = set()
+    for md_path in tables_path.glob("*.md"):
+        try:
+            text = md_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for m in _OPTIONSET_LINK_RE.finditer(text):
+            names.add(m.group(1).strip())
+    return sorted(names)
+
+
+def ensure_optionset_docs(
+    referenced: list[str],
+    dict_dir: str | Path,
+    client: Any,
+    *,
+    prefetched: dict[str, dict] | None = None,
+) -> list[Path]:
+    """Ensure ``optionsets/<name>.md`` exists for every name in ``referenced``.
+
+    For each name:
+    1. If the doc already exists on disk -> skip.
+    2. If ``prefetched`` contains the name -> use that data directly (no API call).
+    3. Otherwise, fetch from Dataverse via ``client.get_global_optionset_by_name()``.
+
+    Failures are logged and skipped — one missing optionset must not break the batch.
+
+    Args:
+        referenced: Global-optionset names to check (e.g. from :func:`collect_referenced_optionsets`).
+        dict_dir: Data dictionary root (``optionsets/`` is under it).
+        client: A DataverseClient with ``get_global_optionset_by_name()``.
+        prefetched: Optional ``{name: raw_optionset_dict}`` from the reverse path.
+            The reverse path already has all OptionSet data from the typed
+            ``PicklistAttributeMetadata?$expand=OptionSet`` query, so passing it
+            here avoids redundant (and possibly failing) ``GlobalOptionSetDefinitions``
+            lookups. Entity-bound optionsets are NOT queryable via
+            ``GlobalOptionSetDefinitions(Name=...)`` but ARE available here.
+
+    Returns:
+        List of newly written file paths (existing docs are not included).
+    """
+    out = Path(dict_dir)
+    optionsets_out = out / "optionsets"
+    optionsets_out.mkdir(parents=True, exist_ok=True)
+
+    prefetched = prefetched or {}
+
+    written: list[Path] = []
+    for name in referenced:
+        doc_path = optionsets_out / f"{name}.md"
+        if doc_path.exists():
+            continue
+
+        # Try prefetched data first (from reverse path)
+        if name in prefetched:
+            md = optionset_to_markdown(prefetched[name])
+            doc_path.write_text(md, encoding="utf-8")
+            written.append(doc_path)
+            continue
+
+        # Fall back to Dataverse GlobalOptionSetDefinitions lookup
+        try:
+            raw = client.get_global_optionset_by_name(name)
+            if raw:
+                md = optionset_to_markdown(raw)
+                doc_path.write_text(md, encoding="utf-8")
+                written.append(doc_path)
+            else:
+                logger.warning(f"data_dictionary: global optionset '{name}' not found in Dataverse")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"data_dictionary: failed to fetch optionset '{name}': {e}")
     return written

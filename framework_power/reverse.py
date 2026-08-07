@@ -181,12 +181,25 @@ def _attr_to_column(
 
     if member is AttributeType.Picklist:
         optionset = attr.get("OptionSet") or {}
+        os_name = optionset.get("Name")
+        # Always capture options from the API response (used for optionset doc generation).
         opts = [
             Option(o.get("Value"), _extract_label(o.get("Label")) or Label.zh(str(o.get("Value"))))
             for o in (optionset.get("Options") or [])
         ]
-        if opts:
-            kwargs["options"] = opts
+        if os_name:
+            # Global optionset reference — store the name AND the options.
+            # _format_picklist_note shows a document link (not inline) when
+            # optionset_name is set, preserving ADR-009's DRY design.
+            # The options data is needed by build_prefetched_optionsets() to
+            # generate the optionset documentation files.
+            kwargs["optionset_name"] = os_name
+            if opts:
+                kwargs["options"] = opts
+        else:
+            # Local (inline) optionset — populate options directly.
+            if opts:
+                kwargs["options"] = opts
         if attr.get("DefaultValue") is not None:
             kwargs["default_value"] = attr.get("DefaultValue")
     elif member is AttributeType.Boolean:
@@ -276,6 +289,16 @@ def reverse_table(client: Any, logical_name: str) -> Table:
     entity = client.get_entity_metadata(logical_name)
     attrs = client.get_attributes(logical_name)
     rels = client.get_relationships(logical_name)
+
+    # Fetch OptionSet data for Picklist/Boolean attributes.
+    # The polymorphic /Attributes endpoint doesn't include the OptionSet navigation
+    # property, so we merge it from typed derived-type queries.
+    optionset_map = client.get_optionset_attributes(logical_name)
+    for attr in attrs:
+        logical = attr.get("LogicalName")
+        if logical and logical in optionset_map and "OptionSet" not in attr:
+            attr["OptionSet"] = optionset_map[logical]["OptionSet"]
+
     primary_name_logical = entity.get("PrimaryNameAttribute")
 
     columns: list[Column] = []

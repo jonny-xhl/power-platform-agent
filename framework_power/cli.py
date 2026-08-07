@@ -579,14 +579,21 @@ def _generate_dictionary_extras(
 ) -> None:
     """After a batch ``--dictionary`` reverse, write ``optionsets/`` docs + ``index.md``.
 
-    Closes the historical gap where ``pp reverse --all --dictionary`` wrote only
-    per-table Markdown and never produced an index (or any global-optionset docs).
-    Optionset generation is best-effort: a failure there must not fail the batch.
+    For optionsets, this uses a two-pass approach:
+    1. Parse the already-written table Markdown files to collect all referenced
+       global-optionset names (from the ``[选项集: <name>](...)`` links).
+    2. Ensure each referenced optionset has a doc on disk — fetching from Dataverse
+       only the ones that don't exist yet.
+
+    This is incremental and DRY: re-running the batch only fetches newly referenced
+    optionsets. The old approach (``list_global_optionsets`` for the entire prefix)
+    always fetched everything.
     """
     from .data_dictionary import (
         DEFAULT_DICTIONARY_DIR,
+        _resolve_table_optionsets_from_disk,
+        ensure_optionset_docs,
         generate_index_from_dir,
-        write_optionset_docs,
     )
 
     ws = _try_workspace(args)
@@ -594,16 +601,31 @@ def _generate_dictionary_extras(
     if ws is not None and not Path(dict_dir).is_absolute():
         dict_dir = str(ws.root / dict_dir)
 
-    # Global optionsets (custom prefix only, matching table-reverse semantics)
+    # Collect referenced optionsets from the table docs on disk
     try:
-        raw = client.list_global_optionsets(prefix=prefix_with_underscore)
-        if raw:
-            written = write_optionset_docs(raw, dict_dir)
-            print(f"[ok] optionsets: {len(written)} -> {Path(dict_dir) / 'optionsets'}")
+        referenced = _resolve_table_optionsets_from_disk(Path(dict_dir) / "tables")
+    except Exception:
+        referenced = []
+
+    if referenced:
+        new_docs = ensure_optionset_docs(referenced, dict_dir, client)
+        if new_docs:
+            print(f"[ok] optionsets: {len(new_docs)} new -> {Path(dict_dir) / 'optionsets'}")
         else:
-            print(f"[info] no global optionsets with prefix '{prefix_with_underscore}'")
-    except Exception as e:  # best-effort: never fail the batch for optionset docs
-        print(f"[warn] optionset docs skipped: {e}")
+            print(f"[info] optionsets: all {len(referenced)} referenced docs already exist")
+    else:
+        # Fallback: no references found (possibly no global optionsets in tables),
+        # try the bulk fetch for the publisher prefix as a safety net.
+        try:
+            raw = client.list_global_optionsets(prefix=prefix_with_underscore)
+            if raw:
+                from .data_dictionary import write_optionset_docs
+                written = write_optionset_docs(raw, dict_dir)
+                print(f"[ok] optionsets: {len(written)} -> {Path(dict_dir) / 'optionsets'}")
+            else:
+                print(f"[info] no global optionsets with prefix '{prefix_with_underscore}'")
+        except Exception as e:  # best-effort
+            print(f"[warn] optionset docs skipped: {e}")
 
     # Index generated AFTER optionsets so the 全局选项集 section count is accurate
     idx = generate_index_from_dir(dict_dir, prefix=prefix_with_underscore.rstrip("_"))
@@ -720,14 +742,39 @@ def _write_reverse_output(
 
 
 def _reverse_to_dictionary(args: argparse.Namespace, table, tables_dir: str) -> int:
-    """Write a single table's data dictionary Markdown (from a reversed Table)."""
-    from .data_dictionary import DEFAULT_DICTIONARY_DIR, table_to_markdown
+    """Write a single table's data dictionary Markdown (from a reversed Table).
+
+    Also auto-generates any missing ``optionsets/<name>.md`` docs referenced by
+    the table's global Picklist fields.
+    """
+    from .data_dictionary import (
+        DEFAULT_DICTIONARY_DIR,
+        build_prefetched_optionsets,
+        collect_referenced_optionsets,
+        ensure_optionset_docs,
+        table_to_markdown,
+    )
 
     dict_dir = DEFAULT_DICTIONARY_DIR
     # When in a workspace, resolve dict_dir relative to workspace root
     ws = _try_workspace(args)
     if ws is not None and not Path(dict_dir).is_absolute():
         dict_dir = str(ws.root / dict_dir)
+
+    # Auto-generate missing optionset docs BEFORE writing the table Markdown
+    # so the links in the table doc are valid from the start.
+    client = _get_client_ws(args, args.env)
+    referenced = collect_referenced_optionsets([table])
+    if referenced:
+        # Build prefetched optionset data from the reversed Table columns.
+        # The reverse path already fetched OptionSet data via typed
+        # PicklistAttributeMetadata queries, so we pass it directly instead of
+        # re-fetching from GlobalOptionSetDefinitions (which fails for
+        # entity-bound optionsets).
+        prefetched = build_prefetched_optionsets([table])
+        new_docs = ensure_optionset_docs(referenced, dict_dir, client, prefetched=prefetched)
+        if new_docs:
+            print(f"[ok] optionsets: {len(new_docs)} new -> {Path(dict_dir) / 'optionsets'}")
 
     out_path = Path(args.output) if args.output else Path(dict_dir) / "tables" / f"{table.schema_name}.md"
     md = table_to_markdown(table, source_name=None)  # no source file (reversed from Dataverse)
