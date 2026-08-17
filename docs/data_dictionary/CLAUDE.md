@@ -153,6 +153,7 @@ pp reverse account
 - **Picklist（选项集）** 字段的选项信息放在**说明**列中，规则如下：
   - **字段级（local）选项集**：直接在说明列内联列举，格式为 `标签:值; 标签:值; ...`，标签必须使用中文
   - **全局（global）选项集**：在说明列中引用 `optionsets/` 下的文档，格式为 `[选项集: <名称>](../optionsets/<名称>.md)`；如果文档不存在，导出时会**自动从 Dataverse 拉取并生成**
+  - ⚠️ **判别依据是 `OptionSet.IsGlobal`，不是 `OptionSet.Name` 是否非空**：Dataverse 给实体局部选项集也自动命名 `{entity}_{field}`（非空 Name + `IsGlobal=false`）；typed `PicklistAttributeMetadata?$expand=OptionSet` 查询对**每个** picklist 都返回完整 OptionSet 数据。只看 Name 会把局部选项集误判成全局 → 误生成 `optionsets/{entity}_{field}.md` 文档（ADR-010 曾踩坑）
 - **Boolean** 字段的 True/False 标签放在**说明**列中，格式为 `True=标签, False=标签`
 - **Lookup** 字段在"查找关系 (1:N)"小节中展示目标实体
 - 最终需要检查**index.md**中的内容是否正确

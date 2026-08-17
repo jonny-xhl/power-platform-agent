@@ -1882,7 +1882,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Comma-separated schema names to deploy incrementally (e.g. new_field1,new_lookup1). "
         "Deploys only these fields; skips entity-level sync, other columns, and relationships. "
-        "Lookup fields (stored in relationships) are auto-resolved.",
+        "Lookup fields are auto-resolved; existing local Picklist values and authored labels "
+        "are reconciled non-destructively with option-specific Dataverse actions.",
     )
     p_dep.set_defaults(func=cmd_deploy)
 

@@ -216,7 +216,7 @@ metadata/plugins/*.yaml                 → pluginassemblies + sdkmessageprocess
 - 完整覆盖字段类型（String、Integer、BigInt、Money、Decimal、Double、
   Picklist、Boolean、Memo、DateTime、File），支持 MaxLength / Precision / 范围约束。
 - 多语言标签（zh-CN + en-US，或任意语言）。
-- 支持**创建**与**更新**（PATCH 同步可更新属性）以及**关系**。
+- 支持**创建**与**更新**：字段先计算最小属性差异，再按 Dataverse 的 typed GET → retrieve-modify-`PUT` 合约更新完整具体类型元数据；同时支持关系创建。
 - 命名采用**校验而非自动改写**（与 YAML 路径不同），保证定义的可预期性。
 - 无需额外依赖（项目已使用 `requests` + `msal`）。
 
@@ -273,12 +273,14 @@ pp deploy-all --env dev           # 全量部署，按引用顺序处理
 | 对象 | 行为 |
 | --- | --- |
 | 实体 | 缺失则创建；否则 PATCH 可更新属性（DisplayName、Description、HasNotes、IsAuditEnabled、IsQuickCreateEnabled）。 |
-| 字段 | 实体首次创建时内联携带。实体已存在时：缺失则 POST；否则仅 PATCH 有差异的可更新属性。无差异时无操作。 |
+| 字段 | 实体首次创建时内联携带。实体已存在时：缺失则 POST；否则计算可变属性差异，通过具体类型强一致 GET 获取完整定义，清理只读属性、叠加差异后 PUT。无差异时不发 PUT。 |
+| 本地 Picklist 选项 | 对已有字段执行 typed GET + `$expand=OptionSet`；缺少值调用 `InsertOptionValue`，已存在值的本地声明语言标签发生变化时调用 `UpdateOptionValue(MergeLabels=true)`；远端额外值保留；有修改才定向发布实体。 |
 | 关系 | 仅创建（Dataverse 不支持 PATCH 关系定义）。已存在则跳过。 |
 
-**Picklist/Boolean 选项集仅支持创建**（通过字段端点）。如果脚本修改了已有字段的选项，
-部署结果会报告 `manual_update_required`（需通过 Maker Portal 或
-`InsertOptionValue`/`UpdateOptionValue` 操作手动更新）。
+本地 Picklist 的值和多语言标签已经支持由 `pp deploy <table> --fields <field>`
+增量同步，并可传递 `--solution`。该流程默认**不删除**远端额外值，因为删除可能导致
+现有业务数据失效。Boolean 标签和全局 OptionSet 的已有选项更新仍使用各自独立流程，
+不会由本地 Picklist 同步逻辑隐式处理。
 
 ### 元数据传播与重试
 
@@ -325,7 +327,7 @@ Label.parse("名称")               # str -> 仅中文；接受 Label/LocalizedL
 | **部署入口** | MCP 工具（AI 通过 MCP 协议调用） | CLI / 代码直接调用 |
 | **验证方式** | Schema 验证 + 命名自动转换 | `lint` 命令离线校验约定 |
 | **组件覆盖** | Table + Form + View + WebResource + Plugin + Ribbon + Sitemap + Solution | Table + Relationship + Solution + WebResource + Form + View + Ribbon + OptionSet |
-| **更新策略** | 部分 PATCH 更新 | PATCH 仅差异属性 |
+| **更新策略** | 部分 PATCH 更新 | 最小差异计算 + typed retrieve-modify-`PUT` |
 | **隔离性** | 与 framework_power 互不依赖 | 独立库，不依赖 framework/ |
 | **IDE 支持** | YAML Schema 提示 | 完整 Python 类型补全和推导 |
 | **适用阶段** | 原有 YAML 资产、交互式部署 | 新项目、追求类型安全 |

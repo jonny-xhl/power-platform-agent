@@ -2,8 +2,8 @@
 Idempotent table deployer (framework_power).
 
 ``deploy_table`` reconciles a desired ``Table`` against the live Dataverse environment:
-create-or-update the entity, create-or-PATCH each attribute (true sync of updatable
-properties), and create-only relationships. It is never destructive (no deletes).
+create-or-update the entity, create-or-update each attribute (full-definition metadata
+PUT for changed properties), and create-only relationships. It is never destructive.
 
 Delays + retry absorb Dataverse metadata propagation / lock contention per the
 ``dv-metadata`` skill. Each item is handled independently so one failure does not
@@ -17,9 +17,10 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from .models import Table
+from .models import AttributeType, Column, Relationship, Table
 from .serializer import (
     build_attribute_patch,
+    build_picklist_option_diff,
     optionset_changed,
     serialize_column,
     serialize_entity_patch,
@@ -160,17 +161,40 @@ def deploy_table(
             )
 
     # -- entity -------------------------------------------------------------------
-    entity_created = _deploy_entity(client, table, logical, cfg, result, prefix,
-                                     empty_shell=resolved is not None)
+    entity_created = _deploy_entity(
+        client,
+        table,
+        logical,
+        cfg,
+        result,
+        prefix,
+        empty_shell=resolved is not None,
+    )
 
     # -- attributes ----------------------------------------------------------------
     if resolved is not None:
         # Incremental: always run the attribute loop (even when entity was just
         # created as an empty shell).  The entity has no attributes yet.
-        _deploy_attributes(client, table, logical, False, result, prefix,
-                           columns=resolved["regular"])
+        options_changed = _deploy_attributes(
+            client,
+            table,
+            logical,
+            False,
+            result,
+            prefix,
+            columns=resolved["regular"],
+            solution=solution,
+        )
     else:
-        _deploy_attributes(client, table, logical, entity_created, result, prefix)
+        options_changed = _deploy_attributes(
+            client,
+            table,
+            logical,
+            entity_created,
+            result,
+            prefix,
+            solution=solution,
+        )
 
     # -- relationships -------------------------------------------------------------
     if resolved is not None:
@@ -185,6 +209,14 @@ def deploy_table(
             client, solution, logical, clean=solution_clean, table=table, prefix=prefix,
             field_names=fields,
         )
+
+    # Option actions are separate metadata mutations. Publish only when at least one
+    # InsertOptionValue/UpdateOptionValue succeeded; idempotent retries remain read-only.
+    if options_changed:
+        try:
+            result["publish"] = client.publish_entity(logical)
+        except Exception as e:  # noqa: BLE001
+            result["publish"] = {"action": "failed", "error": str(e)}
 
     return result
 
@@ -278,6 +310,7 @@ def plan_table(
 
     Returns a plan dict using ``would_create`` / ``would_update`` / ``would_patch`` /
     ``would_skip`` / ``would_skip_standard`` / ``manual_update_required`` actions.
+    Local Picklists include per-value insert/update and remote-only-retention details.
     Standard (non-prefixed) items report ``would_skip_standard``.
     """
     logical = table.logical_name
@@ -320,15 +353,40 @@ def plan_table(
             result["attributes"].append({"attribute": col.schema_name, "action": "would_create"})
             continue
         existing = existing_attrs[cl]
-        if optionset_changed(col, existing):
-            result["attributes"].append({"attribute": col.schema_name, "action": "manual_update_required"})
+        option_plan: dict[str, Any] | None = None
+        if col.type == AttributeType.Picklist and not col.optionset_name:
+            typed = client.get_attribute_metadata(
+                logical,
+                cl,
+                attribute_type=AttributeType.Picklist.value,
+            )
+            option_diff = build_picklist_option_diff(col, typed)
+            option_plan = {
+                "insert": [item["value"] for item in option_diff["insert"]],
+                "update": [item["value"] for item in option_diff["update"]],
+                "remote_only_retained": option_diff["remote_only"],
+            }
+        elif optionset_changed(col, existing):
+            result["attributes"].append(
+                {"attribute": col.schema_name, "action": "manual_update_required"}
+            )
             continue
         patch = build_attribute_patch(col, existing)
+        has_option_changes = bool(
+            option_plan and (option_plan["insert"] or option_plan["update"])
+        )
         result["attributes"].append(
             {
                 "attribute": col.schema_name,
-                "action": "would_patch" if patch else "would_skip",
+                "action": (
+                    "would_update"
+                    if has_option_changes
+                    else "would_patch"
+                    if patch
+                    else "would_skip"
+                ),
                 "fields": list(patch.keys()) if patch else [],
+                **({"options": option_plan} if option_plan is not None else {}),
             }
         )
 
@@ -421,24 +479,33 @@ def _deploy_attributes(
     prefix: str,
     *,
     columns: list[Column] | None = None,  # type: ignore[valid-type]
-) -> None:
-    """Create missing attributes and PATCH changed updatable props.
+    solution: str | None = None,
+) -> bool:
+    """Create missing attributes and safely update changed mutable properties.
 
+    Existing attributes use Dataverse's retrieve-modify-PUT metadata contract; the
+    client preserves the complete concrete type definition around the computed diff.
+    Existing local Picklists additionally reconcile authored options through
+    ``InsertOptionValue`` / ``UpdateOptionValue``. Remote-only values are retained.
     When ``columns`` is specified (incremental deploy) only those columns are processed
     and the ``entity_created`` skip is ignored — the entity may be a fresh empty shell.
+
+    Returns ``True`` when at least one option action succeeded and targeted entity
+    publication is required.
     """
+    options_changed = False
     if columns is not None:
         # Incremental mode: always process the specified columns.
         pass
     elif isinstance(entity_created_or_result, bool) and entity_created_or_result:
         # Full mode: Attributes rode along inside the entity create payload.
-        return
+        return False
 
     try:
         existing_attrs = {a.get("LogicalName"): a for a in client.get_attributes(logical)}
     except Exception as e:  # noqa: BLE001
         result["attributes"].append({"action": "failed", "error": f"get_attributes: {e}"})
-        return
+        return False
 
     iter_cols = columns if columns is not None else table.columns
     for col in iter_cols:
@@ -461,28 +528,111 @@ def _deploy_attributes(
                     entry["error"] = str(e)
         else:
             existing = existing_attrs[col_logical]
-            if optionset_changed(col, existing):
+            option_results: list[dict[str, Any]] = []
+            option_failed = False
+
+            if col.type == AttributeType.Picklist and not col.optionset_name:
+                try:
+                    typed = client.get_attribute_metadata(
+                        logical,
+                        col_logical,
+                        attribute_type=AttributeType.Picklist.value,
+                    )
+                    option_diff = build_picklist_option_diff(col, typed)
+                    for item in option_diff["insert"]:
+                        option_entry = {"value": item["value"], "action": "inserted"}
+                        try:
+                            client.insert_option_value(
+                                logical,
+                                col_logical,
+                                item["value"],
+                                item["label"],
+                                solution=solution,
+                            )
+                            options_changed = True
+                        except Exception as e:  # noqa: BLE001
+                            if _is_already_exists(e):
+                                # A previous timed-out/retried action may already have committed.
+                                option_entry["action"] = "already_exists"
+                                options_changed = True
+                            else:
+                                option_entry["action"] = "failed"
+                                option_entry["error"] = str(e)
+                                option_failed = True
+                        option_results.append(option_entry)
+                    for item in option_diff["update"]:
+                        option_entry = {
+                            "value": item["value"],
+                            "action": "updated",
+                            "languages": item["languages"],
+                        }
+                        try:
+                            client.update_option_value(
+                                logical,
+                                col_logical,
+                                item["value"],
+                                item["label"],
+                                solution=solution,
+                            )
+                            options_changed = True
+                        except Exception as e:  # noqa: BLE001
+                            option_entry["action"] = "failed"
+                            option_entry["error"] = str(e)
+                            option_failed = True
+                        option_results.append(option_entry)
+                    option_results.extend(
+                        {"value": value, "action": "skipped"}
+                        for value in option_diff["unchanged"]
+                    )
+                    if option_diff["remote_only"]:
+                        entry["remote_only_options_retained"] = option_diff["remote_only"]
+                except Exception as e:  # noqa: BLE001
+                    option_failed = True
+                    entry["option_error"] = str(e)
+            elif optionset_changed(col, existing):
                 entry["action"] = "manual_update_required"
                 entry["reason"] = (
-                    "OptionSet options cannot be PATCHed via the attribute endpoint; "
-                    "update via maker portal or InsertOptionValue/UpdateOptionValue."
+                    "Boolean OptionSet label changes require an option-specific workflow."
                 )
                 result["attributes"].append(entry)
                 continue
 
             patch = build_attribute_patch(col, existing)
+            patch_updated = False
+            patch_failed = False
             if patch:
                 try:
-                    client.update_attribute_by_logical_name(logical, col_logical, patch)
-                    entry["action"] = "updated"
+                    client.update_attribute_by_logical_name(
+                        logical,
+                        col_logical,
+                        patch,
+                        attribute_type=col.type.value,
+                        solution=solution,
+                    )
+                    patch_updated = True
                     entry["patch"] = list(patch.keys())
                 except Exception as e:  # noqa: BLE001
-                    entry["action"] = "update_failed"
+                    patch_failed = True
                     entry["error"] = str(e)
+
+            if option_results:
+                entry["options"] = option_results
+            has_option_mutation = any(
+                item["action"] in {"inserted", "updated", "already_exists"}
+                for item in option_results
+            )
+            if option_failed or patch_failed:
+                entry["action"] = (
+                    "partial_failed" if (patch_updated or has_option_mutation) else "failed"
+                )
+            elif patch_updated or has_option_mutation:
+                entry["action"] = "updated"
             else:
                 entry["action"] = "skipped"
 
         result["attributes"].append(entry)
+
+    return options_changed
 
 
 def _deploy_relationships(

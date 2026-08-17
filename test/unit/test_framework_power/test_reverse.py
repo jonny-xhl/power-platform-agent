@@ -168,11 +168,14 @@ _PICKLIST_ENTITY = {
 _PICKLIST_ATTRS = [
     {"LogicalName": "new_name", "SchemaName": "new_Name", "AttributeType": "String",
      "DisplayName": {"LocalizedLabels": [{"Label": "Name", "LanguageCode": 1033}]}, "MaxLength": 100},
-    # Local option set — Options inline in attribute response.
+    # Local option set — Options inline in attribute response. Real Dataverse also
+    # gives it a non-empty Name ("{entity}_{field}") and IsGlobal=False; the name
+    # alone must NOT classify it as a global reference.
     {"LogicalName": "new_localstatus", "SchemaName": "new_LocalStatus", "AttributeType": "Picklist",
      "DisplayName": {"LocalizedLabels": [{"Label": "Local Status", "LanguageCode": 1033}]},
      "OptionSet": {
-         "Name": "",
+         "Name": "new_testpicklist_new_localstatus",
+         "IsGlobal": False,
          "Options": [
              {"Value": 1, "Label": {"LocalizedLabels": [{"Label": "草稿", "LanguageCode": 2052},
                                                         {"Label": "Draft", "LanguageCode": 1033}]}},
@@ -187,6 +190,12 @@ _PICKLIST_ATTRS = [
     # Another global option set.
     {"LogicalName": "new_priority", "SchemaName": "new_Priority", "AttributeType": "Picklist",
      "DisplayName": {"LocalizedLabels": [{"Label": "Priority", "LanguageCode": 1033}]}},
+    # Entity-bound optionset — base response has no OptionSet key; the typed
+    # PicklistAttributeMetadata query returns Name + IsGlobal=False + Options.
+    # (Live regression: new_salesproject_new_project_type was misclassified as
+    # global purely because Name was non-empty, creating a bogus optionsets/ doc.)
+    {"LogicalName": "new_projecttype", "SchemaName": "new_ProjectType", "AttributeType": "Picklist",
+     "DisplayName": {"LocalizedLabels": [{"Label": "Project Type", "LanguageCode": 1033}]}},
 ]
 
 # OptionSet data that the typed PicklistAttributeMetadata query would return.
@@ -212,6 +221,22 @@ _PICKLIST_OPTIONSET_DATA = {
                                                         {"Label": "High", "LanguageCode": 1033}]}},
         ],
     },
+    # Entity-bound (local) optionset from the typed query — real Dataverse shape:
+    # auto-named "{entity}_{field}" with IsGlobal=False.
+    "new_projecttype": {
+        "Name": "new_testpicklist_new_projecttype",
+        "IsGlobal": False,
+        "Options": [
+            {"Value": 1, "Label": {"LocalizedLabels": [
+                {"Label": "资本项目", "LanguageCode": 2052},
+                {"Label": "Capital", "LanguageCode": 1033},
+            ]}},
+            {"Value": 2, "Label": {"LocalizedLabels": [
+                {"Label": "租赁项目", "LanguageCode": 2052},
+                {"Label": "Leasing", "LanguageCode": 1033},
+            ]}},
+        ],
+    },
 }
 
 
@@ -224,7 +249,11 @@ def _make_picklist_client() -> ReverseFakeClient:
 
 
 def test_reverse_picklist_local_options_preserved():
-    """Local (inline) Picklist options are captured into Column.options."""
+    """Local (inline) Picklist options are captured into Column.options.
+
+    Real Dataverse names local optionsets "{entity}_{field}" (non-empty Name,
+    IsGlobal=False) — the name alone must NOT classify it as a global reference.
+    """
     client = ReverseFakeClient(_PICKLIST_ENTITY, _PICKLIST_ATTRS, [])
     table = reverse_table(client, "new_testpicklist")
 
@@ -291,3 +320,42 @@ def test_reverse_picklist_global_in_dictionary_link():
     # Global optionsets should have links, NOT inline options.
     assert "[选项集: new_orderstatus](../optionsets/new_orderstatus.md)" in md
     assert "[选项集: new_priority](../optionsets/new_priority.md)" in md
+
+
+def test_reverse_picklist_entitybound_not_global():
+    """Entity-bound optionset (typed query, IsGlobal=False) must NOT become a global ref.
+
+    Live regression (ADR-010): the typed PicklistAttributeMetadata query returns
+    OptionSet data for EVERY picklist, including entity-bound ones whose Name is
+    the auto-generated "{entity}_{field}". Classifying by Name alone misfiled
+    them as global → bogus optionsets/<entity>_<field>.md docs were generated.
+    """
+    client = _make_picklist_client()
+    table = reverse_table(client, "new_testpicklist")
+
+    col = next((c for c in table.columns if c.schema_name == "new_ProjectType"), None)
+    assert col is not None
+    assert col.optionset_name is None  # entity-bound → inline, not a global reference
+    assert len(col.options) == 2  # options still captured inline
+
+
+def test_reverse_picklist_entitybound_in_dictionary_inline():
+    """Entity-bound optionset renders inline in the 说明 column, no optionsets/ link."""
+    from framework_power.data_dictionary import (
+        build_prefetched_optionsets,
+        table_to_markdown as dd_markdown,
+    )
+
+    client = _make_picklist_client()
+    table = reverse_table(client, "new_testpicklist")
+    md = dd_markdown(table, source_name=None)
+
+    # Inline options, NOT a doc link.
+    assert "资本项目:1" in md
+    assert "租赁项目:2" in md
+    assert "new_testpicklist_new_projecttype.md" not in md
+
+    # And it must not feed optionset doc generation.
+    prefetched = build_prefetched_optionsets([table])
+    assert "new_testpicklist_new_projecttype" not in prefetched
+    assert set(prefetched) == {"new_orderstatus", "new_priority"}

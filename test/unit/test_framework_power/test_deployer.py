@@ -5,15 +5,14 @@ from typing import Any
 import pytest
 
 from framework_power import Column, LookupColumn, Relationship, Table, deploy_table
+from framework_power.client.dataverse_client import DataverseClient
 from framework_power.deployer import DeployConfig
 from framework_power.models import (
     AttributeType,
-    BooleanLabels,
     Cascade,
     CascadeConfig,
     Label,
     Option,
-    RequiredLevel,
 )
 from framework_power.serializer import serialize_label
 
@@ -26,6 +25,59 @@ NO_DELAY = DeployConfig(
     between_relationships_delay=0.0,
     sleep=lambda _s: None,
 )
+
+
+class FakeResponse:
+    """Small requests.Response substitute for client transport tests."""
+
+    def __init__(self, payload: dict[str, Any] | None = None, status_code: int = 200) -> None:
+        self._payload = payload or {}
+        self.status_code = status_code
+        self.ok = 200 <= status_code < 300
+        self.text = "" if status_code == 204 else "json"
+        self.headers: dict[str, str] = {}
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+    def raise_for_status(self) -> None:
+        if not self.ok:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+class RecordingSession:
+    """Records typed GET and full-definition PUT requests."""
+
+    def __init__(self, metadata: dict[str, Any]) -> None:
+        self.metadata = metadata
+        self.get_calls: list[tuple[str, dict[str, Any]]] = []
+        self.put_calls: list[tuple[str, dict[str, Any], dict[str, str]]] = []
+        self.post_calls: list[tuple[str, dict[str, Any]]] = []
+        self.patch_calls: list[Any] = []
+
+    def get(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.get_calls.append((url, kwargs))
+        return FakeResponse(self.metadata)
+
+    def put(
+        self,
+        url: str,
+        *,
+        json: dict[str, Any],
+        headers: dict[str, str],
+    ) -> FakeResponse:
+        self.put_calls.append((url, json, headers))
+        return FakeResponse(status_code=204)
+
+    def post(self, url: str, *, json: dict[str, Any]) -> FakeResponse:
+        self.post_calls.append((url, json))
+        if url.endswith("/InsertOptionValue"):
+            return FakeResponse({"NewOptionValue": json["Value"]})
+        return FakeResponse(status_code=204)
+
+    def patch(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.patch_calls.append((url, kwargs))
+        return FakeResponse(status_code=405)
 
 
 class FakeClient:
@@ -43,16 +95,24 @@ class FakeClient:
         existing_entities: set[str] | None = None,
         existing_attributes: list[dict[str, Any]] | None = None,
         existing_relationships: list[dict[str, Any]] | None = None,
+        typed_attributes: dict[str, dict[str, Any]] | None = None,
+        fail_attribute_update: bool = False,
     ) -> None:
         self._table_exists = table_exists
         self._existing_entities = set(existing_entities or {"account"})
         self._existing_attributes = existing_attributes or []
         self._existing_relationships = existing_relationships or []
+        self._typed_attributes = typed_attributes or {}
+        self._fail_attribute_update = fail_attribute_update
         self.calls: dict[str, list[Any]] = {
             "create_entity": [],
             "update_entity": [],
             "create_attribute": [],
             "update_attribute_by_logical_name": [],
+            "get_attribute_metadata": [],
+            "insert_option_value": [],
+            "update_option_value": [],
+            "publish_entity": [],
             "create_relationship_from_json": [],
             "add_solution_component": [],
         }
@@ -77,9 +137,59 @@ class FakeClient:
         self.calls["create_attribute"].append((name, payload))
         return {"status": "created"}
 
-    def update_attribute_by_logical_name(self, entity: str, attr: str, patch: dict[str, Any]) -> dict[str, Any]:
-        self.calls["update_attribute_by_logical_name"].append((entity, attr, patch))
+    def update_attribute_by_logical_name(
+        self,
+        entity: str,
+        attr: str,
+        changes: dict[str, Any],
+        *,
+        attribute_type: str | None = None,
+        solution: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls["update_attribute_by_logical_name"].append(
+            (entity, attr, changes, attribute_type, solution)
+        )
+        if self._fail_attribute_update:
+            raise RuntimeError("attribute PUT failed")
         return {"status": "updated"}
+
+    def get_attribute_metadata(
+        self,
+        entity: str,
+        attr: str,
+        *,
+        attribute_type: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls["get_attribute_metadata"].append((entity, attr, attribute_type))
+        return self._typed_attributes.get(attr, {"LogicalName": attr, "OptionSet": {"Options": []}})
+
+    def insert_option_value(
+        self,
+        entity: str,
+        attr: str,
+        value: int,
+        label: dict[str, Any],
+        *,
+        solution: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls["insert_option_value"].append((entity, attr, value, label, solution))
+        return {"status": "inserted", "value": value}
+
+    def update_option_value(
+        self,
+        entity: str,
+        attr: str,
+        value: int,
+        label: dict[str, Any],
+        *,
+        solution: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls["update_option_value"].append((entity, attr, value, label, solution))
+        return {"status": "updated", "value": value}
+
+    def publish_entity(self, entity: str) -> dict[str, Any]:
+        self.calls["publish_entity"].append(entity)
+        return {"published": True, "entity": entity}
 
     def get_relationships(self, name: str) -> list[dict[str, Any]]:
         return list(self._existing_relationships)
@@ -186,9 +296,143 @@ def test_deploy_patches_changed_attribute():
     name_entry = next(a for a in result["attributes"] if a["attribute"] == "new_Name")
     assert name_entry["action"] == "updated"
     assert len(client.calls["update_attribute_by_logical_name"]) == 1
-    entity, attr, patch = client.calls["update_attribute_by_logical_name"][0]
+    entity, attr, changes, attribute_type, solution = (
+        client.calls["update_attribute_by_logical_name"][0]
+    )
     assert entity == "new_projectbudget" and attr == "new_name"
-    assert patch["MaxLength"] == 200
+    assert changes["MaxLength"] == 200
+    assert attribute_type == "String"
+    assert solution is None
+
+
+@pytest.mark.parametrize(
+    ("attribute_type", "odata_type", "specific"),
+    [
+        (
+            "DateTime",
+            "DateTimeAttributeMetadata",
+            {
+                "Format": "DateOnly",
+                "DateTimeBehavior": {"Value": "DateOnly"},
+                "ImeMode": "Disabled",
+            },
+        ),
+        (
+            "Decimal",
+            "DecimalAttributeMetadata",
+            {"Precision": 2, "MinValue": -100000000000, "MaxValue": 100000000000},
+        ),
+    ],
+)
+def test_client_attribute_update_uses_typed_get_and_full_put(
+    attribute_type: str,
+    odata_type: str,
+    specific: dict[str, Any],
+):
+    metadata = {
+        "@odata.context": "https://example/$metadata#attribute",
+        # Typed metadata GETs do not consistently echo @odata.type; the client must
+        # restore the discriminator from attribute_type before PUT.
+        "MetadataId": "attribute-id",
+        "LogicalName": "new_field",
+        "SchemaName": "new_Field",
+        "AttributeType": attribute_type,
+        "AttributeTypeName": {"Value": f"{attribute_type}Type"},
+        "DisplayName": serialize_label(Label.bilingual("字段", "Field")),
+        "RequiredLevel": {
+            "Value": "ApplicationRequired",
+            "CanBeChanged": True,
+            "ManagedPropertyLogicalName": "canmodifyrequirementlevelsettings",
+        },
+        "HasChanged": None,
+        "CreatedOn": "2026-01-01T00:00:00Z",
+        "MinSupportedValue": "1900-01-01T00:00:00Z",
+        "MaxSupportedPrecision": 10,
+        **specific,
+    }
+    session = RecordingSession(metadata)
+    client = DataverseClient(access_token="token")
+    client._base_url = "https://example.crm.dynamics.com"
+    client._session = session  # type: ignore[assignment]
+
+    result = client.update_attribute_by_logical_name(
+        "new_table",
+        "new_field",
+        {
+            "RequiredLevel": {
+                "Value": "None",
+                "CanBeChanged": True,
+                "ManagedPropertyLogicalName": "canmodifyrequirementlevelsettings",
+            }
+        },
+        attribute_type=attribute_type,
+        solution="new_solution",
+    )
+
+    assert result["method"] == "PUT"
+    assert session.patch_calls == []
+    assert len(session.get_calls) == 1
+    get_url, get_kwargs = session.get_calls[0]
+    assert get_url.endswith(
+        f"/Attributes(LogicalName='new_field')/Microsoft.Dynamics.CRM.{odata_type}"
+    )
+    assert get_kwargs["headers"] == {"Consistency": "Strong"}
+
+    put_url, payload, headers = session.put_calls[0]
+    assert put_url.endswith("/Attributes(LogicalName='new_field')")
+    assert payload["@odata.type"] == f"Microsoft.Dynamics.CRM.{odata_type}"
+    assert payload["RequiredLevel"]["Value"] == "None"
+    assert payload["MetadataId"] == "attribute-id"
+    assert "@odata.context" not in payload
+    assert "HasChanged" not in payload
+    assert "CreatedOn" not in payload
+    assert "MinSupportedValue" not in payload
+    assert "MaxSupportedPrecision" not in payload
+    for key, value in specific.items():
+        assert payload[key] == value
+    assert headers == {
+        "MSCRM.MergeLabels": "true",
+        "MSCRM.SolutionUniqueName": "new_solution",
+    }
+
+
+def test_client_option_actions_use_supported_payloads():
+    session = RecordingSession({})
+    client = DataverseClient(access_token="token")
+    client._base_url = "https://example.crm.dynamics.com"
+    client._session = session  # type: ignore[assignment]
+    label = serialize_label(Label.bilingual("已确收", "Revenue Recognized"))
+
+    inserted = client.insert_option_value(
+        "new_rollingforecast",
+        "new_projectstatus",
+        5,
+        label,
+        solution="new_entity930",
+    )
+    updated = client.update_option_value(
+        "new_rollingforecast",
+        "new_projectstatus",
+        5,
+        label,
+        solution="new_entity930",
+    )
+
+    assert inserted == {"status": "inserted", "value": 5}
+    assert updated == {"status": "updated", "value": 5}
+    insert_url, insert_payload = session.post_calls[0]
+    assert insert_url.endswith("/InsertOptionValue")
+    assert insert_payload == {
+        "EntityLogicalName": "new_rollingforecast",
+        "AttributeLogicalName": "new_projectstatus",
+        "Value": 5,
+        "Label": label,
+        "SolutionUniqueName": "new_entity930",
+    }
+    update_url, update_payload = session.post_calls[1]
+    assert update_url.endswith("/UpdateOptionValue")
+    assert update_payload["MergeLabels"] is True
+    assert update_payload["SolutionUniqueName"] == "new_entity930"
 
 
 def test_deploy_idempotent_noop_on_matching_attributes():
@@ -199,30 +443,157 @@ def test_deploy_idempotent_noop_on_matching_attributes():
     assert client.calls["create_attribute"] == []
 
 
-def test_deploy_picklist_options_reports_manual_update():
-    table = Table(
+def _picklist_table() -> Table:
+    return Table(
         schema_name="new_X",
         display_name=Label.zh("X"),
         columns=[
             Column("new_Name", AttributeType.String, display_name=Label.zh("名称")),
-            Column("new_Status", AttributeType.Picklist, display_name=Label.zh("状态"),
-                   options=[Option(1, Label.zh("草稿")), Option(2, Label.zh("已批准"))]),
+            Column(
+                "new_Status",
+                AttributeType.Picklist,
+                display_name=Label.bilingual("状态", "Status"),
+                options=[
+                    Option(1, Label.bilingual("草稿", "Draft")),
+                    Option(2, Label.bilingual("已批准", "Approved")),
+                ],
+            ),
         ],
     )
-    existing_attrs = [
-        _str_existing("new_name", max_length=100, display=Label.zh("名称")),
-        {
+
+
+def _picklist_existing() -> list[dict[str, Any]]:
+    return [{
+        "LogicalName": "new_status",
+        "RequiredLevel": {"Value": "None"},
+        "DisplayName": serialize_label(Label.bilingual("状态", "Status")),
+    }]
+
+
+def test_deploy_picklist_inserts_missing_option_and_publishes():
+    typed = {
+        "new_status": {
             "LogicalName": "new_status",
-            "RequiredLevel": {"Value": "None"},
-            "DisplayName": serialize_label(Label.zh("状态")),
-            "OptionSet": {"Options": [{"Value": 1}]},  # differs -> manual update required
-        },
+            "OptionSet": {
+                "IsGlobal": False,
+                "Options": [{"Value": 1, "Label": serialize_label(Label.bilingual("草稿", "Draft"))}],
+            },
+        }
+    }
+    client = FakeClient(
+        table_exists=True,
+        existing_attributes=_picklist_existing(),
+        typed_attributes=typed,
+    )
+
+    result = deploy_table(
+        client,
+        _picklist_table(),
+        config=NO_DELAY,
+        fields=["new_Status"],
+        solution="new_solution",
+    )
+
+    status_entry = result["attributes"][0]
+    assert status_entry["action"] == "updated"
+    assert status_entry["options"] == [
+        {"value": 2, "action": "inserted"},
+        {"value": 1, "action": "skipped"},
     ]
-    client = FakeClient(table_exists=True, existing_attributes=existing_attrs)
-    result = deploy_table(client, table, config=NO_DELAY)
-    status_entry = next(a for a in result["attributes"] if a["attribute"] == "new_Status")
-    assert status_entry["action"] == "manual_update_required"
-    assert client.calls["update_attribute_by_logical_name"] == []
+    call = client.calls["insert_option_value"][0]
+    assert call[:3] == ("new_x", "new_status", 2)
+    assert call[4] == "new_solution"
+    assert client.calls["update_option_value"] == []
+    assert client.calls["publish_entity"] == ["new_x"]
+    assert result["publish"]["published"] is True
+
+
+def test_deploy_picklist_updates_authored_labels_and_retains_remote_only():
+    typed = {
+        "new_status": {
+            "OptionSet": {
+                "IsGlobal": False,
+                "Options": [
+                    {"Value": 1, "Label": serialize_label(Label.bilingual("草案", "Draft"))},
+                    {"Value": 2, "Label": serialize_label(Label.bilingual("已批准", "Approved"))},
+                    {"Value": 9, "Label": serialize_label(Label.bilingual("远端", "Remote"))},
+                ],
+            }
+        }
+    }
+    client = FakeClient(
+        table_exists=True,
+        existing_attributes=_picklist_existing(),
+        typed_attributes=typed,
+    )
+
+    result = deploy_table(client, _picklist_table(), config=NO_DELAY, fields=["new_Status"])
+
+    entry = result["attributes"][0]
+    assert entry["action"] == "updated"
+    assert entry["remote_only_options_retained"] == [9]
+    update = client.calls["update_option_value"][0]
+    assert update[:3] == ("new_x", "new_status", 1)
+    assert update[4] is None
+    labels = {(x["LanguageCode"], x["Label"]) for x in update[3]["LocalizedLabels"]}
+    assert labels == {(2052, "草稿"), (1033, "Draft")}
+    assert client.calls["insert_option_value"] == []
+    assert client.calls["publish_entity"] == ["new_x"]
+
+
+def test_deploy_picklist_reports_partial_failure_when_option_commits_but_field_put_fails():
+    typed = {
+        "new_status": {
+            "OptionSet": {
+                "IsGlobal": False,
+                "Options": [{"Value": 1, "Label": serialize_label(Label.bilingual("草稿", "Draft"))}],
+            }
+        }
+    }
+    # RequiredLevel differs, forcing a normal metadata PUT after option insertion.
+    existing = _picklist_existing()
+    existing[0]["RequiredLevel"] = {"Value": "ApplicationRequired"}
+    client = FakeClient(
+        table_exists=True,
+        existing_attributes=existing,
+        typed_attributes=typed,
+        fail_attribute_update=True,
+    )
+
+    result = deploy_table(client, _picklist_table(), config=NO_DELAY, fields=["new_Status"])
+
+    entry = result["attributes"][0]
+    assert entry["action"] == "partial_failed"
+    assert "attribute PUT failed" in entry["error"]
+    # The successful option action still requires targeted publication.
+    assert client.calls["publish_entity"] == ["new_x"]
+
+
+def test_deploy_picklist_matching_options_is_idempotent_noop():
+    typed = {
+        "new_status": {
+            "OptionSet": {
+                "IsGlobal": False,
+                "Options": [
+                    {"Value": 1, "Label": serialize_label(Label.bilingual("草稿", "Draft"))},
+                    {"Value": 2, "Label": serialize_label(Label.bilingual("已批准", "Approved"))},
+                ],
+            }
+        }
+    }
+    client = FakeClient(
+        table_exists=True,
+        existing_attributes=_picklist_existing(),
+        typed_attributes=typed,
+    )
+
+    result = deploy_table(client, _picklist_table(), config=NO_DELAY, fields=["new_Status"])
+
+    assert result["attributes"][0]["action"] == "skipped"
+    assert client.calls["insert_option_value"] == []
+    assert client.calls["update_option_value"] == []
+    assert client.calls["publish_entity"] == []
+    assert "publish" not in result
 
 
 def test_deploy_relationship_skipped_when_present():
@@ -468,6 +839,50 @@ def test_deploy_fields_lookup_already_exists_skipped():
     )
     assert result["relationships"][0]["action"] == "skipped"
     assert client.calls["create_relationship_from_json"] == []
+
+
+def test_deploy_fields_required_level_update_passes_type_and_solution():
+    """Existing DateTime fields use the safe typed metadata update path."""
+    table = Table(
+        schema_name="new_X",
+        display_name=Label.zh("X"),
+        columns=[
+            Column("new_Name", AttributeType.String, display_name=Label.zh("名称")),
+            Column(
+                "new_ShipmentMonth",
+                AttributeType.DateTime,
+                display_name=Label.bilingual("发货月份", "Shipment Month"),
+                date_time_behavior="DateOnly",
+                format="DateOnly",
+            ),
+        ],
+    )
+    existing = [{
+        "LogicalName": "new_shipmentmonth",
+        "DisplayName": serialize_label(Label.bilingual("发货月份", "Shipment Month")),
+        "RequiredLevel": {"Value": "ApplicationRequired"},
+        "Format": "DateOnly",
+        "DateTimeBehavior": {"Value": "DateOnly"},
+    }]
+    client = FakeClient(table_exists=True, existing_attributes=existing)
+
+    result = deploy_table(
+        client,
+        table,
+        config=NO_DELAY,
+        fields=["new_ShipmentMonth"],
+        solution="new_entity930",
+        solution_clean=True,
+    )
+
+    assert result["attributes"][0]["action"] == "updated"
+    entity, attr, changes, attribute_type, solution = (
+        client.calls["update_attribute_by_logical_name"][0]
+    )
+    assert (entity, attr) == ("new_x", "new_shipmentmonth")
+    assert changes["RequiredLevel"]["Value"] == "None"
+    assert attribute_type == "DateTime"
+    assert solution == "new_entity930"
 
 
 def test_deploy_fields_idempotent_retry():

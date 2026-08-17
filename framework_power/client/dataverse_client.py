@@ -7,6 +7,7 @@ The create/update methods accept *already-serialized* Dataverse Web API JSON
 """
 
 import base64
+import copy
 import logging
 import uuid
 from pathlib import Path
@@ -19,6 +20,42 @@ from urllib3.util.retry import Retry
 from .retry_helper import retry_on_metadata_error, retry_on_404
 
 logger = logging.getLogger(__name__)
+
+
+_ATTRIBUTE_ODATA_TYPES: dict[str, str] = {
+    "String": "StringAttributeMetadata",
+    "Memo": "MemoAttributeMetadata",
+    "Integer": "IntegerAttributeMetadata",
+    "BigInt": "BigIntAttributeMetadata",
+    "Money": "MoneyAttributeMetadata",
+    "Decimal": "DecimalAttributeMetadata",
+    "Double": "DoubleAttributeMetadata",
+    "Picklist": "PicklistAttributeMetadata",
+    "Boolean": "BooleanAttributeMetadata",
+    "DateTime": "DateTimeAttributeMetadata",
+    "File": "FileAttributeMetadata",
+}
+
+# Properties returned by the full metadata GET that Microsoft's update sample does
+# not send back in the PUT definition.  These are response annotations, change
+# tracking values, or server-maintained fields rather than part of the writable
+# attribute definition.
+_ATTRIBUTE_RESPONSE_ONLY_FIELDS = {
+    "@odata.context",
+    "HasChanged",
+    "AttributeOf",
+    "DeprecatedVersion",
+    "IsValidODataAttribute",
+    "LinkedAttributeId",
+    "ExternalName",
+    "InheritsFrom",
+    "CreatedOn",
+    "ModifiedOn",
+    "MinSupportedValue",
+    "MaxSupportedValue",
+    "MinSupportedPrecision",
+    "MaxSupportedPrecision",
+}
 
 
 def _odata_quote(value: str) -> str:
@@ -34,6 +71,37 @@ def _entity_id(response: requests.Response) -> Optional[str]:
     if entity_id:
         return entity_id.split("(")[-1].rstrip(")")
     return None
+
+
+def _clean_attribute_update_payload(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Normalize retrieved attribute metadata into a safe full ``PUT`` body.
+
+    Microsoft requires the complete concrete attribute definition for updates, but
+    the GET response also contains OData annotations and server-maintained values.
+    Remove only those response-only values, retain type-specific settings, and drop
+    nulls that cannot contribute to the replacement definition.
+    """
+
+    def clean(value: Any, *, top_level: bool = False) -> Any:
+        if isinstance(value, dict):
+            result: dict[str, Any] = {}
+            for key, nested in value.items():
+                if key in {"@odata.context", "@odata.etag", "HasChanged"}:
+                    continue
+                if top_level and key in _ATTRIBUTE_RESPONSE_ONLY_FIELDS:
+                    continue
+                if nested is None:
+                    continue
+                cleaned = clean(nested)
+                if key == "@odata.type" and isinstance(cleaned, str):
+                    cleaned = cleaned.lstrip("#")
+                result[key] = cleaned
+            return result
+        if isinstance(value, list):
+            return [clean(item) for item in value if item is not None]
+        return value
+
+    return clean(copy.deepcopy(metadata), top_level=True)
 
 
 class DataverseClient:
@@ -198,6 +266,54 @@ class DataverseClient:
         response.raise_for_status()
         return response.json().get("value", [])
 
+    def get_attribute_metadata(
+        self,
+        entity_name: str,
+        attr_logical_name: str,
+        *,
+        attribute_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Retrieve the complete concrete metadata definition for one attribute.
+
+        Dataverse metadata is polymorphic.  Existing-column updates require a full
+        type-specific definition followed by ``PUT``; the base ``Attributes`` item
+        does not expose every derived property.  ``attribute_type`` may be either an
+        ``AttributeType`` value (for example ``"Decimal"``) or an OData type name.
+        When omitted, a base read is performed first to discover the concrete type.
+        """
+        base_path = (
+            f"EntityDefinitions(LogicalName='{entity_name}')"
+            f"/Attributes(LogicalName='{attr_logical_name}')"
+        )
+        discovered: dict[str, Any] | None = None
+        type_name = attribute_type or ""
+        if not type_name:
+            response = self.session.get(
+                self.get_api_url(base_path),
+                headers={"Consistency": "Strong"},
+            )
+            response.raise_for_status()
+            discovered = response.json()
+            type_name = discovered.get("@odata.type") or discovered.get("AttributeType") or ""
+
+        short_type = str(type_name).split(".")[-1].lstrip("#")
+        if not short_type.endswith("AttributeMetadata"):
+            short_type = _ATTRIBUTE_ODATA_TYPES.get(short_type, "")
+        if not short_type:
+            raise ValueError(
+                f"Unsupported or unknown attribute type for "
+                f"'{entity_name}.{attr_logical_name}': {type_name!r}"
+            )
+
+        url = self.get_api_url(
+            f"{base_path}/Microsoft.Dynamics.CRM.{short_type}"
+        )
+        if short_type in {"PicklistAttributeMetadata", "BooleanAttributeMetadata"}:
+            url += "?$expand=OptionSet"
+        response = self.session.get(url, headers={"Consistency": "Strong"})
+        response.raise_for_status()
+        return response.json()
+
     def get_optionset_attributes(self, entity_name: str) -> dict[str, dict[str, Any]]:
         """Fetch OptionSet data for all Picklist and Boolean attributes.
 
@@ -356,18 +472,149 @@ class DataverseClient:
         self,
         entity_name: str,
         attr_logical_name: str,
-        patch: dict[str, Any],
+        changes: dict[str, Any],
+        *,
+        attribute_type: Optional[str] = None,
+        solution: Optional[str] = None,
     ) -> dict[str, Any]:
-        """PATCH an attribute by single-valued navigation (LogicalName, not MetadataId)."""
-        url = self.get_api_url(
-            f"EntityDefinitions(LogicalName='{entity_name}')/Attributes(LogicalName='{attr_logical_name}')"
+        """Safely update an existing attribute with a full-definition ``PUT``.
+
+        Dataverse does not support ``PATCH`` on the attribute metadata navigation
+        endpoint.  Its documented contract is retrieve-modify-``PUT``: fetch the
+        complete concrete metadata type, remove response-only properties, overlay
+        the intended mutable changes, and send the full definition to the uncast
+        logical-name URL.
+        """
+        current = self.get_attribute_metadata(
+            entity_name,
+            attr_logical_name,
+            attribute_type=attribute_type,
         )
-        response = self.session.patch(url, json=patch)
+        payload = _clean_attribute_update_payload(current)
+        type_name = attribute_type or current.get("@odata.type") or current.get("AttributeType")
+        short_type = str(type_name or "").split(".")[-1].lstrip("#")
+        if not short_type.endswith("AttributeMetadata"):
+            short_type = _ATTRIBUTE_ODATA_TYPES.get(short_type, "")
+        if not short_type:
+            raise ValueError(
+                f"Unsupported or unknown attribute type for "
+                f"'{entity_name}.{attr_logical_name}': {type_name!r}"
+            )
+        # Typed GET responses don't consistently echo @odata.type.  The uncast PUT
+        # endpoint needs the discriminator or it validates derived properties (such
+        # as Decimal MaxValue) against the base AttributeMetadata type.
+        payload["@odata.type"] = f"Microsoft.Dynamics.CRM.{short_type}"
+        payload.update(copy.deepcopy(changes))
+
+        url = self.get_api_url(
+            f"EntityDefinitions(LogicalName='{entity_name}')"
+            f"/Attributes(LogicalName='{attr_logical_name}')"
+        )
+        headers = {"MSCRM.MergeLabels": "true"}
+        if solution:
+            headers["MSCRM.SolutionUniqueName"] = solution
+        response = self.session.put(url, json=payload, headers=headers)
         if not response.ok:
             self._raise_with_detail(
                 response, f"update attribute '{attr_logical_name}' on '{entity_name}'"
             )
-        return {"status": "updated"}
+        return {
+            "status": "updated",
+            "method": "PUT",
+            "fields": list(changes.keys()),
+        }
+
+    @retry_on_metadata_error(
+        max_retries=5,
+        initial_delay=3.0,
+        error_patterns=[
+            "not found",
+            "cannot be found",
+            "does not exist",
+            "another",
+            "running",
+            "customization operation",
+            "metadatacache",
+            "0x80040216",
+            "0x80060891",
+        ],
+    )
+    def insert_option_value(
+        self,
+        entity_name: str,
+        attr_logical_name: str,
+        value: int,
+        label: dict[str, Any],
+        *,
+        solution: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Insert one value into an existing local Picklist.
+
+        ``InsertOptionValue`` is the supported Dataverse action for changing an
+        existing OptionSet. ``SolutionUniqueName`` belongs in the action body rather
+        than the metadata-update header used by attribute ``PUT``.
+        """
+        payload: dict[str, Any] = {
+            "EntityLogicalName": entity_name,
+            "AttributeLogicalName": attr_logical_name,
+            "Value": int(value),
+            "Label": copy.deepcopy(label),
+        }
+        if solution:
+            payload["SolutionUniqueName"] = solution
+        response = self.session.post(self.get_api_url("InsertOptionValue"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(
+                response,
+                f"insert option {value} into '{entity_name}.{attr_logical_name}'",
+            )
+        data = response.json() if response.text else {}
+        return {
+            "status": "inserted",
+            "value": data.get("NewOptionValue", value),
+        }
+
+    @retry_on_metadata_error(
+        max_retries=5,
+        initial_delay=3.0,
+        error_patterns=[
+            "not found",
+            "cannot be found",
+            "does not exist",
+            "another",
+            "running",
+            "customization operation",
+            "metadatacache",
+            "0x80040216",
+            "0x80060891",
+        ],
+    )
+    def update_option_value(
+        self,
+        entity_name: str,
+        attr_logical_name: str,
+        value: int,
+        label: dict[str, Any],
+        *,
+        solution: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Merge authored language labels for one existing local-Picklist value."""
+        payload: dict[str, Any] = {
+            "EntityLogicalName": entity_name,
+            "AttributeLogicalName": attr_logical_name,
+            "Value": int(value),
+            "Label": copy.deepcopy(label),
+            "MergeLabels": True,
+        }
+        if solution:
+            payload["SolutionUniqueName"] = solution
+        response = self.session.post(self.get_api_url("UpdateOptionValue"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(
+                response,
+                f"update option {value} on '{entity_name}.{attr_logical_name}'",
+            )
+        return {"status": "updated", "value": value}
 
     @retry_on_metadata_error(
         max_retries=5,

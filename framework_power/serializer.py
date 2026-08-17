@@ -88,7 +88,8 @@ _ODATA_TYPE: dict[AttributeType, str] = {
     AttributeType.File: "Microsoft.Dynamics.CRM.FileAttributeMetadata",
 }
 
-# Per-type JSON keys that are legal to PATCH (the rest are read-only / create-only).
+# Per-type mutable keys eligible for the desired-state overlay.
+# Transport is a full concrete metadata PUT, not an attribute PATCH.
 _UPDATABLE_BY_TYPE: dict[AttributeType, set[str]] = {
     AttributeType.String: {"DisplayName", "Description", "MaxLength", "FormatName", "RequiredLevel", "ImeMode"},
     AttributeType.Memo: {"DisplayName", "Description", "MaxLength", "FormatName", "RequiredLevel", "ImeMode"},
@@ -106,8 +107,8 @@ _UPDATABLE_BY_TYPE: dict[AttributeType, set[str]] = {
     AttributeType.File: {"DisplayName", "Description", "MaxSizeInKB", "RequiredLevel"},
 }
 
-# Attribute types whose OptionSet is effectively create-only (cannot be PATCHed
-# through the simple attribute endpoint; deployer reports manual update required).
+# Attribute types whose OptionSet values are not reconciled by the generic metadata
+# update path; deployer reports that option-specific operations are required.
 _OPTIONSET_TYPES = {AttributeType.Picklist, AttributeType.Boolean}
 
 
@@ -404,7 +405,7 @@ def serialize_relationship(
 
 
 def serialize_updatable(col: Column) -> dict[str, Any]:
-    """Return only the PATCH-legal desired properties for ``col``'s type."""
+    """Return mutable desired properties eligible for the metadata PUT overlay."""
     full = serialize_column(col)
     allowed = _UPDATABLE_BY_TYPE.get(col.type, {"DisplayName", "Description", "RequiredLevel"})
     return {k: v for k, v in full.items() if k in allowed and v is not None}
@@ -420,27 +421,124 @@ def _values_equal(desired: Any, existing: Any) -> bool:
     return desired == existing
 
 
-def optionset_changed(col: Column, existing_attr: dict[str, Any]) -> bool:
-    """Return True if the column's OptionSet differs from the existing attribute.
+def _localized_label_map(label_dict: dict[str, Any] | None) -> dict[int, str]:
+    """Reduce a Dataverse Label object to ``LanguageCode -> text``.
 
-    Only meaningful for Picklist/Boolean. The deployer uses this to report that a
-    manual option-set update is required (the Web API can't PATCH options simply).
+    Typed metadata normally exposes ``LocalizedLabels``. ``UserLocalizedLabel`` is
+    accepted as a fallback for reduced test doubles and tenant-specific responses.
     """
-    if col.type not in _OPTIONSET_TYPES:
-        return False
-    existing_has_options = bool(existing_attr.get("OptionSet"))
+    if not label_dict:
+        return {}
+    labels = list(label_dict.get("LocalizedLabels") or [])
+    user_label = label_dict.get("UserLocalizedLabel")
+    if user_label:
+        labels.append(user_label)
+    result: dict[int, str] = {}
+    for item in labels:
+        code = item.get("LanguageCode")
+        text = item.get("Label")
+        if code is not None and text is not None:
+            result[int(code)] = str(text)
+    return result
+
+
+def build_picklist_option_diff(
+    col: Column,
+    existing_attr: dict[str, Any],
+) -> dict[str, Any]:
+    """Compute a non-destructive local-Picklist option diff.
+
+    Desired values missing online are returned under ``insert``. Existing values whose
+    authored language labels differ are returned under ``update``. Online-only values
+    are reported under ``remote_only`` and deliberately retained: removing option values
+    can invalidate existing records and therefore requires an explicit destructive flow.
+
+    Only authored languages participate in label comparison. This means an English +
+    Chinese definition can update those labels without erasing an additional Japanese
+    label already present online.
+    """
+    if col.type != AttributeType.Picklist:
+        return {"insert": [], "update": [], "unchanged": [], "remote_only": []}
+
+    desired_values = [option.value for option in col.options]
+    duplicates = sorted({value for value in desired_values if desired_values.count(value) > 1})
+    if duplicates:
+        raise ValueError(
+            f"Picklist '{col.schema_name}' has duplicate option values: {duplicates}."
+        )
+
+    option_set = existing_attr.get("OptionSet") or {}
+    if option_set.get("IsGlobal") is True:
+        raise ValueError(
+            f"Picklist '{col.schema_name}' is global online; local option actions are unsafe."
+        )
+    existing_options = {
+        option.get("Value"): option
+        for option in (option_set.get("Options") or [])
+        if option.get("Value") is not None
+    }
+    desired_set = set(desired_values)
+    result: dict[str, Any] = {
+        "insert": [],
+        "update": [],
+        "unchanged": [],
+        "remote_only": sorted(value for value in existing_options if value not in desired_set),
+    }
+
+    for option in col.options:
+        label = serialize_label(option.label)
+        desired_labels = _localized_label_map(label)
+        existing = existing_options.get(option.value)
+        if existing is None:
+            result["insert"].append(
+                {
+                    "value": option.value,
+                    "label": label,
+                    "languages": sorted(desired_labels),
+                }
+            )
+            continue
+
+        current_labels = _localized_label_map(existing.get("Label"))
+        changed_languages = sorted(
+            code for code, text in desired_labels.items() if current_labels.get(code) != text
+        )
+        if changed_languages:
+            result["update"].append(
+                {
+                    "value": option.value,
+                    "label": label,
+                    "languages": changed_languages,
+                }
+            )
+        else:
+            result["unchanged"].append(option.value)
+    return result
+
+
+def optionset_changed(col: Column, existing_attr: dict[str, Any]) -> bool:
+    """Backward-compatible coarse OptionSet change predicate.
+
+    Local Picklists now use :func:`build_picklist_option_diff` for actionable inserts
+    and label updates. Boolean label updates remain outside the generic metadata PUT path.
+    """
     if col.type == AttributeType.Picklist:
-        return existing_has_options and len(col.options) > 0
-    return existing_has_options and col.boolean_labels is not None
+        diff = build_picklist_option_diff(col, existing_attr)
+        return bool(diff["insert"] or diff["update"])
+    if col.type == AttributeType.Boolean:
+        return bool(existing_attr.get("OptionSet")) and col.boolean_labels is not None
+    return False
 
 
 def build_attribute_patch(
     col: Column,
     existing_attr: dict[str, Any],
 ) -> Optional[dict[str, Any]]:
-    """Build a PATCH payload for ``col`` against its existing attribute JSON.
+    """Build the mutable-property overlay for an existing attribute.
 
-    Returns ``None`` when no updatable property differs (idempotent no-op).
+    The historical function name is retained for API compatibility. The returned mapping
+    is not sent as an HTTP PATCH: the client overlays it on typed current metadata and sends
+    the complete concrete definition with PUT. Returns ``None`` for an idempotent no-op.
     """
     desired = serialize_updatable(col)
     patch: dict[str, Any] = {}

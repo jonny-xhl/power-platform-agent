@@ -17,6 +17,7 @@ from framework_power.models import (
 )
 from framework_power.serializer import (
     build_attribute_patch,
+    build_picklist_option_diff,
     serialize_boolean_optionset,
     serialize_column,
     serialize_entity_patch,
@@ -258,6 +259,73 @@ def test_build_attribute_patch_detects_scalar_change():
     patch = build_attribute_patch(col, existing)
     assert patch is not None
     assert patch.get("MaxLength") == 300
+
+
+def test_build_picklist_option_diff_is_non_destructive_and_language_scoped():
+    col = Column(
+        "new_Status",
+        AttributeType.Picklist,
+        display_name=Label.bilingual("状态", "Status"),
+        options=[
+            Option(1, Label.bilingual("草稿", "Draft")),
+            Option(2, Label.bilingual("已批准", "Approved")),
+            Option(3, Label.bilingual("已关闭", "Closed")),
+        ],
+    )
+    existing = {
+        "OptionSet": {
+            "Options": [
+                {
+                    "Value": 1,
+                    "Label": {
+                        "LocalizedLabels": [
+                            {"LanguageCode": 2052, "Label": "草案"},
+                            {"LanguageCode": 1033, "Label": "Draft"},
+                            {"LanguageCode": 1041, "Label": "ドラフト"},
+                        ]
+                    },
+                },
+                {"Value": 2, "Label": serialize_label(Label.bilingual("已批准", "Approved"))},
+                {"Value": 9, "Label": serialize_label(Label.bilingual("远端保留", "Remote"))},
+            ]
+        }
+    }
+
+    diff = build_picklist_option_diff(col, existing)
+
+    assert [item["value"] for item in diff["insert"]] == [3]
+    assert diff["update"] == [{
+        "value": 1,
+        "label": serialize_label(Label.bilingual("草稿", "Draft")),
+        "languages": [2052],
+    }]
+    assert diff["unchanged"] == [2]
+    assert diff["remote_only"] == [9]
+
+
+def test_build_picklist_option_diff_rejects_global_online_optionset():
+    col = Column(
+        "new_Status",
+        AttributeType.Picklist,
+        display_name=Label.zh("状态"),
+        options=[Option(1, Label.zh("一"))],
+    )
+    with pytest.raises(ValueError, match="global online"):
+        build_picklist_option_diff(
+            col,
+            {"OptionSet": {"IsGlobal": True, "Options": []}},
+        )
+
+
+def test_build_picklist_option_diff_rejects_duplicate_values():
+    col = Column(
+        "new_Status",
+        AttributeType.Picklist,
+        display_name=Label.zh("状态"),
+        options=[Option(1, Label.zh("一")), Option(1, Label.zh("重复"))],
+    )
+    with pytest.raises(ValueError, match="duplicate option values"):
+        build_picklist_option_diff(col, {"OptionSet": {"Options": []}})
 
 
 def test_build_attribute_patch_ignores_label_metadataid_noise():

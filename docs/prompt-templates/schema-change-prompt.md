@@ -128,7 +128,7 @@
 解决方案：{solution_name}
 ```
 
-> ⚠️ 注意：部分属性（如 Picklist 的选项值、字段类型）无法通过 PATCH 修改，需要手动处理或重建字段。
+> ⚠️ 注意：普通可变属性由引擎计算最小差异，再通过 typed GET → retrieve-modify-`PUT` 更新完整字段元数据。已有本地 Picklist 的新增值和声明语言标签变更由引擎自动使用 `InsertOptionValue` / `UpdateOptionValue` 增量同步，远端额外值默认保留；字段类型等不兼容变更仍需备份、删除并重建字段。
 
 ### 示例
 
@@ -171,7 +171,8 @@
 |------|------|------|
 | 新增字段到已有表 | 增量部署 (`--fields`) | `pp deploy {table} --fields {f1,f2} --solution {sol}` |
 | 创建新表 | 全量部署 | `pp deploy {table} --solution {sol}` |
-| 修改字段属性 | 全量同步（PATCH） | `pp deploy {table} --solution {sol}` |
+| 修改字段属性 | 增量字段同步（typed GET + PUT） | `pp deploy {table} --fields {f1,f2} --solution {sol}` |
+| 新增/重命名本地 Choice 选项 | 增量选项同步（Insert/UpdateOptionValue；不隐式删除） | `pp deploy {table} --fields {choice_field} --solution {sol}` |
 | 逆向导出 + 数据字典 | reverse | `pp reverse {table} --env {env} --dictionary` |
 
 ### 字段命名规范

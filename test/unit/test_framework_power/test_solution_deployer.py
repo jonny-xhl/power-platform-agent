@@ -113,7 +113,15 @@ class SolutionFakeClient:
     def create_attribute(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {"status": "created"}
 
-    def update_attribute_by_logical_name(self, e: str, a: str, patch: dict[str, Any]) -> dict[str, Any]:
+    def update_attribute_by_logical_name(
+        self,
+        e: str,
+        a: str,
+        changes: dict[str, Any],
+        *,
+        attribute_type: str | None = None,
+        solution: str | None = None,
+    ) -> dict[str, Any]:
         return {"status": "updated"}
 
     def create_relationship_from_json(self, payload: dict[str, Any]) -> dict[str, Any]:
