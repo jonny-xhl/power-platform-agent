@@ -15,13 +15,15 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .models import AttributeType, Column, Relationship, Table
+from .models import AlternateKey, AttributeType, Column, Relationship, Table
 from .serializer import (
     build_attribute_patch,
     build_picklist_option_diff,
     optionset_changed,
+    serialize_alternate_key,
     serialize_column,
     serialize_entity_patch,
     serialize_relationship,
@@ -90,6 +92,105 @@ def _resolve_fields(table: Table, fields: list[str]) -> dict[str, Any]:
     return {"regular": regular, "lookups": lookups, "unknown": unknown}
 
 
+def _referenced_global_optionsets(table: Table) -> list[str]:
+    """Schema names of global OptionSets referenced by the table's Picklist columns.
+
+    A ``Column`` referencing a global optionset carries ``optionset_name`` (set by the
+    author); inline (entity-bound) picklists leave it ``None`` and are excluded. Order is
+    preserved, duplicates removed.
+    """
+    names: list[str] = []
+    for col in table.columns:
+        if col.type == AttributeType.Picklist and col.optionset_name:
+            if col.optionset_name not in names:
+                names.append(col.optionset_name)
+    return names
+
+
+def ensure_referenced_optionsets(
+    client: Any,
+    table: Table,
+    *,
+    optionsets_dir: str | Path | None = None,
+    prefix: str = "new",
+    solution: str | None = None,
+    config: Optional[DeployConfig] = None,
+) -> dict[str, Any]:
+    """Deploy global OptionSets referenced by ``table`` columns, dependency-first.
+
+    Tables that reference a global optionset (``col.optionset_name``) are only
+    self-contained when that optionset exists in the target environment. This helper
+    closes the gap: for each referenced name it loads the authored ``GlobalOptionSet``
+    from ``optionsets_dir`` (``metadata_py/optionsets/<name>.py``) and syncs it **before**
+    the entity/attribute deploy (create-only, idempotent, solution-add code 9).
+
+    When no local definition exists, the helper degrades to a read-only online check and
+    records a ``missing`` warning — the deploy continues (non-destructive), surfacing the
+    fresh-environment risk without aborting. The online check is skipped when the client
+    has no optionset API (back-compat with minimal fakes).
+
+    Returns:
+        ``{"optionsets": [...], "added": [...], "missing": [...]}`` where ``optionsets``
+        are per-optionset deploy entries (``created``/``exists``/``manual_update_required``
+        /``skipped_standard``/``failed``) and ``missing`` lists names with no local
+        definition and no online presence (or a local definition that failed to load).
+    """
+    # Lazy import: optionset_sync imports deployer._is_already_exists at module scope,
+    # so a top-level import here would be circular.
+    from .optionset_sync import OptionSetSyncConfig, load_optionset, sync_optionsets
+
+    cfg = config or DeployConfig()
+    names = _referenced_global_optionsets(table)
+    if not names:
+        return {"optionsets": [], "added": [], "missing": []}
+
+    root = Path(optionsets_dir) if optionsets_dir else None
+    models: list[Any] = []
+    missing: list[dict[str, Any]] = []
+    for name in names:
+        if root is not None:
+            path = root / f"{name}.py"
+            if path.exists():
+                try:
+                    models.append(load_optionset(path))
+                    continue
+                except Exception as e:  # noqa: BLE001
+                    missing.append(
+                        {"name": name, "error": f"local definition failed to load: {e}"}
+                    )
+                    continue
+        # No local definition -> read-only online check (guarded for minimal fakes).
+        checker = getattr(client, "get_global_optionset_by_name", None)
+        if checker is not None and checker(name) is None:
+            missing.append(
+                {
+                    "name": name,
+                    "error": "no local definition in optionsets_dir and not present "
+                    "in environment; fresh-environment deploy would fail",
+                }
+            )
+
+    if not models:
+        return {"optionsets": [], "added": [], "missing": missing}
+
+    synced = sync_optionsets(
+        client,
+        models,
+        prefix=prefix,
+        solution=solution,
+        config=OptionSetSyncConfig(
+            after_create_delay=cfg.after_entity_create_delay,
+            between_adds_delay=cfg.between_relationships_delay,
+            sleep=cfg.sleep,
+        ),
+    )
+    return {
+        "optionsets": synced["synced"],
+        "added": synced["added"],
+        "missing": missing,
+    }
+
+
 def deploy_table(
     client: Any,
     table: Table,
@@ -99,12 +200,18 @@ def deploy_table(
     solution: str | None = None,
     solution_clean: bool = False,
     fields: list[str] | None = None,
+    optionsets_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Deploy (create or sync) a ``Table`` to Dataverse.
 
     Standard/system columns and relationships (those without the publisher ``prefix``) are
     **skipped** — they are reference-only (e.g. from a reverse snapshot) and left to the
     environment. Only custom (prefixed) items are created/synced.
+
+    Global OptionSets referenced by the table's Picklist columns are deployed **first**
+    (dependency-first) when ``optionsets_dir`` points at a directory of authored
+    ``GlobalOptionSet`` definitions (see :func:`ensure_referenced_optionsets`); the per-
+    optionset entries are reported under ``result["optionsets"]``.
 
     **Incremental mode** (``fields`` is not ``None``):
     Only the named fields are deployed. A field may be a plain column or a Lookup (resolved
@@ -120,7 +227,8 @@ def deploy_table(
         prefix: Publisher prefix used to identify custom (deployable) components.
         solution: Optional solution unique name; when set, the entity is added to it (code 1,
             idempotent) after deploy — mirrors ``deploy_plugin(solution=…)``. Default ``None``
-            preserves the legacy no-membership behavior.
+            preserves the legacy no-membership behavior. Referenced global optionsets are
+            added to the same solution (code 9) when present.
         solution_clean: Membership MODE when ``solution`` is set. ``False`` (default, backward-
             compatible) adds the entity WITH sub-components (Dataverse default — drags in all OOB
             forms/views/fields). ``True`` adds the entity as a SHELL plus only its CUSTOM columns
@@ -129,10 +237,14 @@ def deploy_table(
         fields: Optional list of schema names to deploy incrementally.  When provided the
             entity-level sync (DisplayName, HasNotes, …) is skipped, other columns and
             relationships are left untouched, and only the named fields are deployed.
+        optionsets_dir: Optional directory containing authored ``GlobalOptionSet`` modules
+            (``<schema_name>.py`` exporting ``OPTIONSET``). When given, referenced global
+            optionsets are loaded from here and synced before the entity/attributes.
 
     Returns:
-        A result dict with ``entity``/``attributes``/``relationships`` action summaries, plus an
-        optional ``solution`` key when ``solution`` was given.
+        A result dict with ``entity``/``attributes``/``relationships`` action summaries, plus
+        ``optionsets``/``added``/``missing`` when the table references global optionsets, and
+        an optional ``solution`` key when ``solution`` was given.
     """
     cfg = config or DeployConfig()
     logical = table.logical_name
@@ -142,7 +254,21 @@ def deploy_table(
         "entity": {},
         "attributes": [],
         "relationships": [],
+        "alternate_keys": [],
     }
+
+    # -- referenced global optionsets (dependency-first) ---------------------------
+    _os_deps = ensure_referenced_optionsets(
+        client,
+        table,
+        optionsets_dir=optionsets_dir,
+        prefix=prefix,
+        solution=solution,
+        config=cfg,
+    )
+    result["optionsets"] = _os_deps["optionsets"]
+    result["optionsets_added"] = _os_deps["added"]
+    result["optionsets_missing"] = _os_deps["missing"]
 
     # -- resolve incremental fields ------------------------------------------------
     resolved: dict[str, Any] | None = None
@@ -202,6 +328,15 @@ def deploy_table(
                               relationships=resolved["lookups"])
     else:
         _deploy_relationships(client, table, logical, cfg, result, prefix)
+
+    # -- alternate keys ------------------------------------------------------------
+    _deploy_alternate_keys(
+        client,
+        table,
+        logical,
+        result,
+        fields=fields if resolved is not None else None,
+    )
 
     # -- solution membership -------------------------------------------------------
     if solution:
@@ -305,13 +440,16 @@ def plan_table(
     table: Table,
     *,
     prefix: str = "new",
+    optionsets_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Read-only dry run: compute what ``deploy_table`` would do, with NO API writes.
 
     Returns a plan dict using ``would_create`` / ``would_update`` / ``would_patch`` /
     ``would_skip`` / ``would_skip_standard`` / ``manual_update_required`` actions.
     Local Picklists include per-value insert/update and remote-only-retention details.
-    Standard (non-prefixed) items report ``would_skip_standard``.
+    Standard (non-prefixed) items report ``would_skip_standard``. Referenced global
+    optionsets are planned first (``optionsets``) with ``would_create`` / ``would_skip`` /
+    ``manual_update_required`` actions, plus any ``optionsets_missing`` warnings.
     """
     logical = table.logical_name
     result: dict[str, Any] = {
@@ -320,7 +458,39 @@ def plan_table(
         "entity": {},
         "attributes": [],
         "relationships": [],
+        "alternate_keys": [],
     }
+
+    # -- referenced global optionsets (read-only, dependency-first) -----------------
+    from .optionset_sync import load_optionset, plan_optionsets
+
+    names = _referenced_global_optionsets(table)
+    plan_models: list[Any] = []
+    missing: list[dict[str, Any]] = []
+    root = Path(optionsets_dir) if optionsets_dir else None
+    for name in names:
+        if root is not None and (root / f"{name}.py").exists():
+            try:
+                plan_models.append(load_optionset(root / f"{name}.py"))
+                continue
+            except Exception as e:  # noqa: BLE001
+                missing.append({"name": name, "error": f"local definition failed to load: {e}"})
+                continue
+        checker = getattr(client, "get_global_optionset_by_name", None)
+        if checker is not None and checker(name) is None:
+            missing.append(
+                {
+                    "name": name,
+                    "error": "no local definition in optionsets_dir and not present "
+                    "in environment; fresh-environment deploy would fail",
+                }
+            )
+    if plan_models:
+        planned = plan_optionsets(client, plan_models, prefix=prefix)
+        result["optionsets"] = [
+            {"name": p["name"], "plan": p["plan"]} for p in planned["optionsets"]
+        ]
+    result["optionsets_missing"] = missing
 
     def col_action_create(col_schema: str) -> str:
         return "would_create" if _is_custom(col_schema, prefix) else "would_skip_standard"
@@ -335,6 +505,10 @@ def plan_table(
         for rel in table.relationships:
             result["relationships"].append(
                 {"relationship": rel.schema_name, "action": col_action_create(rel.schema_name)}
+            )
+        for key in table.alternate_keys:
+            result["alternate_keys"].append(
+                {"alternate_key": key.schema_name, "action": "would_create"}
             )
         return result
 
@@ -398,6 +572,11 @@ def plan_table(
         action = "would_skip" if rel.schema_name in existing_names else "would_create"
         result["relationships"].append({"relationship": rel.schema_name, "action": action})
 
+    existing_key_names = {k.get("SchemaName") for k in client.get_entity_keys(logical)}
+    for key in table.alternate_keys:
+        action = "would_skip" if key.schema_name in existing_key_names else "would_create"
+        result["alternate_keys"].append({"alternate_key": key.schema_name, "action": action})
+
     return result
 
 
@@ -451,8 +630,12 @@ def _deploy_entity(
 
     # Entity exists -> sync entity-level properties.
     try:
-        client.update_entity(logical, serialize_entity_patch(table))
+        update_result = client.update_entity(logical, serialize_entity_patch(table))
         result["entity"] = {"action": "updated"}
+        if update_result.get("method") == "put":
+            # Tenants that reject EntityDefinitions PATCH fall back to a full
+            # definition PUT; surface which path was taken for observability.
+            result["entity"]["method"] = "put"
     except Exception as e:  # noqa: BLE001
         msg = str(e).lower()
         # 0x80060888 "Operation not supported on EntityMetadata": some tenants/auths reject
@@ -633,6 +816,47 @@ def _deploy_attributes(
         result["attributes"].append(entry)
 
     return options_changed
+
+
+def _deploy_alternate_keys(
+    client: Any,
+    table: Table,
+    logical: str,
+    result: dict[str, Any],
+    *,
+    fields: list[str] | None = None,
+) -> None:
+    """Create missing alternate keys without modifying or deleting existing keys."""
+    if not table.alternate_keys:
+        return
+
+    selected = {f.lower() for f in fields} if fields else None
+    keys = [
+        key for key in table.alternate_keys
+        if selected is None or all(column.lower() in selected for column in key.columns)
+    ]
+    if not keys:
+        return
+
+    try:
+        existing_names = {key.get("SchemaName") for key in client.get_entity_keys(logical)}
+    except Exception as e:  # noqa: BLE001
+        result["alternate_keys"].append({"action": "failed", "error": f"get_entity_keys: {e}"})
+        return
+
+    for key in keys:
+        entry: dict[str, Any] = {"alternate_key": key.schema_name}
+        if key.schema_name in existing_names:
+            entry["action"] = "skipped"
+        else:
+            try:
+                client.create_entity_key(logical, serialize_alternate_key(key))
+                entry["action"] = "created"
+            except Exception as e:  # noqa: BLE001
+                entry["action"] = "skipped" if _is_already_exists(e) else "failed"
+                if entry["action"] == "failed":
+                    entry["error"] = str(e)
+        result["alternate_keys"].append(entry)
 
 
 def _deploy_relationships(

@@ -185,7 +185,7 @@ power-platform-agent/
 │   │   ├── view.py       # 视图组件处理器
 │   │   └── plugin.py     # 插件组件处理器
 │   │
-│   ├── optionset_sync.py # 全局选项集同步
+│   ├── optionset_sync.py # 全局选项集同步 (discover/plan/sync；deploy 依赖优先调用 + pp optionset CLI)
 │   ├── webresource_sync.py  # Web Resource 同步
 │   ├── form_sync.py     # 表单同步
 │   ├── form_xml.py      # 表单 XML 工具
@@ -362,8 +362,11 @@ result = deploy_table(client, table, prefix="new", solution="MySolution")
 ```
 
 **核心函数**：
-- `deploy_table()` - 创建或同步表到 Dataverse
-- `plan_table()` - 只读预演，返回将执行的操作
+- `deploy_table()` - 创建或同步表到 Dataverse；`optionsets_dir=` 开启依赖优先
+  全局选项集自动同步（ADR-011，CLI 默认从 workspace `metadata_py/optionsets/` 解析）
+- `plan_table()` - 只读预演，返回将执行的操作（含引用选项集 would_* 计划）
+- `ensure_referenced_optionsets()` - 收集表中 `optionset_name` 引用并先行同步
+  （create-only、幂等；缺失本地定义时只读检查 + `optionsets_missing` 告警）
 
 ### 3. Dataverse API 客户端 (client/dataverse_client.py)
 
@@ -588,13 +591,17 @@ def lint(model, *, prefix): ...
 ### 选项集复用流程
 
 ```
-1. 在 metadata_py/optionsets/ 中定义全局选项集
+1. 在 metadata_py/optionsets/ 中定义全局选项集 (OPTIONSET: GlobalOptionSet)
    ↓
-2. 表定义中使用 OptionSet 引用
+2. 表定义中使用 OptionSet 引用 (Column(..., optionset_name="<name>"))
    ↓
-3. 数据字典自动生成选项集文档
+3. pp deploy <table>：依赖优先自动同步选项集 → 再部署实体/字段
+   (ADR-011；带 --solution 时选项集加入同一解决方案 code 9)
    ↓
-4. LLM 读取文档获取正确的选项值
+4. 数据字典自动生成选项集文档
+   ↓
+5. LLM 读取文档获取正确的选项值
+   (独立管理：pp optionset list | plan | deploy)
 ```
 
 ### Git Hook 触发流程

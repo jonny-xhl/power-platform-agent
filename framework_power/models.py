@@ -161,6 +161,8 @@ class Column:
     required: RequiredLevel = RequiredLevel.None_
     is_primary_name: bool = False
     ime_mode: Optional[str] = None
+    is_audit_enabled: Optional[bool] = None
+    is_searchable: Optional[bool] = None
 
     # type-specific optional props (ignored by the serializer when N/A):
     max_length: Optional[int] = None  # String, Memo
@@ -190,6 +192,15 @@ class LookupColumn:
 
 
 # ============================================================ relationship
+
+
+@dataclass
+class AlternateKey:
+    """A Dataverse alternate key over one or more column schema names."""
+
+    schema_name: str
+    columns: list[str]
+    display_name: Optional[Label] = None
 
 
 @dataclass
@@ -229,6 +240,7 @@ class Table:
     primary_name_column: Optional[str] = None  # None -> serializer auto-picks
     columns: list[Column] = field(default_factory=list)
     relationships: list[Relationship] = field(default_factory=list)
+    alternate_keys: list[AlternateKey] = field(default_factory=list)
 
     @property
     def logical_name(self) -> str:

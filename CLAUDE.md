@@ -25,6 +25,11 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
   + create-only 关系，**非破坏**）+ 只读 `plan_table` + `reverse_table`（环境→本地全量快照）。
 - 定义文件 `ninebot-project/metadata_py/tables/<schema>.py`（每文件导出 `TABLE`）；**双向单文件**：逆向覆盖、正向同步，
   标准（无 `new_` 前缀）组件自动跳过 → 全量快照正向同步幂等且安全。
+- **全局选项集引用自洽**（ADR-011）：Picklist 列声明 `optionset_name` 引用
+  `ninebot-project/metadata_py/optionsets/<name>.py`（导出 `OPTIONSET: GlobalOptionSet`）；
+  `pp deploy <table>` 依赖优先**先行同步**被引用选项集（create-only、幂等，带 `--solution`
+  时加入同一解决方案 code 9），无本地定义时降级只读检查 + `optionsets_missing` 告警。
+  独立管理：`pp optionset list|plan|deploy [--name] [--solution]`。
 - CLI：`python -m framework_power list|show|lint|plan|deploy|deploy-all|reverse|delete [name] --env dev`。
 - Skill：`dv-model-to-python`（Excel 设计→Python 定义）、`dv-reverse-metadata`（逆向）。
 

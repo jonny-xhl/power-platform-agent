@@ -23,6 +23,7 @@ Quick start::
 """
 
 from .models import (
+    AlternateKey,
     AttributeType,
     BooleanLabels,
     Cascade,
@@ -175,6 +176,7 @@ from .data_dictionary import (
 
 __all__ = [
     # models
+    "AlternateKey",
     "AttributeType",
     "BooleanLabels",
     "Cascade",

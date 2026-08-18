@@ -3,6 +3,7 @@
 import pytest
 
 from framework_power.models import (
+    AlternateKey,
     AttributeType,
     BooleanLabels,
     Cascade,
@@ -18,6 +19,7 @@ from framework_power.models import (
 from framework_power.serializer import (
     build_attribute_patch,
     build_picklist_option_diff,
+    serialize_alternate_key,
     serialize_boolean_optionset,
     serialize_column,
     serialize_entity_patch,
@@ -67,6 +69,30 @@ def test_serialize_string_primary():
     assert out["RequiredLevel"]["Value"] == "None"
 
 
+def test_serialize_column_audit_and_search_flags():
+    out = serialize_column(Column(
+        "new_BusinessKey",
+        AttributeType.String,
+        display_name=Label.bilingual("业务唯一键", "Business Key"),
+        is_audit_enabled=True,
+        is_searchable=True,
+    ))
+    assert out["IsAuditEnabled"] == {"Value": True}
+    assert out["IsValidForAdvancedFind"] == {"Value": True}
+
+
+def test_serialize_alternate_key():
+    out = serialize_alternate_key(AlternateKey(
+        schema_name="new_RollingForecast_BusinessKey",
+        columns=["new_BusinessKey"],
+        display_name=Label.bilingual("业务唯一键", "Business Key"),
+    ))
+    assert out["@odata.type"] == "Microsoft.Dynamics.CRM.EntityKeyMetadata"
+    assert out["SchemaName"] == "new_RollingForecast_BusinessKey"
+    assert out["KeyAttributes"] == ["new_BusinessKey"]
+    assert "DisplayName" in out
+
+
 def test_serialize_money():
     col = Column(
         "new_Amount", AttributeType.Money,
@@ -109,6 +135,20 @@ def test_serialize_picklist():
     assert [o["Value"] for o in out["OptionSet"]["Options"]] == [1, 2]
     first = out["OptionSet"]["Options"][0]["Label"]["LocalizedLabels"]
     assert (1033, "Draft") in {(ll["LanguageCode"], ll["Label"]) for ll in first}
+
+
+def test_serialize_picklist_global_optionset_reference():
+    col = Column(
+        "new_BusinessGroupId", AttributeType.Picklist,
+        display_name=Label.bilingual("商务组", "Business Group"),
+        optionset_name="new_salesgroup",
+        options=[],
+    )
+    out = serialize_column(col)
+    assert out["@odata.type"] == "Microsoft.Dynamics.CRM.PicklistAttributeMetadata"
+    assert out["OptionSet"]["IsGlobal"] is True
+    assert out["OptionSet"]["Name"] == "new_salesgroup"
+    assert "Options" not in out["OptionSet"]
 
 
 def test_serialize_boolean():

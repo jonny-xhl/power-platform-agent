@@ -79,6 +79,28 @@ languages authored locally, so updating zh-CN/en-US does not remove other online
 Boolean and global OptionSet mutation remain separate workflows; this ADR only covers local
 Picklist values owned by a table field.
 
+### Global OptionSet reference contract
+
+A Picklist column may reference an existing **global OptionSet** via
+`Column(optionset_name="<global>")`. In that case the attribute create payload declares
+`OptionSet.IsGlobal: true` + `OptionSet.Name`, **without inline options** — the field-to-
+optionset link is authored here while the options themselves stay owned by the global
+OptionSet stage. Deploy/plan skip option reconciliation for such fields (local option
+actions on a global-backed field are unsafe), and `build_picklist_option_diff` rejects a
+global online OptionSet as a defensive guard.
+
+### Entity property sync (PATCH → PUT fallback)
+
+Some tenants reject `PATCH EntityDefinitions` outright (405 /
+`0x80060888` "Operation not supported on EntityMetadata") while still allowing entity
+create + attribute updates. The client's `update_entity()` detects this and transparently
+falls back to the same retrieve-modify-`PUT` contract used for attributes: strong-consistency
+GET of the typed entity definition → overlay the desired writable properties
+(`IsAuditEnabled`, `HasNotes`, `IsQuickCreateEnabled`, display names, description) →
+strip response-only/capability fields → `PUT` by `MetadataId`. The deploy result records
+`method: "put"` for observability. Entity **creation** also carries `IsAuditEnabled` in
+the initial payload, so new tables honour the authored audit flag on day one.
+
 ### Transactional characteristics
 The deployment is **not ACID-transactional** (Dataverse Web API has no cross-request
 transactions), but it IS **idempotent and retry-safe**:
@@ -126,11 +148,13 @@ provisioning and periodic audit; incremental deploy is for day-to-day field addi
   `_deploy_attributes(columns=…)`, `_deploy_relationships(relationships=…)`,
   `_add_entity_to_solution(field_names=…)`, `_resolve_fields()`
 - `client/dataverse_client.py`: typed full metadata retrieval,
-  `_clean_attribute_update_payload()`, retrieve-modify-`PUT` updates, and
+  `_clean_attribute_update_payload()`, `_clean_entity_update_payload()` +
+  PATCH→PUT fallback in `update_entity()`, retrieve-modify-`PUT` updates, and
   `InsertOptionValue` / `UpdateOptionValue` action transports
-- `serializer.py`: computes the minimal mutable-property overlay and local-Picklist
-  value/label diff before transport
+- `serializer.py`: computes the minimal mutable-property overlay, local-Picklist
+  value/label diff, global-OptionSet reference payloads, and `IsAuditEnabled` on
+  entity create
 - `cli.py`: `cmd_deploy()` parses the comma-separated `--fields` value
 - Tests cover regular/Lookup/mixed/unknown/retry/solution-clean behavior plus DateTime
-  and Decimal full-definition `PUT`, concrete `@odata.type`, solution headers, and
-  RequiredLevel idempotency.
+  and Decimal full-definition `PUT`, concrete `@odata.type`, solution headers, global
+  OptionSet reference serialization, and RequiredLevel idempotency.

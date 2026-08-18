@@ -61,7 +61,9 @@ python -m framework_power plan contact --env dev     # 标准字段显示 would_
 
 ## 参考文档
 
-- 正向流程与约定：`docs/metadata-py-conventions.md`、`docs/metadata-deploy.md`
+- 正向流程与约定：`docs/spec/metadata-spec.md`（§ Python API conventions）、`docs/guides/metadata-deploy.md`
 - 类型/模型：`framework_power/models.py`
 - 逆向实现：`framework_power/reverse.py`、`framework_power/codegen.py`
+- 全局选项集（逆向 Picklist 引用时捕获 `optionset_name`，ADR-009/010/011）：
+  `docs/spec/adr-009-optionset-reference-not-inline.md`、`docs/spec/adr-011-self-contained-table-deploy.md`
 - Dataverse Web API 细节：`dataverse:dv-metadata` skill

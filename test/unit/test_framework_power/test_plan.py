@@ -38,6 +38,9 @@ class PlanFakeClient:
     def get_relationships(self, name: str) -> list[dict[str, Any]]:
         return list(self._rels)
 
+    def get_entity_keys(self, name: str) -> list[dict[str, Any]]:
+        return []
+
 
 def _table() -> Table:
     return Table(

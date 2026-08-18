@@ -65,6 +65,108 @@ def _odata_quote(value: str) -> str:
     return quote(value, safe="")
 
 
+# Properties returned by the full EntityDefinitions GET that must not be sent back
+# in an update PUT: OData annotations, server-maintained GUIDs/names, capability
+# flags, and system-managed booleans.  Only writable entity properties remain.
+_ENTITY_RESPONSE_ONLY_FIELDS = {
+    "@odata.context",
+    "MetadataId",
+    "EntitySetName",
+    "LogicalName",
+    "PrimaryIdAttribute",
+    "PrimaryNameAttribute",
+    "ActivityTypeMask",
+    "ObjectTypeCode",
+    "OwnershipType",
+    "IsIntersect",
+    "IsPrivate",
+    "IsManaged",
+    "IsActivity",
+    "IsCustomEntity",
+    "IsBusinessProcessEnabled",
+    "IsBPFEntity",
+    "IsDocumentManagementEnabled",
+    "IsDocumentRecommendationsEnabled",
+    "IsKnowledgeManagementEnabled",
+    "IsDataEncryptionEnabled",
+    "IsAirplaneModeEnabled",
+    "IsOneNoteIntegrationEnabled",
+    "IsEnabledForCharts",
+    "IsEnabledForExternalChannels",
+    "IsEnabledForTrace",
+    "IsExportToExcelEnabled",
+    "IsImportable",
+    "IsOptimisticConcurrencyEnabled",
+    "IsOfflineInMobileClient",
+    "IsReadyForDataMigration",
+    "IsSecurityDisabled",
+    "IsSLAEnabled",
+    "IsSharedActivities",
+    "IsStateControl",
+    "IsVisibleInMobile",
+    "IsVisibleInMobileClient",
+    "CanEnableAttributes",
+    "CanChangeHierarchicalRelationship",
+    "CanChangeTrackingBeEnabled",
+    "CanModifyAdditionalSettings",
+    "CanTriggerWorkflow",
+    "WorksWithDataLake",
+    "CreatedOn",
+    "ModifiedOn",
+    "IntroducedVersion",
+    "SolutionId",
+    "SolutionIdUnique",
+    "BaseSolutionId",
+    "IsRenameable",
+    "IsValidForAdvancedFind",
+    "IsQuickCreateEnabled",
+    "IsReadingPaneEnabled",
+    "IsMappable",
+    "IsDuplicateDetectionEnabled",
+    "IsMailMergeEnabled",
+    "IsAutoRouteEnabled",
+    "IsExternalActivity",
+    "IsInteractionCentric",
+    "IsExternalActivity",
+    "IsEnabledForCharts",
+    "HasActivities",
+    "HasNotes",
+    "IsCustomizable",
+}
+
+
+def _clean_entity_update_payload(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Normalize retrieved entity metadata into a safe full ``PUT`` body.
+
+    The Web API in some tenants rejects PATCH on ``EntityDefinitions`` (405 /
+    0x80060888 "Operation not supported on EntityMetadata").  Microsoft's documented
+    update path is a full definition PUT, mirroring the attribute contract: GET the
+    typed current metadata, overlay the desired writable properties, drop response-only
+    / capability fields, and PUT back by MetadataId.
+    """
+
+    def clean(value: Any, *, top_level: bool = False) -> Any:
+        if isinstance(value, dict):
+            result: dict[str, Any] = {}
+            for key, nested in value.items():
+                if key in {"@odata.context", "@odata.etag", "HasChanged"}:
+                    continue
+                if top_level and key in _ENTITY_RESPONSE_ONLY_FIELDS:
+                    continue
+                if nested is None:
+                    continue
+                cleaned = clean(nested)
+                if key == "@odata.type" and isinstance(cleaned, str):
+                    cleaned = cleaned.lstrip("#")
+                result[key] = cleaned
+            return result
+        if isinstance(value, list):
+            return [clean(item) for item in value if item is not None]
+        return value
+
+    return clean(copy.deepcopy(metadata), top_level=True)
+
+
 def _entity_id(response: requests.Response) -> Optional[str]:
     """Parse the GUID out of an ``OData-EntityId`` create-response header."""
     entity_id = response.headers.get("OData-EntityId", "")
@@ -365,6 +467,15 @@ class DataverseClient:
             relationships.extend(response.json().get("value", []))
         return relationships
 
+    def get_entity_keys(self, entity_name: str) -> list[dict[str, Any]]:
+        """List alternate keys for ``entity_name``."""
+        metadata_id = self.get_entity_metadata(entity_name).get("MetadataId")
+        if not metadata_id:
+            raise ValueError(f"Entity {entity_name} not found")
+        response = self.session.get(self.get_api_url(f"EntityDefinitions({metadata_id})/Keys"))
+        response.raise_for_status()
+        return response.json().get("value", [])
+
     # --------------------------------------------------------------- deploys
 
     def create_entity(self, entity_definition: dict[str, Any]) -> dict[str, Any]:
@@ -388,15 +499,36 @@ class DataverseClient:
         return {"status": "created"}
 
     def update_entity(self, entity_name: str, patch: dict[str, Any]) -> dict[str, Any]:
-        """PATCH updatable entity properties (keyed by MetadataId; LogicalName PATCH is 405)."""
+        """PATCH updatable entity properties (keyed by MetadataId; LogicalName PATCH is 405).
+
+        Some tenants reject ``PATCH EntityDefinitions`` outright (405 / 0x80060888
+        "Operation not supported on EntityMetadata").  When that happens the method
+        transparently falls back to the documented full-definition PUT contract:
+        GET typed current metadata -> overlay ``patch`` -> clean response-only fields
+        -> PUT by MetadataId.
+        """
         metadata_id = self.get_entity_metadata(entity_name).get("MetadataId")
         if not metadata_id:
             raise ValueError(f"Entity {entity_name} not found")
         url = self.get_api_url(f"EntityDefinitions({metadata_id})")
         response = self.session.patch(url, json=patch)
-        if not response.ok:
-            self._raise_with_detail(response, f"update entity '{entity_name}'")
-        return {"status": "updated"}
+        if response.ok:
+            return {"status": "updated", "method": "patch"}
+
+        message = response.text.lower()
+        if response.status_code == 405 or "0x80060888" in message or "operation not supported on entitymetadata" in message:
+            full = self.get_entity_metadata_by_id(metadata_id)
+            full.update(copy.deepcopy(patch))
+            put_response = self.session.put(
+                url,
+                json=_clean_entity_update_payload(full),
+                headers={"Content-Type": "application/json"},
+            )
+            if not put_response.ok:
+                self._raise_with_detail(put_response, f"update entity '{entity_name}' (PUT fallback)")
+            return {"status": "updated", "method": "put"}
+        self._raise_with_detail(response, f"update entity '{entity_name}'")
+        return {"status": "updated", "method": "patch"}
 
     def delete_entity(self, logical_name: str) -> dict[str, Any]:
         """DELETE an entity by logical name.
@@ -637,6 +769,21 @@ class DataverseClient:
         response = self.session.post(url, json=relationship_json)
         if not response.ok:
             self._raise_with_detail(response, "create relationship")
+        return {"status": "created"}
+
+    def create_entity_key(
+        self,
+        entity_name: str,
+        key_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create an alternate key on an existing entity."""
+        metadata_id = self.get_entity_metadata(entity_name).get("MetadataId")
+        if not metadata_id:
+            raise ValueError(f"Entity {entity_name} not found")
+        url = self.get_api_url(f"EntityDefinitions({metadata_id})/Keys")
+        response = self.session.post(url, json=key_metadata)
+        if not response.ok:
+            self._raise_with_detail(response, f"create alternate key on '{entity_name}'")
         return {"status": "created"}
 
     # ----------------------------------------------------- per-type components

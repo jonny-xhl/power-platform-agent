@@ -52,6 +52,27 @@ def load_optionset(path: Any) -> GlobalOptionSet:
     return optionset
 
 
+def discover_optionsets(directory: str | Path) -> dict[str, GlobalOptionSet]:
+    """Discover authored ``GlobalOptionSet`` definitions in a directory.
+
+    Mirrors ``registry.discover_definitions`` for tables: each ``<name>.py`` module that
+    exports a ``GlobalOptionSet`` as ``OPTIONSET`` is keyed by its file stem. Modules that
+    fail to load (or do not export ``OPTIONSET``) are skipped and logged.
+    """
+    root = Path(directory)
+    if not root.exists():
+        return {}
+    optionsets: dict[str, GlobalOptionSet] = {}
+    for path in sorted(root.glob("*.py")):
+        if path.name == "__init__.py" or path.name.startswith("_"):
+            continue
+        try:
+            optionsets[path.stem] = load_optionset(path)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Skipping optionset '{path.stem}': {e}")
+    return optionsets
+
+
 @dataclass
 class OptionSetSyncConfig:
     """Tunables for inter-operation sleeps (metadata propagation)."""
@@ -129,4 +150,10 @@ def sync_optionsets(
     return result
 
 
-__all__ = ["OptionSetSyncConfig", "load_optionset", "plan_optionsets", "sync_optionsets"]
+__all__ = [
+    "OptionSetSyncConfig",
+    "discover_optionsets",
+    "load_optionset",
+    "plan_optionsets",
+    "sync_optionsets",
+]

@@ -9,7 +9,7 @@ description: 将Excel实体设计转换为 framework_power 的 Python 表定义�
 `framework_power` 的**可执行 Python 表定义**，保存到 `ninebot-project/metadata_py/tables/<schema>.py`。
 生成的定义即"单一事实来源"——随后用 `framework_power lint → plan → deploy` 同步到 Dataverse。
 
-**重要约束（必须先读）**: `docs/metadata-py-conventions.md` 是 AI 生成的硬性契约；
+**重要约束（必须先读）**: `docs/spec/metadata-spec.md` § Python API conventions 是 AI 生成的硬性契约；
 `framework_power/models.py` 是类型契约。生成的定义必须通过 `python -m framework_power lint <name>`（0 errors）才能进入 plan/deploy。
 
 ## 与 dv-model-to-yaml 的关键区别
@@ -42,9 +42,32 @@ description: 将Excel实体设计转换为 framework_power 的 Python 表定义�
 | Excel 工作表 | Python 输出 |
 |-------------|------------|
 | `02_实体模型` | `ninebot-project/metadata_py/tables/{entity}.py` 的 `Table(...)` |
-| `05_枚举选项集` | 内联为 `Column(..., options=[Option(...)])`（本地选项集） |
+| `05_枚举选项集` | **本表专属**枚举 → 内联 `Column(..., options=[Option(...)])`（本地选项集）；**跨表复用/既有全局选项集** → `Column(..., optionset_name="<name>")` 引用（见下） |
 
-> 全局选项集 / 表单 / 视图仍走 YAML 路径（本技能 Phase 1 只覆盖**表 + 字段 + 关系**）。
+### 全局选项集引用（ADR-011，重要）
+
+当枚举是**跨表复用**或**环境中已存在的全局选项集**（Excel 备注/数据字典可识别）时，
+不要内联选项，改用引用：
+
+```python
+Column(
+    schema_name="new_BusinessGroupId",
+    type=AttributeType.Picklist,
+    display_name=Label.bilingual("商务组", "Business Group"),
+    optionset_name="new_salesgroup",   # 引用全局选项集
+    required=RequiredLevel.ApplicationRequired,
+)
+```
+
+- 引用目标必须建模在 `ninebot-project/metadata_py/optionsets/<name>.py`
+  （暴露 `OPTIONSET: GlobalOptionSet(name=..., display_name=..., options=[Option(...)])`），
+  否则新环境部署会失败（deploy 时报 `optionsets_missing` 告警）。
+- `pp deploy <table>` 会**依赖优先自动同步**被引用选项集（create-only、幂等；
+  带 `--solution` 时选项集加入同一解决方案）。
+- 选项的增删改在选项集文件侧完成后，用 `pp optionset deploy <name>` 或重跑
+  `pp deploy <table>` 同步（既有值漂移报 `manual_update_required`）。
+
+> 表单 / 视图仍走各自 Python 路径 skill（本技能只覆盖**表 + 字段 + 关系 + 全局选项集引用**）。
 
 ## 数据类型映射（Excel → `AttributeType`）
 
@@ -117,8 +140,10 @@ TABLE: Table = Table(
    选项值唯一；关系用 Referential 级联。
 4. **写入 `ninebot-project/metadata_py/tables/{schema_lowercase}.py`**，暴露 `TABLE`。
 5. **校验门**：`python -m framework_power lint {name}` 必须 0 errors。
-6. **预览**：`python -m framework_power plan {name} --env dev`（只读）。
-7. **部署**（用户确认环境后）：`python -m framework_power deploy {name} --env dev`。
+6. **预览**：`python -m framework_power plan {name} --env dev`（只读；引用全局选项集时
+   计划含 `optionsets` 条目与 `optionsets_missing` 告警）。
+7. **部署**（用户确认环境后）：`python -m framework_power deploy {name} --env dev`
+   （从仓库根运行需 `--workspace ninebot-project`；引用的全局选项集会先行自动同步）。
 
 ## 校验清单（生成后自检）
 
@@ -127,12 +152,14 @@ TABLE: Table = Table(
 - [ ] 有且仅有一个 `is_primary_name=True` 的 String 字段
 - [ ] `Label.bilingual(zh, en)` 覆盖所有显示名/选项标签
 - [ ] Picklist 选项值唯一
+- [ ] 使用 `optionset_name` 引用时，`ninebot-project/metadata_py/optionsets/<name>.py` 存在（ADR-011）
 - [ ] 每个自定义关系以 `new_` 开头、用 Referential 级联、`lookup.target_entity == referenced_entity`
 - [ ] `framework_power lint {name}` 报告 0 errors
 
 ## 参考文档
 
-- 作者契约：`docs/metadata-py-conventions.md`
+- 作者契约：`docs/spec/metadata-spec.md`（§ Python API conventions）
 - 类型/模型：`framework_power/models.py`
-- 部署说明：`docs/metadata-deploy.md`
+- 部署说明：`docs/guides/metadata-deploy.md`
+- 自洽部署与全局选项集：`docs/spec/adr-011-self-contained-table-deploy.md`
 - Dataverse Web API 细节：`dataverse:dv-metadata` skill

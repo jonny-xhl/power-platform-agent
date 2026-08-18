@@ -6,7 +6,11 @@ import pytest
 
 from framework_power import Column, LookupColumn, Relationship, Table, deploy_table
 from framework_power.client.dataverse_client import DataverseClient
-from framework_power.deployer import DeployConfig
+from framework_power.deployer import (
+    DeployConfig,
+    _referenced_global_optionsets,
+    ensure_referenced_optionsets,
+)
 from framework_power.models import (
     AttributeType,
     Cascade,
@@ -114,6 +118,7 @@ class FakeClient:
             "update_option_value": [],
             "publish_entity": [],
             "create_relationship_from_json": [],
+            "create_entity_key": [],
             "add_solution_component": [],
         }
 
@@ -199,6 +204,13 @@ class FakeClient:
 
     def create_relationship_from_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.calls["create_relationship_from_json"].append(payload)
+        return {"status": "created"}
+
+    def get_entity_keys(self, name: str) -> list[dict[str, Any]]:
+        return []
+
+    def create_entity_key(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls["create_entity_key"].append((name, payload))
         return {"status": "created"}
 
     def add_solution_component(
@@ -908,3 +920,143 @@ def test_deploy_fields_idempotent_retry():
     assert result2["attributes"][0]["action"] == "skipped"
     # No create_attribute calls on second run.
     assert len(client.calls["create_attribute"]) == 1  # only from first run
+
+
+# ---------------------------------------------------------------------------
+# Referenced global optionsets (dependency-first)
+# ---------------------------------------------------------------------------
+
+
+def _global_picklist_table() -> Table:
+    """Table mixing a global-optionset Picklist and an inline (entity-bound) Picklist."""
+    return Table(
+        schema_name="new_SalesTarget",
+        display_name=Label.bilingual("销售目标", "Sales Target"),
+        columns=[
+            Column(
+                "new_Name",
+                AttributeType.String,
+                display_name=Label.bilingual("名称", "Name"),
+                is_primary_name=True,
+                max_length=100,
+            ),
+            Column(
+                "new_BusinessGroupId",
+                AttributeType.Picklist,
+                display_name=Label.bilingual("商务组", "Business Group"),
+                optionset_name="new_salesgroup",
+            ),
+            Column(
+                "new_RecordType",
+                AttributeType.Picklist,
+                display_name=Label.bilingual("记录类型", "Record Type"),
+                options=[
+                    Option(1, Label.bilingual("未签单", "Not Signed")),
+                    Option(2, Label.bilingual("已签单", "Signed")),
+                ],
+            ),
+        ],
+    )
+
+
+_SALESGROUP_MODULE = (
+    "from framework_power import GlobalOptionSet, Label, Option\n"
+    "OPTIONSET = GlobalOptionSet(\n"
+    "    name='new_salesgroup',\n"
+    "    display_name=Label.bilingual('销售组', 'Sales Group'),\n"
+    "    options=[Option(100000001, Label.bilingual('欧美一组', 'Europe and U.S. Group 1'))],\n"
+    ")\n"
+)
+
+
+class OptionsetAwareFakeClient(FakeClient):
+    """FakeClient + the global optionset API surface (get/create)."""
+
+    def __init__(
+        self,
+        *,
+        existing_optionsets: dict[str, dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._existing_optionsets = dict(existing_optionsets or {})
+        self.created_optionsets: list[dict[str, Any]] = []
+
+    def get_global_optionset_by_name(self, name: str) -> dict[str, Any] | None:
+        return self._existing_optionsets.get(name)
+
+    def create_global_optionset(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.created_optionsets.append(payload)
+        return {"MetadataId": "osid:" + payload["Name"]}
+
+
+def test_referenced_global_optionsets_collects_only_global():
+    assert _referenced_global_optionsets(_global_picklist_table()) == ["new_salesgroup"]
+    # Inline (entity-bound) picklists are not references.
+    assert _referenced_global_optionsets(_picklist_table()) == []
+
+
+def test_ensure_referenced_optionsets_creates_from_local_definition(tmp_path):
+    (tmp_path / "new_salesgroup.py").write_text(_SALESGROUP_MODULE, encoding="utf-8")
+    client = OptionsetAwareFakeClient()
+    res = ensure_referenced_optionsets(
+        client, _global_picklist_table(), optionsets_dir=tmp_path, config=NO_DELAY
+    )
+    assert res["missing"] == []
+    assert res["optionsets"][0]["deploy"]["action"] == "created"
+    assert client.created_optionsets[0]["Name"] == "new_salesgroup"
+    assert client.created_optionsets[0]["IsGlobal"] is True
+
+
+def test_ensure_referenced_optionsets_exists_is_idempotent(tmp_path):
+    (tmp_path / "new_salesgroup.py").write_text(_SALESGROUP_MODULE, encoding="utf-8")
+    client = OptionsetAwareFakeClient(
+        existing_optionsets={
+            "new_salesgroup": {
+                "MetadataId": "osid:new_salesgroup",
+                "Options": [{"Value": 100000001}],
+            }
+        }
+    )
+    res = ensure_referenced_optionsets(
+        client, _global_picklist_table(), optionsets_dir=tmp_path, config=NO_DELAY
+    )
+    assert res["optionsets"][0]["deploy"]["action"] == "exists"
+    assert client.created_optionsets == []
+
+
+def test_ensure_referenced_optionsets_missing_local_warns():
+    """No local definition + no online presence -> warning, deploy continues."""
+    client = OptionsetAwareFakeClient()
+    res = ensure_referenced_optionsets(
+        client, _global_picklist_table(), optionsets_dir=None, config=NO_DELAY
+    )
+    assert res["optionsets"] == []
+    assert res["missing"][0]["name"] == "new_salesgroup"
+
+
+def test_ensure_referenced_optionsets_no_references():
+    client = OptionsetAwareFakeClient()
+    res = ensure_referenced_optionsets(
+        client, _basic_table(), optionsets_dir=None, config=NO_DELAY
+    )
+    assert res == {"optionsets": [], "added": [], "missing": []}
+
+
+def test_deploy_table_syncs_referenced_optionset_before_entity(tmp_path):
+    (tmp_path / "new_salesgroup.py").write_text(_SALESGROUP_MODULE, encoding="utf-8")
+    client = OptionsetAwareFakeClient()
+    result = deploy_table(
+        client,
+        _global_picklist_table(),
+        config=NO_DELAY,
+        optionsets_dir=tmp_path,
+        solution="new_entity930",
+    )
+    # Optionset created and its solution-add (code 9) recorded.
+    assert result["optionsets"][0]["deploy"]["action"] == "created"
+    assert result["optionsets_missing"] == []
+    codes = {code for (_sol, code, _oid, _sub) in client.calls["add_solution_component"]}
+    assert 9 in codes
+    # Entity still deployed as before.
+    assert result["entity"]["action"] == "created"

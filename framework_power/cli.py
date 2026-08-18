@@ -57,6 +57,13 @@ from .solution_reverse import reverse_solution
 from .role_deployer import deploy_role, plan_role
 from .role_reverse import reverse_role
 from .role_codegen import role_to_python_source
+from .optionset_sync import (
+    OptionSetSyncConfig,
+    discover_optionsets,
+    load_optionset,
+    plan_optionsets,
+    sync_optionsets,
+)
 from .role_registry import (
     DEFAULT_ROLES_DIR,
     discover_role_definitions,
@@ -106,6 +113,7 @@ DEFAULT_VIEWS_DIR = "metadata_py/views"
 DEFAULT_RIBBONS_DIR = "metadata_py/ribbons"
 DEFAULT_RIBBON_SOLUTION = "new_RibbonSoln"
 DEFAULT_PLUGIN_SOLUTION = "new_PluginSoln"
+DEFAULT_OPTIONSETS_DIR = "metadata_py/optionsets"
 
 
 # ----------------------------------------------------------------- workspace helpers
@@ -447,7 +455,15 @@ def cmd_plan(args: argparse.Namespace) -> int:
     tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
     defn = get_definition(args.name, tables_dir)
     client = _get_client_ws(args, args.env)
-    _print_json(plan_table(client, defn.table, prefix=_effective_prefix(args)))
+    optionsets_dir = _workspace_dir(args, "optionsets_dir", "metadata_py/optionsets")
+    _print_json(
+        plan_table(
+            client,
+            defn.table,
+            prefix=_effective_prefix(args),
+            optionsets_dir=optionsets_dir,
+        )
+    )
     return 0
 
 
@@ -466,6 +482,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
             solution=args.solution,
             solution_clean=args.solution_clean,
             fields=fields,
+            optionsets_dir=_workspace_dir(args, "optionsets_dir", "metadata_py/optionsets"),
         )
     )
     return 0
@@ -481,10 +498,13 @@ def cmd_deploy_all(args: argparse.Namespace) -> int:
     print(f"Deploy order: {order}")
     client = _get_client_ws(args, args.env)
     prefix = _effective_prefix(args)
+    optionsets_dir = _workspace_dir(args, "optionsets_dir", "metadata_py/optionsets")
     summary = []
     for name in order:
         print(f"\n=== deploying {name} ===")
-        result = deploy_table(client, defs[name].table, prefix=prefix)
+        result = deploy_table(
+            client, defs[name].table, prefix=prefix, optionsets_dir=optionsets_dir
+        )
         summary.append({"name": name, "entity": result["entity"].get("action")})
         _print_json(result)
     print("\n=== summary ===")
@@ -1126,6 +1146,59 @@ def cmd_role_reverse(args: argparse.Namespace) -> int:
     print(
         f"[ok] reverse role {args.name} -> {out_path} "
         f"({len(role.table_privileges)} tables)"
+    )
+    return 0
+
+
+def cmd_optionset_list(args: argparse.Namespace) -> int:
+    optionsets_dir = _resolve_dir(args, "optionsets_dir", args.optionsets_dir, DEFAULT_OPTIONSETS_DIR)
+    found = discover_optionsets(optionsets_dir)
+    if not found:
+        print(f"[list] no GlobalOptionSet definitions under '{optionsets_dir}'.")
+        return 0
+    print(f"[list] {len(found)} GlobalOptionSet(s) under '{optionsets_dir}':")
+    for name in sorted(found):
+        os = found[name]
+        n_opts = len(os.options)
+        zh = next((l.text for l in os.display_name.localized if l.language_code == 2052), "")
+        print(f"  {name}  ({zh} / {n_opts} options)")
+    return 0
+
+
+def cmd_optionset_plan(args: argparse.Namespace) -> int:
+    optionsets_dir = _resolve_dir(args, "optionsets_dir", args.optionsets_dir, DEFAULT_OPTIONSETS_DIR)
+    if args.name:
+        model = load_optionset(Path(optionsets_dir) / f"{args.name}.py")
+        models = [model]
+    else:
+        models = list(discover_optionsets(optionsets_dir).values())
+    if not models:
+        print(f"[plan] no GlobalOptionSet definitions under '{optionsets_dir}'.")
+        return 0
+    client = _get_client_ws(args, args.env)
+    _print_json(plan_optionsets(client, models, prefix=_effective_prefix(args)))
+    return 0
+
+
+def cmd_optionset_deploy(args: argparse.Namespace) -> int:
+    optionsets_dir = _resolve_dir(args, "optionsets_dir", args.optionsets_dir, DEFAULT_OPTIONSETS_DIR)
+    if args.name:
+        model = load_optionset(Path(optionsets_dir) / f"{args.name}.py")
+        models = [model]
+    else:
+        models = list(discover_optionsets(optionsets_dir).values())
+    if not models:
+        print(f"[deploy] no GlobalOptionSet definitions under '{optionsets_dir}'.")
+        return 0
+    client = _get_client_ws(args, args.env)
+    _print_json(
+        sync_optionsets(
+            client,
+            models,
+            prefix=_effective_prefix(args),
+            solution=args.solution,
+            config=OptionSetSyncConfig(),
+        )
     )
     return 0
 
@@ -1791,6 +1864,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Roles directory (default: {DEFAULT_ROLES_DIR}).",
     )
     parser.add_argument(
+        "--optionsets-dir",
+        default=DEFAULT_OPTIONSETS_DIR,
+        help=f"Global OptionSets directory (default: {DEFAULT_OPTIONSETS_DIR}).",
+    )
+    parser.add_argument(
         "--forms-dir",
         default=DEFAULT_FORMS_DIR,
         help=f"Forms directory (default: {DEFAULT_FORMS_DIR}).",
@@ -2051,6 +2129,28 @@ def build_parser() -> argparse.ArgumentParser:
         "-o", "--output", default=None, help="Output file (default: <roles-dir>/<name>.py)."
     )
     p.set_defaults(func=cmd_role_reverse)
+
+    # --- optionset group (global OptionSet sync) ---
+    p_os = sub.add_parser("optionset", help="Manage global OptionSet definitions.")
+    os_sub = p_os.add_subparsers(dest="optionset_command", required=True)
+
+    p = os_sub.add_parser("list", help="List discovered local GlobalOptionSet definitions.")
+    p.set_defaults(func=cmd_optionset_list)
+
+    p = os_sub.add_parser("plan", help="Read-only dry run of authored global optionsets.")
+    p.add_argument("name", nargs="?", help="Single optionset name; omit to plan all.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_optionset_plan)
+
+    p = os_sub.add_parser("deploy", help="Sync authored global optionsets (create-only, idempotent).")
+    p.add_argument("name", nargs="?", help="Single optionset name; omit to deploy all.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.add_argument(
+        "--solution",
+        default=None,
+        help="Add synced optionsets to this solution (code 9; idempotent).",
+    )
+    p.set_defaults(func=cmd_optionset_deploy)
 
     # --- webresource group (Phase 4) ---
     p_wr = sub.add_parser("webresource", help="Sync/publish a directory of web resources.")

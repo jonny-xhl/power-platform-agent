@@ -177,7 +177,8 @@ CLI 在执行任何命令前，会自动发现当前 workspace：
 
 | # | 阶段 | 功能 | CLI 示例 |
 |---|------|------|----------|
-| 1 | **表管理** | 类型化 `Table`/`Column`/`Relationship`，幂等 deploy/plan/reverse | `pp deploy new_projectbudget` |
+| 1 | **表管理** | 类型化 `Table`/`Column`/`Relationship`，幂等 deploy/plan/reverse；引用的全局选项集依赖优先自动同步（ADR-011） | `pp deploy new_projectbudget` |
+| 1b | **全局选项集** | `GlobalOptionSet` 独立建模，create-only 同步 + 漂移检测 | `pp optionset deploy new_salesgroup` |
 | 2 | **解决方案** | `Solution` 容器 + 6 种组件类型统一分发 | `pp solution deploy --env dev` |
 | 3 | **安全角色** | 为已存在角色 upsert 表级权限，按表逆向 | `pp role deploy --env dev` |
 | 4 | **Web 资源** | 本地目录批量同步 + 精准 `PublishXml` | `pp webresource sync --env dev` |
@@ -209,8 +210,12 @@ pp lint new_projectbudget
 # 只读预演（不写入 Dataverse）
 pp plan new_projectbudget --env dev
 
-# 同步到 Dataverse
+# 同步到 Dataverse（引用的全局选项集会先行自动同步）
 pp deploy new_projectbudget --env dev
+
+# 全局选项集独立管理（列表 / 同步）
+pp optionset list
+pp optionset deploy new_salesgroup --env dev --solution new_entity930
 
 # ���向导出（环境 → 本地 Python 文件）
 pp reverse new_projectbudget --env dev

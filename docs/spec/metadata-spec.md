@@ -239,7 +239,31 @@ Column(
         Option(value=3, label=Label.zh("高")),
     ],
 )
+
+# Picklist 字段 (引用全局选项集 — ADR-009/ADR-011)
+Column(
+    schema_name="new_businessgroup_id",
+    type=AttributeType.Picklist,
+    display_name=Label.bilingual("商务组", "Business Group"),
+    optionset_name="new_salesgroup",  # 引用 metadata_py/optionsets/new_salesgroup.py
+    required=RequiredLevel.ApplicationRequired,
+)
 ```
+
+#### 全局选项集引用（Python 路径）
+
+`optionset_name` 指向 `metadata_py/optionsets/<name>.py` 中独立建模的
+`GlobalOptionSet`（模块级 `OPTIONSET` 变量，导出 `name` / `display_name` /
+`options` / 可选 `description`）。语义契约：
+
+- 序列化为 `OptionSet.IsGlobal=true + Name` 引用，**不内联选项**（选项归全局
+  选项集所有，选项增删改在选项集侧完成）。
+- **依赖优先自动同步**（ADR-011）：`pp deploy <table>` 会先收集表中所有
+  `optionset_name` 引用，加载对应本地定义并**先行同步**（create-only、幂等、
+  漂移报 `manual_update_required`），再部署实体/字段；带 `--solution` 时选项集
+  自动加入同一解决方案（code 9）。无本地定义时降级为只读在线检查并在结果
+  `optionsets_missing` 记录告警（不阻断部署，但新环境会失败——务必建模）。
+- 也可独立管理：`pp optionset list | plan | deploy [--name] [--solution]`。
 
 ### LookupColumn 和 Relationship
 
@@ -303,6 +327,8 @@ table = Table(
 - 每表一个文件：`metadata_py/tables/<schema_lowercase>.py`
 - 每个文件暴露模块级 `TABLE: Table`（注册表通过此变量发现定义）
 - 文件名 stem = CLI 定义键（如 `new_projectbudget`）
+- 全局选项集：`metadata_py/optionsets/<name>.py`，暴露模块级
+  `OPTIONSET: GlobalOptionSet`（被表引用时由 deploy 自动加载，ADR-011）
 
 ### 开发流水线
 
@@ -310,9 +336,10 @@ table = Table(
 需求 (docs/features/<feature>/01-prd)
   → design-dv-model → Excel 设计 (docs/features/<feature>/02-designs)
   → dv-model-to-python  → metadata_py/tables/<schema>.py   （AI 生成步骤）
+  → (引用全局选项集时) metadata_py/optionsets/<name>.py
   → framework_power lint          （离线入口校验）
-  → framework_power plan --env    （只读预演）
-  → framework_power deploy --env  （同步到 Dataverse）
+  → framework_power plan --env    （只读预演，含引用选项集 would_* 计划）
+  → framework_power deploy --env  （依赖优先同步选项集 → 表同步到 Dataverse）
 ```
 
 ### Python 命名规则

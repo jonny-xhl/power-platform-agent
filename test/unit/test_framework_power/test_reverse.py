@@ -27,6 +27,9 @@ class ReverseFakeClient:
     def get_relationships(self, name: str) -> list[dict[str, Any]]:
         return list(self._rels)
 
+    def get_entity_keys(self, name: str) -> list[dict[str, Any]]:
+        return []
+
     def get_optionset_attributes(self, name: str) -> dict[str, dict[str, Any]]:
         """Mock for typed Picklist/Boolean attribute queries (returns registered data).
 

@@ -14,6 +14,7 @@ import logging
 from typing import Any, Optional
 
 from .models import (
+    AlternateKey,
     AttributeType,
     BooleanLabels,
     CascadeConfig,
@@ -90,6 +91,7 @@ _ODATA_TYPE: dict[AttributeType, str] = {
 
 # Per-type mutable keys eligible for the desired-state overlay.
 # Transport is a full concrete metadata PUT, not an attribute PATCH.
+_COMMON_UPDATABLE = {"IsAuditEnabled", "IsValidForAdvancedFind"}
 _UPDATABLE_BY_TYPE: dict[AttributeType, set[str]] = {
     AttributeType.String: {"DisplayName", "Description", "MaxLength", "FormatName", "RequiredLevel", "ImeMode"},
     AttributeType.Memo: {"DisplayName", "Description", "MaxLength", "FormatName", "RequiredLevel", "ImeMode"},
@@ -144,6 +146,10 @@ def serialize_column(col: Column, *, is_primary_name: bool = False) -> dict[str,
         attr["Description"] = description
     if col.ime_mode:
         attr["ImeMode"] = col.ime_mode
+    if col.is_audit_enabled is not None:
+        attr["IsAuditEnabled"] = {"Value": col.is_audit_enabled}
+    if col.is_searchable is not None:
+        attr["IsValidForAdvancedFind"] = {"Value": col.is_searchable}
 
     t = col.type
 
@@ -177,11 +183,21 @@ def serialize_column(col: Column, *, is_primary_name: bool = False) -> dict[str,
             attr["MaxValue"] = col.max_value
 
     elif t == AttributeType.Picklist:
-        attr["OptionSet"] = {
-            "@odata.type": "Microsoft.Dynamics.CRM.OptionSetMetadata",
-            "IsGlobal": False,
-            "Options": [serialize_option(o.value, o.label) for o in col.options],
-        }
+        if col.optionset_name:
+            # Reference an existing global optionset instead of declaring inline
+            # local options. The global optionset itself is managed via the
+            # optionsets stage; only the field-to-optionset link is authored here.
+            attr["OptionSet"] = {
+                "@odata.type": "Microsoft.Dynamics.CRM.OptionSetMetadata",
+                "IsGlobal": True,
+                "Name": col.optionset_name,
+            }
+        else:
+            attr["OptionSet"] = {
+                "@odata.type": "Microsoft.Dynamics.CRM.OptionSetMetadata",
+                "IsGlobal": False,
+                "Options": [serialize_option(o.value, o.label) for o in col.options],
+            }
 
     elif t == AttributeType.Boolean:
         if col.default_value is not None:
@@ -272,6 +288,7 @@ def serialize_table_for_create(table: Table) -> dict[str, Any]:
         "HasActivities": table.has_activities,
         "HasNotes": table.has_notes,
         "IsQuickCreateEnabled": table.is_quick_create_enabled,
+        "IsAuditEnabled": {"Value": bool(table.is_audit_enabled)},
     }
 
     primary = _resolve_primary_name(table)
@@ -404,10 +421,25 @@ def serialize_relationship(
 # ============================================================ update / diff
 
 
+def serialize_alternate_key(key: AlternateKey) -> dict[str, Any]:
+    """Serialize an alternate key for the EntityDefinitions(...)/Keys collection."""
+    payload: dict[str, Any] = {
+        "@odata.type": "Microsoft.Dynamics.CRM.EntityKeyMetadata",
+        "SchemaName": key.schema_name,
+        "KeyAttributes": key.columns,
+    }
+    display = serialize_label(key.display_name)
+    if display:
+        payload["DisplayName"] = display
+    return payload
+
+
 def serialize_updatable(col: Column) -> dict[str, Any]:
     """Return mutable desired properties eligible for the metadata PUT overlay."""
     full = serialize_column(col)
-    allowed = _UPDATABLE_BY_TYPE.get(col.type, {"DisplayName", "Description", "RequiredLevel"})
+    allowed = _UPDATABLE_BY_TYPE.get(
+        col.type, {"DisplayName", "Description", "RequiredLevel"}
+    ) | _COMMON_UPDATABLE
     return {k: v for k, v in full.items() if k in allowed and v is not None}
 
 

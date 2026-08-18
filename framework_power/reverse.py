@@ -17,6 +17,7 @@ import logging
 from typing import Any, Optional
 
 from .models import (
+    AlternateKey,
     AttributeType,
     BooleanLabels,
     Cascade,
@@ -153,6 +154,14 @@ def _attr_to_column(
         "display_name": _extract_label(attr.get("DisplayName")) or Label.zh(schema or ""),
         "required": _required((attr.get("RequiredLevel") or {}).get("Value")),
     }
+    audit = attr.get("IsAuditEnabled")
+    if audit is not None:
+        kwargs["is_audit_enabled"] = bool(audit.get("Value") if isinstance(audit, dict) else audit)
+    searchable = attr.get("IsValidForAdvancedFind")
+    if searchable is not None:
+        kwargs["is_searchable"] = bool(
+            searchable.get("Value") if isinstance(searchable, dict) else searchable
+        )
     desc = _extract_label(attr.get("Description"))
     if desc:
         kwargs["description"] = desc
@@ -319,6 +328,16 @@ def reverse_table(client: Any, logical_name: str) -> Table:
                 lookups[logical] = lookup_raw
 
     relationships = _build_relationships(rels, lookups, logical_name)
+    keys = client.get_entity_keys(logical_name)
+    alternate_keys = [
+        AlternateKey(
+            schema_name=key.get("SchemaName") or key.get("LogicalName"),
+            columns=list(key.get("KeyAttributes") or []),
+            display_name=_extract_label(key.get("DisplayName")),
+        )
+        for key in keys
+        if key.get("SchemaName") or key.get("LogicalName")
+    ]
 
     display = _extract_label(entity.get("DisplayName")) or Label.zh(logical_name)
     return Table(
@@ -332,4 +351,5 @@ def reverse_table(client: Any, logical_name: str) -> Table:
         is_audit_enabled=bool((entity.get("IsAuditEnabled") or {}).get("Value")),
         columns=columns,
         relationships=relationships,
+        alternate_keys=alternate_keys,
     )

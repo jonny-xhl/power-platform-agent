@@ -272,15 +272,20 @@ pp deploy-all --env dev           # 全量部署，按引用顺序处理
 
 | 对象 | 行为 |
 | --- | --- |
-| 实体 | 缺失则创建；否则 PATCH 可更新属性（DisplayName、Description、HasNotes、IsAuditEnabled、IsQuickCreateEnabled）。 |
+| 实体 | 缺失则创建（创建 payload 即携带 `IsAuditEnabled` 等属性）；否则 PATCH 可更新属性（DisplayName、Description、HasNotes、IsAuditEnabled、IsQuickCreateEnabled）；若环境拒绝 EntityDefinitions PATCH（405 / 0x80060888），自动降级为「强一致 GET 完整定义 → 叠加差异 → 清理响应字段 → PUT」，结果标注 `method: put`。 |
 | 字段 | 实体首次创建时内联携带。实体已存在时：缺失则 POST；否则计算可变属性差异，通过具体类型强一致 GET 获取完整定义，清理只读属性、叠加差异后 PUT。无差异时不发 PUT。 |
 | 本地 Picklist 选项 | 对已有字段执行 typed GET + `$expand=OptionSet`；缺少值调用 `InsertOptionValue`，已存在值的本地声明语言标签发生变化时调用 `UpdateOptionValue(MergeLabels=true)`；远端额外值保留；有修改才定向发布实体。 |
+| 全局选项集引用 | 字段声明 `optionset_name="<global>"` 时，创建 payload 使用 `OptionSet.IsGlobal=true + Name` 引用已有全局选项集，**不内联选项**；已有字段的选项同步自动跳过（选项归全局选项集所有，由其独立流程维护）。 |
+| 引用的全局选项集本体 | **依赖优先自动同步**（ADR-011）：部署表前先收集 `optionset_name` 引用，从 `metadata_py/optionsets/<name>.py` 加载本地定义并先行同步（create-only、幂等、漂移报 `manual_update_required`）；带 `--solution` 时同步加入同一解决方案（code 9）。无本地定义时降级为只读在线检查并在 `optionsets_missing` 记录告警，**不阻断部署**。 |
 | 关系 | 仅创建（Dataverse 不支持 PATCH 关系定义）。已存在则跳过。 |
 
 本地 Picklist 的值和多语言标签已经支持由 `pp deploy <table> --fields <field>`
 增量同步，并可传递 `--solution`。该流程默认**不删除**远端额外值，因为删除可能导致
 现有业务数据失效。Boolean 标签和全局 OptionSet 的已有选项更新仍使用各自独立流程，
-不会由本地 Picklist 同步逻辑隐式处理。
+不会由本地 Picklist 同步逻辑隐式处理。引用全局选项集的字段（`optionset_name`）在
+部署时只建立字段→选项集的链接，选项的增删改始终在全局选项集侧完成（可用
+`pp optionset deploy --name <os> [--solution <sol>]` 独立管理，或
+`pp optionset list / plan` 查看）。
 
 ### 元数据传播与重试
 

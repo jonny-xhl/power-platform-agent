@@ -266,6 +266,14 @@ def table_to_markdown(
             target = rel.referenced_entity or "?"
             lines.append(f"| `{rel.schema_name}` | `{intersect}` | `{target}` |")
 
+    if table.alternate_keys:
+        lines.extend(["", "## Alternate Keys", ""])
+        lines.append("| Schema Name | 字段 | 显示名称 |")
+        lines.append("|-------------|------|----------|")
+        for key in table.alternate_keys:
+            columns = ", ".join(f"`{column}`" for column in key.columns)
+            lines.append(f"| `{key.schema_name}` | {columns} | {_label_both(key.display_name)} |")
+
     # Metadata footer
     lines.extend(["", "---", "", "## 元数据", ""])
     lines.append(f"- **Schema Name**: `{schema_name}`")
@@ -281,6 +289,7 @@ def table_to_markdown(
     lines.append(f"- **生成时间**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`")
     lines.append(f"- **字段数**: {len(table.columns)}")
     lines.append(f"- **关系数**: {len(table.relationships)}")
+    lines.append(f"- **Alternate Key 数**: {len(table.alternate_keys)}")
     lines.append("")
 
     return "\n".join(lines)

@@ -98,6 +98,22 @@ def lint_table(table: Table, prefix: str = "new") -> list[Issue]:
                     f"Picklist '{col.schema_name}' has duplicate option values: {sorted(dupes)}.",
                 ))
 
+    # --- alternate keys ---
+    seen_keys: set[str] = set()
+    for alternate_key in table.alternate_keys:
+        key_name = alternate_key.schema_name.lower()
+        if key_name in seen_keys:
+            issues.append(Issue(ERROR, f"Duplicate alternate key schema name '{alternate_key.schema_name}'."))
+        seen_keys.add(key_name)
+        if not alternate_key.columns:
+            issues.append(Issue(ERROR, f"Alternate key '{alternate_key.schema_name}' has no columns."))
+        for column in alternate_key.columns:
+            if column.lower() not in seen_columns:
+                issues.append(Issue(
+                    ERROR,
+                    f"Alternate key '{alternate_key.schema_name}' references unknown column '{column}'.",
+                ))
+
     # --- primary name ---
     if table.primary_name_column:
         if primary_flagged > 1:
