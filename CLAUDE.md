@@ -259,7 +259,7 @@ appmodule.uniquename`（如 app `new_CustomerService`）。详见 ADR-015 与
   **建议**级提醒，不构成豁免；未同步文档的引擎变更视为任务未完成。
 - 认证复用 `ninebot-project/config/environments.yaml` + `.env`（`get_client`，client-secret + MSAL）。
 - `deploy` **非破坏**（create/update/add）；标准（非 `new_` 前缀）组件正向同步**跳过** → 全量快照安全。
-- 布尔用 `True`/`False`；mypy 严格；`flake8 --max-line-length=120`；mypy 需 `--explicit-package-bases`（仓库根有遗留 `__init__.py`）。
+- 布尔用 `True`/`False`；mypy 严格；`flake8 --max-line-length=120`。
 - **已 live 踩坑**（详见 `framework_power/CLAUDE.md §9`）：全局选项集按**小写** `Name` 键查询（禁
   `$filter`/405）；解决方案组件走 `solutioncomponents` 实体集（导航属性 404/400）；部署返回 id 避免
   create→resolve 竞争；`PublishAllXml` 组织级（发布全部未托管自定义项）。
@@ -337,9 +337,9 @@ cd test && pytest -m "requires_auth"  # 需要 Dataverse 凭据
 ```bash
 # framework/（已于 2026-08-31 移除；如历史分支需要可回查 git log）
 
-# framework_power/（Python 优先库；mypy 需 --explicit-package-bases，因仓库根有遗留 __init__.py）
+# framework_power/（Python 优先库；根级遗留 __init__.py 已随 legacy 清理移除）
 flake8 framework_power/ --max-line-length=120
-mypy framework_power --ignore-missing-imports --explicit-package-bases
+mypy framework_power --ignore-missing-imports
 cd test && python -m pytest unit/test_framework_power -o addopts="" -q   # 168 单元测试，离线、fake client
 ```
 

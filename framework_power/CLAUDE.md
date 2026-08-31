@@ -757,7 +757,7 @@ CLI `pp sitemap apps|show|plan|add-entity|remove-entity`。详见
 - 测试：`test/unit/test_framework_power/`（`@pytest.mark.unit`，无网络，289 用例）。
   运行：`cd test && python -m pytest unit/test_framework_power -o addopts="" -q`。
 - Lint：`python -m flake8 framework_power/ --max-line-length=120`。
-- 类型：`python -m mypy framework_power --ignore-missing-imports --explicit-package-bases`。
+- 类型：`python -m mypy framework_power --ignore-missing-imports`（根级遗留 `__init__.py` 已移除，不再需要 `--explicit-package-bases`）。
   > **注意**：仓库根目录有个遗留 `__init__.py`，会导致 `mypy <pkg>` 报 "not a valid Python package
   > name" 而中止；**必须加 `--explicit-package-bases`**。
 - 覆盖率/HTML 报告等由根 `test/pytest.ini` 控制（默认 `--cov=framework`，对本包测试可用 `-o addopts=""`
