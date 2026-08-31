@@ -631,6 +631,20 @@ class ContentKind(str, Enum):
 
 
 @dataclass(frozen=True)
+class StepImage:
+    """A Pre/Post entity image attached to an SDK message processing step.
+
+    ``attributes`` is a comma-separated attribute list; empty/``"*"`` means ALL attributes
+    (the payload omits ``attributes`` so Dataverse snapshots every column; the live field
+    name is ``attributes`` — not the SDK-doc ``attributes1``).
+    """
+
+    alias: str  # context.PreEntityImages[alias] / PostEntityImages[alias]
+    image_type: str = "Post"  # "Pre" | "Post"
+    attributes: str = ""  # "" or "*" → all attributes
+
+
+@dataclass(frozen=True)
 class PluginStep:
     """A SDK message processing step."""
 
@@ -644,11 +658,20 @@ class PluginStep:
     description: str = ""
     rank: int = 1
     plugin_type: str = ""  # the IPlugin class name (typename); "" = use the assembly's single plugintype
+    images: tuple[StepImage, ...] = ()  # Pre/Post images registered with the step
 
 
 @dataclass(frozen=True)
 class CustomAction:
-    """A custom action (SDK message / global)."""
+    """A custom action (SDK message / global).
+
+    ``schema_name`` is the SDK message name (with publisher prefix, e.g. ``new_Interface_X``). The
+    workflow ``uniquename`` is the prefix-stripped form (pinned live: the SDK message carries the
+    prefix, the workflow record does not) unless ``uniquename`` overrides it. ``xaml`` is the
+    workflow definition XAML (stored in the ``xaml`` field; a collection ``$select=xaml`` returns
+    empty — read it via a single-entity GET) — required for a *callable* action: its
+    ``x:Members`` declare the input/output arguments (e.g. ``jsondata`` In / ``msg`` Out).
+    """
 
     schema_name: str
     display_name: Label
@@ -656,6 +679,9 @@ class CustomAction:
     description: Optional[Label] = None
     parameters: list[dict[str, Any]] = field(default_factory=list)
     return_type: Optional[dict[str, Any]] = None
+    uniquename: Optional[str] = None  # workflow uniquename; None → schema_name minus publisher prefix
+    xaml: Optional[str] = None  # workflow XAML (x:Members declare the In/Out args); None → no-arg action
+    plugin_type: str = ""  # IPlugin typename handling the action; "" = assembly's single plugintype
 
 
 @dataclass(frozen=True)

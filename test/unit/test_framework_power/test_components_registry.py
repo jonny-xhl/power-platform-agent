@@ -45,6 +45,7 @@ def test_deploy_order_covers_all_future_types():
         "webresource",
         "form",
         "view",
+        "sitemap",
         "plugin",
     )
 

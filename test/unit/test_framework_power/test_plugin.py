@@ -3,7 +3,7 @@
 import pytest
 
 import framework_power.components.plugin as plugin_mod
-from framework_power import CustomAction, IsolationMode, Label, Plugin, PluginStep, SourceType
+from framework_power import CustomAction, IsolationMode, Label, Plugin, PluginStep, SourceType, StepImage
 
 pytestmark = pytest.mark.unit
 
@@ -66,6 +66,67 @@ class FakeClient:
                 "sdkmessageid@OData.Community.Display.V1.FormattedValue": "Create",
             }
         ]
+
+    # custom-action workflow surface (deploy always calls _deploy_custom_action)
+    def get_workflow_by_uniquename(self, uniquename):
+        return None  # no pre-existing workflows
+
+    def create_custom_action(self, payload):
+        raise RuntimeError("workflows POST not available in this fake")  # → manual_update_required
+
+
+# ---- Pre/Post step images ----
+
+
+class FakeImageClient(FakeClient):
+    """FakeClient + step-image bookkeeping for image registration tests."""
+
+    def __init__(self, existing=None, sdk_messages=None):
+        super().__init__(existing=existing,
+                         sdk_messages={"Create": "msg-1", "Update": "msg-2"} if sdk_messages is None else sdk_messages)
+        self.images: dict[str, list[dict]] = {}  # step_id → [image payloads]
+
+    def get_steps_by_assembly(self, aid):
+        return []  # force step creation path (base FakeClient returns a pre-existing step)
+
+    def get_step_images(self, step_id):
+        return self.images.get(step_id, [])
+
+    def create_step_image(self, payload):
+        step_id = payload["sdkmessageprocessingstepid@odata.bind"].rsplit("(", 1)[1][:-1]
+        self.images.setdefault(step_id, []).append(payload)
+        return {"sdkmessageprocessingstepimageid": f"img-{len(self.images[step_id])}",
+                "entityalias": payload.get("entityalias")}
+
+
+def test_register_images_created_after_step():
+    c = FakeImageClient()
+    step = PluginStep(
+        name="rf.Update", message="Update", entity="new_salesproject",
+        images=(StepImage(alias="PreImage", image_type="Pre"),
+                StepImage(alias="PostImage", image_type="Post", attributes="new_a,new_b")),
+    )
+    r = plugin_mod.deploy(c, Plugin(name="new_P", content="Yg==", steps=[step]), prefix="new")
+    assert r["steps"][0]["action"] == "created"
+    imgs = r["steps"][0]["images"]
+    assert [i["action"] for i in imgs] == ["created", "created"]
+    payloads = c.images["step-1"]
+    assert payloads[0]["imagetype"] == 0 and "attributes" not in payloads[0]  # Pre + all-attrs
+    assert payloads[1]["imagetype"] == 1 and payloads[1]["attributes"] == "new_a,new_b"
+
+
+def test_register_images_backfills_existing_step_and_is_idempotent():
+    c = FakeImageClient()
+    step = PluginStep(name="rf.Create", message="Create", entity="new_salesproject",
+                      images=(StepImage(alias="PostImage"),))
+    m = Plugin(name="new_P", content="Yg==", steps=[step])
+    r1 = plugin_mod.deploy(c, m, prefix="new")
+    assert r1["steps"][0]["images"] == [{"alias": "PostImage", "action": "created", "id": "img-1"}]
+    # simulate the step already existing (deploy #2): image is skipped by alias — idempotent
+    c2 = FakeImageClient()
+    c2.images["step-1"] = [{"entityalias": "PostImage"}]
+    r2 = plugin_mod.deploy(c2, m, prefix="new")
+    assert r2["steps"][0]["images"] == [{"alias": "PostImage", "action": "exists"}]
 
 
 def test_serialize_keys():
@@ -206,6 +267,15 @@ class FakePackageClient:
     def create_custom_action(self, payload):
         self.actions_created.append(payload)
         return {"workflowid": "wf-1", "uniquename": payload.get("uniquename")}
+
+    def get_workflow_by_uniquename(self, uniquename):
+        for payload in self.actions_created:
+            if payload.get("uniquename") == uniquename:
+                return {"workflowid": "wf-1", "uniquename": uniquename, "statecode": 1, "type": 2}
+        return None
+
+    def activate_workflow(self, workflowid):
+        return {"activated": True, "workflowid": workflowid}
 
 
 def _package_model():

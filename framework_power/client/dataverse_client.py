@@ -34,6 +34,16 @@ _ATTRIBUTE_ODATA_TYPES: dict[str, str] = {
     "Boolean": "BooleanAttributeMetadata",
     "DateTime": "DateTimeAttributeMetadata",
     "File": "FileAttributeMetadata",
+    # Lookup-family attribute types share LookupAttributeMetadata
+    "Lookup": "LookupAttributeMetadata",
+    "Owner": "LookupAttributeMetadata",
+    "Customer": "LookupAttributeMetadata",
+    "PartyList": "LookupAttributeMetadata",
+    "State": "StateAttributeMetadata",
+    "Status": "StatusAttributeMetadata",
+    "EntityName": "EntityNameAttributeMetadata",
+    "Uniqueidentifier": "UniqueIdentifierAttributeMetadata",
+    "Image": "ImageAttributeMetadata",
 }
 
 # Properties returned by the full metadata GET that Microsoft's update sample does
@@ -578,7 +588,7 @@ class DataverseClient:
             self._raise_with_detail(response, f"create attribute on '{entity_name}'")
 
         if not response.text or response.status_code == 204:
-            return {"status": "already_exists"}
+            return {"status": "created"}
         try:
             return response.json()
         except Exception:  # noqa: BLE001
@@ -1113,6 +1123,19 @@ class DataverseClient:
         response.raise_for_status()
         return response.json().get("value", [])
 
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_plugintype(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a ``plugintypes`` record for a type the assembly content update did NOT auto-register.
+
+        Pinned live: replacing ``pluginassembly.content`` swaps the DLL bytes but does NOT re-enumerate
+        plugintypes (a stale list silently misses newly added IPlugin classes). Creating the record
+        manually registers the type so steps can bind to it.
+        """
+        response = self.session.post(self.get_api_url("plugintypes"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create plugintype")
+        return {"plugintypeid": _entity_id(response), "typename": payload.get("typename")}
+
     def get_sdk_message_filter(self, sdkmessageid: str, entity: str) -> Optional[str]:
         """Resolve the sdkmessagefilter that scopes a message to an entity (e.g. Update+account)."""
         response = self.session.get(
@@ -1190,6 +1213,58 @@ class DataverseClient:
             self._raise_with_detail(response, f"delete plugin step '{step_id}'")
         return {"deleted": True, "sdkmessageprocessingstepid": step_id}
 
+    def get_step_images(self, step_id: str) -> list[dict[str, Any]]:
+        """List the Pre/Post images registered on an SDK message processing step.
+
+        Images are addressed by ``_sdkmessageprocessingstepid_value`` (the collection has no
+        direct navigation from the step usable with $expand here); filter by id instead.
+        """
+        response = self.session.get(
+            self.get_api_url(
+                f"sdkmessageprocessingstepimages?$filter=_sdkmessageprocessingstepid_value eq {step_id}"
+                "&$select=sdkmessageprocessingstepimageid,name,entityalias,imagetype,attributes"
+            )
+        )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    def get_step_images_bulk(self, step_ids: list[str]) -> list[dict[str, Any]]:
+        """List images for MANY steps in one query (OR-filter on the step lookup).
+
+        Caller chunks the id list (keep ≤ ~15 per request — long OR filters hit URL
+        length limits). Each returned row carries ``_sdkmessageprocessingstepid_value``
+        so the caller can group by step. Snapshot/backup code MUST prefer this over
+        one ``get_step_images`` call per step (~100 custom steps → 8 requests vs 100).
+        """
+        if not step_ids:
+            return []
+        or_clause = " or ".join(
+            f"_sdkmessageprocessingstepid_value eq {sid}" for sid in step_ids)
+        response = self.session.get(
+            self.get_api_url(
+                f"sdkmessageprocessingstepimages?$filter={or_clause}"
+                "&$select=sdkmessageprocessingstepimageid,name,entityalias,imagetype,"
+                "attributes,_sdkmessageprocessingstepid_value"
+            )
+        )
+        response.raise_for_status()
+        return response.json().get("value", [])
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def create_step_image(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a ``sdkmessageprocessingstepimage`` (Pre/Post entity image bound to a step).
+
+        ``imagetype``: 0=PreImage, 1=PostImage (pinned live). ``messagepropertyname`` is
+        message-dependent: Create→``Id``, Update/Delete/others→``Target`` (0x8004416b rejects
+        Target on Create). ``attributes`` is the comma-separated attribute list (the live field
+        name — NOT the SDK-doc ``attributes1``); omit it to snapshot ALL attributes.
+        """
+        response = self.session.post(self.get_api_url("sdkmessageprocessingstepimages"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, "create step image")
+        return {"sdkmessageprocessingstepimageid": _entity_id(response),
+                "entityalias": payload.get("entityalias")}
+
     # ---- plugin packages (Phase 8; NuGet path) ----
 
     def list_plugin_packages(self) -> list[dict[str, Any]]:
@@ -1239,6 +1314,48 @@ class DataverseClient:
         if not response.ok:
             self._raise_with_detail(response, "create custom action (workflow)")
         return {"workflowid": _entity_id(response), "uniquename": payload.get("uniquename")}
+
+    def get_workflow_by_uniquename(self, uniquename: str) -> Optional[dict[str, Any]]:
+        """Find a workflow record by ``uniquename`` (the workflow identity of a custom action).
+
+        Note: ``$select=xaml`` on the collection is silently dropped by this env (returns rows with
+        no xaml); fetch the single entity for XAML instead.
+        """
+        encoded = _odata_quote(uniquename)
+        response = self.session.get(
+            self.get_api_url(
+                f"workflows?$filter=uniquename eq '{encoded}'"
+                "&$select=workflowid,name,uniquename,statecode,statuscode,category,type&$top=5"
+            )
+        )
+        response.raise_for_status()
+        values = response.json().get("value", [])
+        if not values:
+            return None
+        # An activated action can expose both the definition (type=1) and its activation copy
+        # (type=2) under one uniquename — prefer the definition record.
+        return next((v for v in values if v.get("type") == 1), values[0])
+
+    def get_workflow_xaml(self, workflowid: str) -> Optional[str]:
+        """Fetch a workflow's XAML via single-entity GET.
+
+        Pinned live: the XAML lives in the ``xaml`` field (classic workflow definitions) — NOT
+        ``clientdata`` (modern-flow field, always null here). Collection queries with
+        ``$select=xaml`` silently drop it; the single-entity GET returns it.
+        """
+        response = self.session.get(self.get_api_url(f"workflows({workflowid})?$select=xaml"))
+        response.raise_for_status()
+        return response.json().get("xaml")
+
+    @retry_on_metadata_error(max_retries=3, initial_delay=2.0)
+    def activate_workflow(self, workflowid: str) -> dict[str, Any]:
+        """Activate a workflow (draft→activated) — required for custom actions: activation provisions
+        the ``type=2`` activation copy and the SDK message, without which the action is not callable."""
+        payload = {"statecode": 1, "statuscode": 2}
+        response = self.session.patch(self.get_api_url(f"workflows({workflowid})"), json=payload)
+        if not response.ok:
+            self._raise_with_detail(response, f"activate workflow '{workflowid}'")
+        return {"activated": True, "workflowid": workflowid}
 
     # ----------------------------------------------------- solution / publisher
     # Thin transport methods over the Web API. Create payloads are built by
@@ -1536,6 +1653,62 @@ class DataverseClient:
         if not response.ok:
             self._raise_with_detail(response, "publish application ribbon")
         return {"published": True, "scope": "application_ribbon"}
+
+    # ------------------------------------------------ localized labels (ADR-016)
+    # SetLocLabels/RetrieveLocLabels work on a limited set of DATA-record localizable
+    # attributes (verified live: savedquery.name, systemform.name). Two org quirks,
+    # both live-verified 2026-08-28:
+    #   - the ACTION rejects "@odata.id" monikers -> typed {@odata.type, <pk>: id} form;
+    #   - this org rejects the documented "PublishFlag" parameter -> publish separately.
+
+    _LOC_LABEL_TYPES = {
+        "savedqueries": ("Microsoft.Dynamics.CRM.savedquery", "savedqueryid"),
+        "systemforms": ("Microsoft.Dynamics.CRM.systemform", "formid"),
+    }
+
+    def retrieve_loc_labels(
+        self, entity_set: str, pk: str, attribute: str
+    ) -> dict[int, str]:
+        """GET ``RetrieveLocLabels`` -> ``{languagecode: label}`` (published labels).
+
+        ``entity_set`` is the entity-set name ("savedqueries"/"systemforms"); the
+        response labels live under ``Label.LocalizedLabels`` (not ``value``).
+        """
+        if entity_set not in self._LOC_LABEL_TYPES:
+            raise ValueError(f"Unsupported entity set for loc labels: {entity_set!r}")
+        url = self.get_api_url(
+            "RetrieveLocLabels(EntityMoniker=@m,AttributeName=@a,IncludeUnpublished=@u)"
+            f"?@m={{'@odata.id':'{entity_set}({pk})'}}&@a='{attribute}'&@u=false"
+        )
+        response = self.session.get(url)
+        if not response.ok:
+            self._raise_with_detail(response, f"retrieve loc labels for {entity_set}({pk})")
+        labels = response.json().get("Label", {}).get("LocalizedLabels", [])
+        return {
+            int(lab["LanguageCode"]): lab["Label"]
+            for lab in labels if lab.get("Label") is not None
+        }
+
+    def set_loc_labels(
+        self, entity_set: str, pk: str, attribute: str, labels: dict[int, str]
+    ) -> dict[str, Any]:
+        """POST ``SetLocLabels`` — set the given language labels for a data attribute.
+
+        Pass the FULL label set (unchanged languages included): the action may replace
+        the attribute's label collection, so omitting a language could drop it.
+        """
+        odata_type, pk_field = self._LOC_LABEL_TYPES[entity_set]
+        body = {
+            "EntityMoniker": {"@odata.type": odata_type, pk_field: pk},
+            "AttributeName": attribute,
+            "Labels": [
+                {"Label": text, "LanguageCode": lc} for lc, text in sorted(labels.items())
+            ],
+        }
+        response = self.session.post(self.get_api_url("SetLocLabels"), json=body)
+        if not response.ok:
+            self._raise_with_detail(response, f"set loc labels for {entity_set}({pk})")
+        return {"status": "updated", "labels": {str(k): v for k, v in sorted(labels.items())}}
 
     # -------------------------------------------------------- solution ZIP (Phase 7)
 

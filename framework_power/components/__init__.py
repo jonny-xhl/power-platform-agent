@@ -34,6 +34,7 @@ COMPONENT_DEPLOY_ORDER: tuple[str, ...] = (
     "webresource",
     "form",
     "view",
+    "sitemap",
     "plugin",
 )
 
@@ -154,6 +155,7 @@ from . import webresource as _webresource  # noqa: E402
 from . import form as _form  # noqa: E402
 from . import view as _view  # noqa: E402
 from . import plugin as _plugin  # noqa: E402
+from . import sitemap as _sitemap  # noqa: E402
 
-for _mod in (_optionset, _webresource, _form, _view, _plugin):  # noqa: E402
+for _mod in (_optionset, _webresource, _form, _view, _plugin, _sitemap):  # noqa: E402
     _register_module(_mod)

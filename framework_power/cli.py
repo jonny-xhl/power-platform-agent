@@ -87,6 +87,8 @@ from .view_sync import (
     reverse_views,
     sync_views,
 )
+from . import sitemap_sync
+from .components import sitemap as sitemap_component
 from .ribbon_sync import (
     codegen_ribbon,
     lint_ribbon,
@@ -104,6 +106,7 @@ from .workflow import (
     load_project,
     plan_workflow,
 )
+from .components import env_guard
 
 PUBLISHERS_CONFIG = "config/publishers.yaml"
 DEFAULT_SOLUTIONS_DIR = "metadata_py/solutions"
@@ -1047,6 +1050,84 @@ def cmd_solution_delete(args: argparse.Namespace) -> int:
         return 1
 
 
+# ----------------------------------------------------------------- env-guard (ADR-013)
+
+
+def _env_guard_workspace(args: argparse.Namespace):
+    """env-guard requires a real workspace (backups land under docs/env_backup/)."""
+    ws = _try_workspace(args)
+    if ws is None:
+        _print_json({"error": "env-guard requires a workspace (pp-workspace.yaml not found); "
+                              "run from the workspace or pass --workspace"})
+        return None
+    return ws
+
+
+def cmd_env_guard_backup(args: argparse.Namespace) -> int:
+    ws = _env_guard_workspace(args)
+    if ws is None:
+        return 1
+    client = _get_client_ws(args, args.env)
+    results = []
+    for sol in args.solutions:
+        try:
+            results.append(env_guard.backup_solution(client, sol, ws).to_dict())
+        except Exception as e:  # noqa: BLE001
+            results.append({"kind": "solution_zip", "target": sol, "error": str(e)[:200]})
+    if not args.no_plugin_snapshot:
+        try:
+            results.append(
+                env_guard.snapshot_plugin_registrations(client, ws).to_dict())
+        except Exception as e:  # noqa: BLE001
+            results.append({"kind": "plugin_snapshot", "error": str(e)[:200]})
+    if args.note:
+        env_guard.append_change(ws, env=args.env or "dev", actor="cli:env-guard backup",
+                                intent=f"pre-change backup — {args.note}", changes=[],
+                                backups=[r for r in results if "error" not in r])
+    _print_json({"backups": results})
+    return 0 if all("error" not in r for r in results) else 1
+
+
+def cmd_env_guard_snapshot(args: argparse.Namespace) -> int:
+    ws = _env_guard_workspace(args)
+    if ws is None:
+        return 1
+    client = _get_client_ws(args, args.env)
+    assemblies = [a.strip() for a in args.assemblies.split(",")] if args.assemblies else None
+    try:
+        res = env_guard.snapshot_plugin_registrations(client, ws, assemblies=assemblies)
+        _print_json(res.to_dict())
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_env_guard_log(args: argparse.Namespace) -> int:
+    ws = _env_guard_workspace(args)
+    if ws is None:
+        return 1
+    entries = env_guard.read_journal(ws, last=args.last)
+    if args.json:
+        _print_json({"entries": entries})
+    else:
+        for e in entries:
+            print(e["header"])
+            for line in e["lines"]:
+                if line.strip():
+                    print(f"  {line}")
+    return 0
+
+
+def cmd_env_guard_show(args: argparse.Namespace) -> int:
+    ws = _env_guard_workspace(args)
+    if ws is None:
+        return 1
+    _print_json({"backup_dir": str(ws.root / env_guard.BACKUP_DIRNAME),
+                 "files": env_guard.list_backups(ws)})
+    return 0
+
+
 # ----------------------------------------------------------------- roles (Phase 3)
 
 
@@ -1444,6 +1525,81 @@ def cmd_view_reverse(args: argparse.Namespace) -> int:
         return 1
     _print_json(result)
     return 0
+
+
+# ----------------------------------------------------------------- sitemap (Phase 10, ADR-015)
+
+
+def cmd_sitemap_apps(args: argparse.Namespace) -> int:
+    client = _get_client_ws(args, args.env)
+    apps = sitemap_sync.list_appmodules(client)
+    print(f"[apps] {len(apps)} app module(s)")
+    for a in apps:
+        print(f"  {a.get('name')} | {a.get('uniquename')} | {a.get('appmoduleid')}")
+    return 0
+
+
+def cmd_sitemap_show(args: argparse.Namespace) -> int:
+    client = _get_client_ws(args, args.env)
+    rec = sitemap_sync.resolve_app_sitemap(client, args.app)
+    model = sitemap_component.parse_sitemap(
+        rec["sitemapxml"], sitemapid=rec["sitemapid"],
+        sitemapnameunique=rec.get("sitemapnameunique", ""),
+    )
+    print(f"[show] app {args.app!r} -> sitemap {rec.get('sitemapnameunique')!r} ({rec['sitemapid']})")
+    for area in model.areas:
+        titles = "/".join(t.title for t in area.titles) or area.id
+        print(f"  Area {area.id} ({titles})")
+        for group in area.groups:
+            gt = "/".join(t.title for t in group.titles) or group.id
+            entities = [s.attrs.get("Entity") for s in group.subareas if s.attrs.get("Entity")]
+            print(f"    Group {group.id} ({gt}): {entities}")
+    return 0
+
+
+def cmd_sitemap_plan(args: argparse.Namespace) -> int:
+    client = _get_client_ws(args, args.env)
+    try:
+        _print_json(sitemap_sync.plan_entity(client, args.app, args.entity,
+                                             area=args.area, group=args.group))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def _sitemap_backup_dir(args: argparse.Namespace) -> str:
+    default = str(Path("docs") / "env_backup")
+    return _resolve_dir(args, "backup_dir", default, default)
+
+
+def cmd_sitemap_add(args: argparse.Namespace) -> int:
+    client = _get_client_ws(args, args.env)
+    try:
+        _print_json(sitemap_sync.add_entity(
+            client, args.app, args.entity, area=args.area, group=args.group,
+            title=args.title, publish=not args.no_publish,
+            backup_dir=_sitemap_backup_dir(args),
+            note=args.note or "cli:sitemap add-entity",
+        ))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
+
+
+def cmd_sitemap_remove(args: argparse.Namespace) -> int:
+    client = _get_client_ws(args, args.env)
+    try:
+        _print_json(sitemap_sync.remove_entity(
+            client, args.app, args.entity, area=args.area, group=args.group,
+            publish=not args.no_publish, backup_dir=_sitemap_backup_dir(args),
+            note=args.note or "cli:sitemap remove-entity",
+        ))
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _print_json({"error": str(e)})
+        return 1
 
 
 # ----------------------------------------------------------------- ribbon (Phase 7)
@@ -2089,6 +2245,44 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
     p.set_defaults(func=cmd_solution_delete)
 
+    # --- env-guard group (ADR-013: backup + journal before ANY environment write) ---
+    p_eg = sub.add_parser(
+        "env-guard",
+        help="Backup solutions/plugin registrations and keep a change journal (ADR-013). "
+             "REQUIRED before any environment-changing operation.",
+    )
+    eg_sub = p_eg.add_subparsers(dest="env_guard_command", required=True)
+
+    p = eg_sub.add_parser(
+        "backup",
+        help="Export solution ZIP(s) + org plugin-registration snapshot to docs/env_backup/. "
+             "Run this BEFORE deploying/deleting.",
+    )
+    p.add_argument("solutions", nargs="+", help="Solution unique name(s) to export.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.add_argument("--no-plugin-snapshot", action="store_true",
+                   help="Skip the org-level plugin registration JSON snapshot.")
+    p.add_argument("--note", default="",
+                   help="One-line reason (journaled with the backup entry).")
+    p.set_defaults(func=cmd_env_guard_backup)
+
+    p = eg_sub.add_parser(
+        "snapshot", help="Capture org-level plugin registrations (solution-ZIP blind spot) as JSON."
+    )
+    p.add_argument("--assemblies", default=None,
+                   help="Comma-separated assembly names (default: all).")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_env_guard_snapshot)
+
+    p = eg_sub.add_parser("log", help="Read the append-only change journal (CHANGELOG.md).")
+    p.add_argument("--last", type=int, default=None, help="Show only the last N entries.")
+    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.set_defaults(func=cmd_env_guard_log)
+
+    eg_sub.add_parser("show", help="List backup files (canonical + rotated history).").set_defaults(
+        func=cmd_env_guard_show
+    )
+
     # --- role group (Phase 3) ---
     p_role = sub.add_parser("role", help="Manage security-role table privileges.")
     role_sub = p_role.add_subparsers(dest="role_command", required=True)
@@ -2284,6 +2478,59 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_view_reverse)
 
     # --- ribbon group (Phase 7) ---
+    # ------------------------------------------------------------- sitemap (Phase 10)
+    p_sm = sub.add_parser(
+        "sitemap", help="Manage app sitemap entity menus (add/remove SubArea, ADR-015)."
+    )
+    sm_sub = p_sm.add_subparsers(dest="sitemap_command", required=True)
+
+    p = sm_sub.add_parser("apps", help="List app modules (name | uniquename | id).")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_sitemap_apps)
+
+    p = sm_sub.add_parser("show", help="Print an app's sitemap area/group/entity tree (live).")
+    p.add_argument("--app", required=True, help="App uniquename or display name.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_sitemap_show)
+
+    p = sm_sub.add_parser(
+        "plan", help="Read-only: would the entity be added to the app menu (or skipped)."
+    )
+    p.add_argument("--app", required=True, help="App uniquename or display name.")
+    p.add_argument("entity", help="Entity logical name to add.")
+    p.add_argument("--area", required=True, help="Area Id or title (zh/en).")
+    p.add_argument("--group", required=True, help="Group Id or title (zh/en).")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_sitemap_plan)
+
+    p = sm_sub.add_parser(
+        "add-entity",
+        help="Add entity to the app menu under area/group (idempotent, backed up, published).",
+    )
+    p.add_argument("--app", required=True, help="App uniquename or display name.")
+    p.add_argument("entity", help="Entity logical name to add.")
+    p.add_argument("--area", required=True, help="Area Id or title (zh/en).")
+    p.add_argument("--group", required=True, help="Group Id or title (zh/en).")
+    p.add_argument("--title", default=None,
+                   help="Menu title (default: entity display name, zh+en same).")
+    p.add_argument("--no-publish", action="store_true", help="Skip publish (metadata change only).")
+    p.add_argument("--note", default="", help="Change-journal note.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_sitemap_add)
+
+    p = sm_sub.add_parser(
+        "remove-entity",
+        help="Remove entity's menu entry from the app (idempotent, backed up, published).",
+    )
+    p.add_argument("--app", required=True, help="App uniquename or display name.")
+    p.add_argument("entity", help="Entity logical name to remove.")
+    p.add_argument("--area", default=None, help="Optional scope: Area Id or title.")
+    p.add_argument("--group", default=None, help="Optional scope: Group Id or title.")
+    p.add_argument("--no-publish", action="store_true", help="Skip publish (metadata change only).")
+    p.add_argument("--note", default="", help="Change-journal note.")
+    p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p.set_defaults(func=cmd_sitemap_remove)
+
     p_rib = sub.add_parser("ribbon", help="Author/deploy ribbon customizations (via dedicated solution).")
     rib_sub = p_rib.add_subparsers(dest="ribbon_command", required=True)
 

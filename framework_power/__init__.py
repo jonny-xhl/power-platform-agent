@@ -79,6 +79,7 @@ from .components.models import (
     Plugin,
     PluginProject,
     PluginStep,
+    StepImage,
     Publisher,
     QueryType,
     RibbonButton,
@@ -142,6 +143,10 @@ from .view_sync import (
     plan_views,
     reverse_views,
     sync_views,
+)
+from .label_sync import (
+    plan_auto_component_labels,
+    sync_auto_component_labels,
 )
 from .ribbon_sync import (
     codegen_ribbon,
@@ -236,6 +241,7 @@ __all__ = [
     "Plugin",
     "PluginProject",
     "PluginStep",
+    "StepImage",
     "CustomAction",
     "ContentKind",
     "DeployMode",
@@ -300,6 +306,9 @@ __all__ = [
     "plan_views",
     "reverse_views",
     "sync_views",
+    # auto-created view/form name localization (ADR-016)
+    "plan_auto_component_labels",
+    "sync_auto_component_labels",
     # ribbon operations (Phase 7)
     "codegen_ribbon",
     "lint_ribbon",

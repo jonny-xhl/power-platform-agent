@@ -41,6 +41,9 @@ class DeployConfig:
     between_attributes_delay: float = 0.5
     between_relationships_delay: float = 3.0
     sleep: Callable[[float], None] = time.sleep
+    # ADR-016: heal the auto-created views'/forms' name labels (platform stamps
+    # base-language text into every language slot) on every full deploy.
+    localize_auto_components: bool = True
 
 
 _ALREADY_EXISTS_MARKERS = ("already exists", "0x80040237", "cannot create duplicate", "duplicate")
@@ -105,6 +108,29 @@ def _referenced_global_optionsets(table: Table) -> list[str]:
             if col.optionset_name not in names:
                 names.append(col.optionset_name)
     return names
+
+
+def _resolve_global_optionset_ids(client: Any, table: Table) -> dict[str, str]:
+    """Resolve referenced global optionsets to ``{name: MetadataId}`` (ADR-014).
+
+    Attribute-create payloads must bind an existing global optionset via
+    ``GlobalOptionSet@odata.bind``; an inline ``OptionSet`` reference block is
+    rejected with ``0x80048403``. Names that cannot be resolved are omitted and
+    fall back to the legacy inline block (same failure surface as before). Minimal
+    fakes without the optionset API resolve nothing.
+    """
+    resolver = getattr(client, "get_global_optionset_by_name", None)
+    if resolver is None:
+        return {}
+    ids: dict[str, str] = {}
+    for name in _referenced_global_optionsets(table):
+        try:
+            meta = resolver(name)
+        except Exception:  # noqa: BLE001
+            meta = None
+        if isinstance(meta, dict) and meta.get("MetadataId"):
+            ids[name] = str(meta["MetadataId"])
+    return ids
 
 
 def ensure_referenced_optionsets(
@@ -270,6 +296,10 @@ def deploy_table(
     result["optionsets_added"] = _os_deps["added"]
     result["optionsets_missing"] = _os_deps["missing"]
 
+    # ADR-014: resolve referenced global optionsets to MetadataIds so attribute
+    # creates bind them (GlobalOptionSet@odata.bind) instead of inline references.
+    gos_ids = _resolve_global_optionset_ids(client, table)
+
     # -- resolve incremental fields ------------------------------------------------
     resolved: dict[str, Any] | None = None
     if fields:
@@ -295,6 +325,7 @@ def deploy_table(
         result,
         prefix,
         empty_shell=resolved is not None,
+        global_optionset_ids=gos_ids,
     )
 
     # -- attributes ----------------------------------------------------------------
@@ -310,6 +341,7 @@ def deploy_table(
             prefix,
             columns=resolved["regular"],
             solution=solution,
+            global_optionset_ids=gos_ids,
         )
     else:
         options_changed = _deploy_attributes(
@@ -320,6 +352,7 @@ def deploy_table(
             result,
             prefix,
             solution=solution,
+            global_optionset_ids=gos_ids,
         )
 
     # -- relationships -------------------------------------------------------------
@@ -338,6 +371,16 @@ def deploy_table(
         fields=fields if resolved is not None else None,
     )
 
+    # -- auto-created view/form name labels (ADR-016, full deploys only) -----------
+    if resolved is None and cfg.localize_auto_components:
+        try:
+            from .label_sync import sync_auto_component_labels
+
+            result["auto_component_labels"] = sync_auto_component_labels(
+                client, table, sleep=cfg.sleep)
+        except Exception as e:  # noqa: BLE001
+            result["auto_component_labels"] = {"action": "failed", "error": str(e)[:200]}
+
     # -- solution membership -------------------------------------------------------
     if solution:
         result["solution"] = _add_entity_to_solution(
@@ -346,7 +389,8 @@ def deploy_table(
         )
 
     # Option actions are separate metadata mutations. Publish only when at least one
-    # InsertOptionValue/UpdateOptionValue succeeded; idempotent retries remain read-only.
+    # InsertOptionValue/UpdateOptionValue succeeded; idempotent retries remain
+    # read-only. (View/form name labels publish inside sync_auto_component_labels.)
     if options_changed:
         try:
             result["publish"] = client.publish_entity(logical)
@@ -492,6 +536,11 @@ def plan_table(
         ]
     result["optionsets_missing"] = missing
 
+    # -- auto-created view/form name labels (ADR-016, read-only preview) -----------
+    from .label_sync import plan_auto_component_labels
+
+    result["auto_component_labels"] = plan_auto_component_labels(client, table)
+
     def col_action_create(col_schema: str) -> str:
         return "would_create" if _is_custom(col_schema, prefix) else "would_skip_standard"
 
@@ -589,6 +638,7 @@ def _deploy_entity(
     prefix: str,
     *,
     empty_shell: bool = False,
+    global_optionset_ids: dict[str, str] | None = None,
 ) -> bool:
     """Create the entity if missing, else PATCH updatable entity props.
 
@@ -600,7 +650,7 @@ def _deploy_entity(
     """
     if not client.entity_exists(logical):
         try:
-            payload = serialize_table_for_create(table)
+            payload = serialize_table_for_create(table, global_optionset_ids=global_optionset_ids)
             if empty_shell:
                 # Strip all attributes — the caller will create only the requested fields.
                 payload.pop("Attributes", None)
@@ -663,6 +713,7 @@ def _deploy_attributes(
     *,
     columns: list[Column] | None = None,  # type: ignore[valid-type]
     solution: str | None = None,
+    global_optionset_ids: dict[str, str] | None = None,
 ) -> bool:
     """Create missing attributes and safely update changed mutable properties.
 
@@ -703,7 +754,14 @@ def _deploy_attributes(
 
         if col_logical not in existing_attrs:
             try:
-                client.create_attribute(logical, serialize_column(col, is_primary_name=col.is_primary_name))
+                client.create_attribute(
+                    logical,
+                    serialize_column(
+                        col,
+                        is_primary_name=col.is_primary_name,
+                        global_optionset_ids=global_optionset_ids,
+                    ),
+                )
                 entry["action"] = "created"
             except Exception as e:  # noqa: BLE001
                 entry["action"] = "skipped" if _is_already_exists(e) else "failed"

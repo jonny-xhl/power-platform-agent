@@ -128,12 +128,24 @@ def serialize_boolean_optionset(labels: BooleanLabels) -> dict[str, Any]:
     }
 
 
-def serialize_column(col: Column, *, is_primary_name: bool = False) -> dict[str, Any]:
+def serialize_column(
+    col: Column,
+    *,
+    is_primary_name: bool = False,
+    global_optionset_ids: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
     """Serialize a ``Column`` to a Dataverse attribute create payload.
 
     Args:
         col: The column definition.
         is_primary_name: When True and the column is String, sets ``IsPrimaryName``.
+        global_optionset_ids: Resolved ``{optionset_name: MetadataId}`` for referenced
+            global optionsets (ADR-014). When a Picklist column's ``optionset_name``
+            is present here the payload binds the existing global optionset via
+            ``GlobalOptionSet@odata.bind`` — attribute-create endpoints reject an
+            inline ``OptionSet`` reference block with ``0x80048403`` (inline blocks
+            only accept Local optionsets). Unresolvable names fall back to the legacy
+            inline block, preserving the pre-ADR-014 failure surface.
     """
     attr: dict[str, Any] = {
         "@odata.type": _ODATA_TYPE[col.type],
@@ -187,11 +199,20 @@ def serialize_column(col: Column, *, is_primary_name: bool = False) -> dict[str,
             # Reference an existing global optionset instead of declaring inline
             # local options. The global optionset itself is managed via the
             # optionsets stage; only the field-to-optionset link is authored here.
-            attr["OptionSet"] = {
-                "@odata.type": "Microsoft.Dynamics.CRM.OptionSetMetadata",
-                "IsGlobal": True,
-                "Name": col.optionset_name,
-            }
+            # ADR-014: attribute CREATE must bind the resolved global optionset by
+            # MetadataId — inline OptionSet blocks only accept Local optionsets and
+            # global references are rejected with 0x80048403. The inline block below
+            # is a fallback for unresolved names (e.g. minimal fakes without the
+            # optionset API).
+            gos_id = (global_optionset_ids or {}).get(col.optionset_name)
+            if gos_id:
+                attr["GlobalOptionSet@odata.bind"] = f"/GlobalOptionSetDefinitions({gos_id})"
+            else:
+                attr["OptionSet"] = {
+                    "@odata.type": "Microsoft.Dynamics.CRM.OptionSetMetadata",
+                    "IsGlobal": True,
+                    "Name": col.optionset_name,
+                }
         else:
             attr["OptionSet"] = {
                 "@odata.type": "Microsoft.Dynamics.CRM.OptionSetMetadata",
@@ -269,8 +290,16 @@ def _resolve_primary_name(table: Table) -> Optional[Column]:
     return strings[0]
 
 
-def serialize_table_for_create(table: Table) -> dict[str, Any]:
-    """Serialize a ``Table`` to a full EntityDefinitions create payload (entity + Attributes)."""
+def serialize_table_for_create(
+    table: Table,
+    *,
+    global_optionset_ids: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
+    """Serialize a ``Table`` to a full EntityDefinitions create payload (entity + Attributes).
+
+    ``global_optionset_ids`` (ADR-014) is passed through to each attribute payload so
+    Picklist columns referencing global optionsets bind them by MetadataId.
+    """
     display_collection = serialize_label(table.display_collection_name)
     if not display_collection:
         # Default plural from the Chinese/first localized label + "s".
@@ -293,7 +322,11 @@ def serialize_table_for_create(table: Table) -> dict[str, Any]:
 
     primary = _resolve_primary_name(table)
     attributes = [
-        serialize_column(c, is_primary_name=(primary is not None and c.schema_name == primary.schema_name))
+        serialize_column(
+            c,
+            is_primary_name=(primary is not None and c.schema_name == primary.schema_name),
+            global_optionset_ids=global_optionset_ids,
+        )
         for c in table.columns
     ]
     if attributes:

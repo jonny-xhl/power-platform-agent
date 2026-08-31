@@ -55,6 +55,9 @@ DEFAULT_DIRS: dict[str, str] = {
     "plugins": "plugins",
     "config": "config",
     "docs": "docs",
+    # ADR-013 env-guard / sitemap pre-write backups (kept in sync with
+    # components/env_guard.BACKUP_DIRNAME).
+    "backup": "docs/env_backup",
     "state": ".pp/state",
     "cache": ".pp/cache",
     "logs": ".pp/logs",
@@ -296,6 +299,11 @@ class Workspace:
     @property
     def docs_dir(self) -> Path:
         return self.path("docs")
+
+    @property
+    def backup_dir(self) -> Path:
+        """Env backup directory (ADR-013); matches ``env_guard.BACKUP_DIRNAME``."""
+        return self.path("backup")
 
     @property
     def state_dir(self) -> Path:

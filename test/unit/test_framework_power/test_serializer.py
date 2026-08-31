@@ -151,6 +151,50 @@ def test_serialize_picklist_global_optionset_reference():
     assert "Options" not in out["OptionSet"]
 
 
+def test_serialize_picklist_global_optionset_bind():
+    """ADR-014: with a resolved MetadataId the attribute-create payload binds the
+    global optionset; an inline OptionSet reference block is rejected (0x80048403)."""
+    col = Column(
+        "new_BusinessGroupId", AttributeType.Picklist,
+        display_name=Label.bilingual("商务组", "Business Group"),
+        optionset_name="new_salesgroup",
+        options=[],
+    )
+    out = serialize_column(
+        col, global_optionset_ids={"new_salesgroup": "11111111-2222-3333-4444-555555555555"}
+    )
+    assert out["@odata.type"] == "Microsoft.Dynamics.CRM.PicklistAttributeMetadata"
+    assert (
+        out["GlobalOptionSet@odata.bind"]
+        == "/GlobalOptionSetDefinitions(11111111-2222-3333-4444-555555555555)"
+    )
+    assert "OptionSet" not in out
+
+
+def test_serialize_table_for_create_binds_global_optionsets():
+    """ADR-014: entity-create Attributes bind referenced global optionsets too."""
+    table = Table(
+        schema_name="new_Demo",
+        display_name=Label.bilingual("演示", "Demo"),
+        columns=[
+            Column(
+                "new_Name", AttributeType.String,
+                display_name=Label.bilingual("名称", "Name"),
+                is_primary_name=True,
+            ),
+            Column(
+                "new_BusinessGroupId", AttributeType.Picklist,
+                display_name=Label.bilingual("商务组", "Business Group"),
+                optionset_name="new_salesgroup",
+            ),
+        ],
+    )
+    out = serialize_table_for_create(table, global_optionset_ids={"new_salesgroup": "osid-1"})
+    picklist = next(a for a in out["Attributes"] if a["SchemaName"] == "new_BusinessGroupId")
+    assert picklist["GlobalOptionSet@odata.bind"] == "/GlobalOptionSetDefinitions(osid-1)"
+    assert "OptionSet" not in picklist
+
+
 def test_serialize_boolean():
     col = Column(
         "new_Active", AttributeType.Boolean,

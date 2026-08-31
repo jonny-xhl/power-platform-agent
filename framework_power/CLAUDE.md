@@ -12,7 +12,9 @@
 ## 1. 是什么
 
 `framework_power` 把一张表定义为一个**类型化的 Python 模型**（`Table`），模型即"单一事实来源"。
-- **正向 `deploy`**：把 `Table` 同步到 Dataverse（create / PATCH-sync 字段 / create-only 关系）。
+- **正向 `deploy`**：把 `Table` 同步到 Dataverse（create / PATCH-sync 字段 / create-only 关系；
+  末尾自动补齐自动创建视图/窗体名的双语标签，ADR-016——平台建表会把 base 语言英文
+  复制进 2052 标签位，中文用户看到英文名）。
 - **逆向 `reverse`**：把环境中已存在的表导出为本地 Python 定义（全量快照），用于参考、对比、约束 AI。
 - **单文件双向**：同一份 `metadata_py/tables/<schema>.py` 既可被逆向覆盖，也可被正向同步。
 
@@ -64,8 +66,24 @@ list|show|lint|plan|deploy|reverse`，详见 `dv-view-python` skill 与 §9.5。
 （可逆）。CLI：`python -m framework_power ribbon build|show|lint|plan|deploy|reverse`（全局
 `--ribbon-solution new_RibbonSoln`），详见 `dv-ribbon-python` skill 与 §9.6。
 
+**Phase 10（App SiteMap 实体菜单）**——把新表加进模型驱动 App 的菜单（区域 → 组 →
+SubArea）。**live 钉死：app-aware sitemap 模型**（`appmodule` 无 `sitemapxml` 列；导航 XML
+在独立 `sitemap` 实体，键 `sitemapnameunique == appmodule.uniquename`）。结构化模型
+`AppSitemap → SiteArea → SiteGroup → SubArea`（attrs/extras 全保留，无损往返）+ 幂等
+add/remove（样式克隆既有 SubArea）+ 写前自动备份 + 发布（定向 PublishXml 400 → 回退
+PublishAllXml）。CLI：`python -m framework_power sitemap apps|show|plan|add-entity|
+remove-entity`，详见 `dv-sitemap-python` skill 与 §9.11 / ADR-015。
+
 ## 2. 硬性约束（必须遵守）
 
+- **【ADR-013 强制守则】任何环境写操作前先备份 + 留台账**：`pp env-guard backup <解决方案> --env <env>
+  --note "意图"`（solution ZIP + 插件注册快照 + 台账一条龙）。恢复时先读 `docs/env_backup/CHANGELOG.md`。
+- **【文档同步守则】引擎代码的行为性变更（新能力/API/CLI、payload 语法、错误码语义、踩坑结论）
+  当次任务内必须同步文档**：新决策 → ADR；架构 → `docs/spec/architecture.md`；契约 →
+  `metadata-spec.md`；部署语义 → `docs/guides/metadata-deploy.md`；技能 → `.claude/skills/*/skill.md`；
+  踩坑 → 本文件 §9 + 根 `CLAUDE.md`。pre-commit hook（`scripts/hooks/pre-commit.sh`）只是建议级
+  提醒，不豁免；漏更文档 = 任务未完成。
+  详见 §9.10 与 `docs/spec/adr-013-env-backup-and-change-journal.md`。
 - **与 `framework/` 完全隔离**：本包**不得 import** `framework.*`，也**不得修改** `framework/` 或
   `metadata/`。复用的传输/认证/配置/重试代码已**拷贝**到 `framework_power/client/`，在本包内维护。
 - **发布商前缀**取自 `config/publishers.yaml`（默认 `new`）。自定义组件 = 带 `new_` 前缀；标准/系统
@@ -101,6 +119,9 @@ framework_power/
     optionset.py / webresource.py / form.py / view.py / plugin.py
                        各类型统一接口（serialize/deploy/plan/reverse/codegen/exists/resolve_id/
                        lint + KEY/SOLUTION_CODE/MODEL_CLS/CODEGEN_IMPORTS），自动注册
+    env_guard.py       环境变更守卫（ADR-013）：backup_solution（ZIP 轮转）+
+                       snapshot_plugin_registrations（org 级插件注册 JSON 快照）+
+                       append_change/read_journal（append-only 台账），见 §9.10
   client/            拷贝自 framework/utils 并精简（与 framework/ 隔离）
     dataverse_client.py  精简 DataverseClient（表元数据 + 各组件端点 + 解决方案/发布商/发布端点）
     plugin_build.py      dotnet build → base64（插件作者期工具，需 .NET SDK）
@@ -139,6 +160,8 @@ python -m framework_power deploy <name> --env dev                # 正向同步
 python -m framework_power deploy-all --env dev                   # 按依赖顺序部署全部
 python -m framework_power reverse <name> --env dev               # 逆向导出（全量快照）
 python -m framework_power delete <name> --env dev                # 删除表（破坏性；级联字段+关系）
+python -m framework_power sitemap apps|show|plan|add-entity|remove-entity --env dev
+                                                                  # App 菜单管理（Phase 10/ADR-015）
 # 全局参数：--definitions-dir <dir>（默认 metadata_py/tables）
 ```
 
@@ -185,6 +208,18 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 - **Lookup 经 Deep Insert**：随 1:N 关系一次性创建，不能单独 POST。
 - **Picklist/Boolean 的 OptionSet 经属性端点为 create-only**：选项变更需 `InsertOptionValue`/
   `UpdateOptionValue` 或 maker portal；`deployer` 对此报告 `manual_update_required`。
+- **【ADR-014】绑定既有全局选项集的字段创建必须用 bind 语法**：属性创建 payload 内联
+  `OptionSet.IsGlobal+Name` 会被 **`0x80048403`** 拒（内联块只接受 Local）；
+  正确写法 `"GlobalOptionSet@odata.bind": "/GlobalOptionSetDefinitions(<MetadataId>)"`
+  （先 `GlobalOptionSetDefinitions(Name='<lowercase>')` 取 id）。`RequiredLevel` 必须
+  `{"Value": "None"}` 对象形式。`serialize_column` 的 `optionset_name` 引用路径（ADR-011）
+  **已于 2026-08-21 迁移为 bind 语法**（`deployer` 先行 resolve MetadataId 再传入
+  `global_optionset_ids`；无法解析时回退内联块），并 live 验证
+  （new_rollingforecast.new_IsSplitRecord → new_isornotselect，204 created）。
+- **`_ATTRIBUTE_ODATA_TYPES` 已覆盖 Lookup 家族**（Lookup/Owner/Customer/PartyList →
+  `LookupAttributeMetadata`，及 State/Status/EntityName/Uniqueidentifier/Image）：
+  typed GET / `update_attribute_by_logical_name`（如必填级调整）对这些类型可用；
+  新增类型映射时同步更新本表和 ADR。
 - **Money `*_base` 字段**由 Dataverse 自动创建，逆向/正向均跳过。
 - **delete 级联**：`delete_entity` 删表会级联其字段与所属关系（含查找列）。
 
@@ -219,8 +254,9 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 - **`solution deploy/plan` 必须透传 `--definitions-dir`**：表名引用从该目录解析，否则回退到
   默认 `metadata_py/tables`。
 - **`PublishAllXml` 组织级**：发布**所有**未托管自定义项，无法只发布单个解决方案。
-- **插件自定义 Action create-only**：新建 SDK-message 自定义 Action 需 Workflow，Web API
-  单独建不了 → `manual_update_required`；只能加入已存在的。
+- ~~插件自定义 Action create-only~~ **已升级（ADR-012，2026-08）**：`components/plugin._deploy_custom_action`
+  支持全链路自动建（workflow create + XAML + **激活** + SDK message 解析 + Invoke step 注册 + code 29 入方案），
+  失败才回退 `manual_update_required`；详见 §9.7。
 
 ### 9.2 安全角色权限域（Phase 3，已 live 验证）
 
@@ -478,10 +514,11 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
 - **JS 库依赖**：command/rule 的 `Library` 是 webresource 名（`$webresource:new_/js/…`，Phase 4 命名）→
   **ribbon 部署前 JS 必须已同步+发布**，否则显隐/click 回退到 `Default`。
 
-### 9.7 Plugin 域（Phase 8，已 live 验证核心）
+### 9.7 Plugin 域（Phase 8，已 live 验证核心；image/action 全链路见 ADR-012）
 
-Plugin = 程序集 + SDK message step + custom action。Phase 8 把 Phase 2 的「不透明 pluginassembly 上传」升级为
-**结构化 + NuGet 包优先**，并修掉 Phase 2 step 注册的多个潜在 bug（Phase 2 从未 live 测过）。
+Plugin = 程序集 + SDK message step + step image + custom action。Phase 8 把 Phase 2 的「不透明 pluginassembly 上传」升级为
+**结构化 + NuGet 包优先**，并修掉 Phase 2 step 注册的多个潜在 bug（Phase 2 从未 live 测过）。**Step Image 与 Custom Action
+全链路于 2026-08 RollingForecast 部署中 live 验证并钉死契约（ADR-012）**。
 
 **两条部署路径（已 live 钉死）：**
 - **PluginPackage（NuGet，首选，已 live 验证）**：`client.plugin_build.build_plugin_project` → `dotnet pack` 产
@@ -500,6 +537,8 @@ Plugin = 程序集 + SDK message step + custom action。Phase 8 把 Phase 2 的�
   DLL/包名/namespace 全跟着 config 走。验证：.csproj 写 `PP.Crm.Plugin.Smoke`、config company=`OtherCorp` → 产出 `OtherCorp.Crm.Plugin.Smoke.dll`。
 - **pluginassembly（降级，net48 + 签名 + ILMerge）**：`POST/PATCH pluginassemblies`（content=base64 DLL）。工程
   自己负责 strong-name 签名 + ILRepack 合并分层依赖；工具只 build+上传。fallback 仅当 PluginPackage 不可用时。
+  **遗留 .NET 4.6.2 + ILMerge 项目不走 `plugin_build.py`**（dotnet 路径）：部署脚本直接消费 ILMerge 产物 + 注册清单
+  （`ninebot-project/plugins/RollingForecast/deploy.py`，幂等可重跑）。
 
 **Step 注册（已 live 钉死，Phase 2 的全是错的）：** step **引用 PluginType 不是 assembly**——
 `sdkmessageprocessingstep` 没有 `_pluginassemblyid_value` 字段！正确 payload：
@@ -509,21 +548,49 @@ Plugin = 程序集 + SDK message step + custom action。Phase 8 把 Phase 2 的�
 流程：`get_plugintypes_by_assembly` → 选 PluginType（`PluginStep.plugin_type` 匹配 typename/name；空则取唯一）→
 `get_sdk_message_id`(message) → `get_sdk_message_filter`(message,entity)（自定义实体通常 OOB 已有；缺则 create）
 → 建 step。
-
-**解决方案组件码（已 live 钉死）：** `90=PluginType`、`91=PluginAssembly`、`92=SdkMessageProcessingStep`、
-**`10030=PluginPackage`**（Phase 2 的 SOLUTION_CODE=90 是错的——90 是 PluginType）。
-**包插件加进命名解决方案：加 `PluginPackage(10030)`，不是 assembly(91)**——assembly 是 package 的一部分，
-`AddSolutionComponent(91, asm_id)` 报 **405 `0x8004023b` "Plugin Assembly ... is part of a Plugin Package.
-Please export the Package directly."**；加 10030 才行（package 封装 assembly+plugintypes+steps）。故 `add_targets`：
-包路径 = `[(10030, package_id), (92, step_id)…]`；assembly 路径 = `[(91, assembly_id), (92, step_id)…]`。
-**step 注册幂等**：deploy 先 `get_steps_by_assembly` 拿已有 step 名，同名 skip（`action:"exists"`）→ 重 deploy 不产重复 step。
 **step 目标实体预检**：注册实体级 step 前 `_register_step` 先 `client.entity_exists(step.entity)`——实体不在环境就**直接 fail**
 （清晰报错 "target entity '...' not found; deploy the table first"），否则 Dataverse 在 `sdkmessagefilters` 查询抛晦涩的
 `0x80041102 "entity ... not found in MetadataCache"` 400（Phase 9 workflow smoke 踩到——`new_fpformsmoke` 被 env 清掉后）。
 故 step 的目标表必须先 deploy。
 
-**Custom action（best-effort）：** `POST workflows`(category=3 Action) 尝试自动建定义 + 注册引用其 SDK message 的
-step；Web API 单独建可调用 Action 不可靠（可能要 clientdata/激活）→ 失败回退 `manual_update_required`（maker 门户建）。
+**Step Image（ADR-012，已 live 钉死）：** `StepImage(alias, image_type: "Pre"|"Post", attributes: str)` 挂
+`PluginStep.images`；`sdkmessageprocessingstepimage` create payload = `{entityalias, imagetype(0=Pre/1=Post),
+messagepropertyname, sdkmessageprocessingstepid@odata.bind, [attributes]}`。**四个钉住点**：
+1. 字段名是 **`attributes`**（不是 SDK 文档常写的 `attributes1`——EntityDefinitions 实测）；
+2. **`messagepropertyname` 随消息变化**：**Create → `Id`**（`Target` 在 Create 被拒 `0x8004416b "Message property
+   name 'Target' is not valid on message Create"`）；**Update/Delete/其它 → `Target`**。`_image_payload` 按 step.message 自动选；
+3. attributes 空/`*` 时**省略字段** = 快照全部属性（空串会被拒）；
+4. 幂等按 `entityalias` 查重（`get_step_images` 按 `_sdkmessageprocessingstepid_value` 过滤）；**既有 step 重 deploy
+   补挂缺失 image（backfill）**。reverse 回读 images；codegen 往返输出 `StepImage(...)`。
+
+**Custom Action（ADR-012，全链路已 live 验证——不再是 best-effort）：** `CustomAction` 带 `uniquename`/`xaml`/
+`plugin_type` 字段。部署链：查 workflow（按 **uniquename**——⚠️ **不带 publisher 前缀**（`new_Interface_X` →
+`Interface_X`；SDK message 名才带前缀）；`get_workflow_by_uniquename` type=1 定义优先于 type=2 激活副本）→ 不存在则
+`POST workflows`（category=3 Action, type=1 Definition, scope=4 Org；payload 带 `xaml`，**不带** `triggeroncreate`/
+`triggeronupdate`——本环境 workflow 实体无这两个属性，带了 400）→ **激活**（`statecode=1, statuscode=2`——激活才生成
+SDK message，action 才可调用）→ 解析 SDK message（按带前缀 schema_name）→ 注册 Invoke step（PRT 命名
+`{typename}: {message} of any Entity`；幂等按 step 名查重——重复 deploy 不产重复 step）→ workflow 进 `add_targets`
+（**code 29**）。XAML：`x:Members` 声明 In/Out 参数（如 `jsondata`(In)/`msg`(Out)），模板源自既有
+`Interface_CollectConfirmPaymentAction`（可从在线既有 action 提取）；**XAML 存 `xaml` 字段**（不是 `clientdata`；
+collection `$select=xaml` 返回空，须单实体 GET）。激活/创建失败仍回退 `manual_update_required`。
+
+**程序集 content 更新的坑（ADR-012，已 live 钉死）：**
+- **content 更换不重枚举 plugintype**：替换 `pluginassembly.content` 后 plugintype 列表**不刷新**，新增 IPlugin 类型
+  无法绑 step → `_resolve_plugintype` 解析失败时**自动 `POST plugintypes`** 补建（payload：typename/friendlyname/name +
+  `pluginassemblyid@odata.bind`；**不带 `type` 字段**——本环境 plugintype 实体无该属性）。
+- **版本号由 DLL AssemblyInfo 决定**：PATCH payload 的 version 不生效。
+- **更新 content 前必须清孤儿（部署门禁）**：引用"新 DLL 中已不存在类型"的 step（`0x8004418b` 阻断 assembly 更新）和
+  残留 plugintype 记录必须先删。判定孤儿用**元数据分段字符串匹配**（.NET 元数据中 namespace 段与类名分开存储，带点
+  全名不连续出现——朴素 `in` 匹配会漏报）。
+
+**解决方案组件码（已 live 钉死）：** `90=PluginType`、`91=PluginAssembly`、`92=SdkMessageProcessingStep`、
+**`10030=PluginPackage`**、**`29=Workflow`（custom action 定义）**（Phase 2 的 SOLUTION_CODE=90 是错的——90 是 PluginType）。
+**包插件加进命名解决方案：加 `PluginPackage(10030)`，不是 assembly(91)**——assembly 是 package 的一部分，
+`AddSolutionComponent(91, asm_id)` 报 **405 `0x8004023b` "Plugin Assembly ... is part of a Plugin Package.
+Please export the Package directly."**；加 10030 才行（package 封装 assembly+plugintypes+steps）。故 `add_targets`：
+包路径 = `[(10030, package_id), (92, step_id)…]`；assembly 路径 = `[(91, assembly_id), (92, step_id)…]`；
+custom action 再加 `[(29, workflow_id), (92, action_step_id)]`。
+**step 注册幂等**：deploy 先 `get_steps_by_assembly` 拿已有 step 名，同名 skip（`action:"exists"`）→ 重 deploy 不产重复 step。
 
 **命名（动态 per-project，已 live）：** `{company}.{project}.{Plugin|Action}.{Module}`（`PluginProject.assembly_name`，
 `_pascal(module)`）；`company`/`project` 默认 `PP`/`Crm` 但**每项目可覆盖**。assembly/namespace/package-id 用它；
@@ -563,6 +630,109 @@ plugintype 反查（`_eventhandler_value`），不是按 assembly。
 - **CLI：** `python -m framework_power workflow show|lint|plan|deploy`（`--project` 默认
   `metadata_py/project.py`）。Skill `dv-workflow-python`。测试 `test_workflow.py`（13）+ `test_optionset_sync.py`（4）
   + deployer/role_deployer 各 +2（solution 形参），离线全绿。
+
+### 9.10 环境变更守卫域（ADR-013，已 live 验证）
+
+**改环境前必先备份、全程留台账——引擎级强制守则**（2026-08-19 事故固化：基于未合并分支 DLL 的
+"孤儿清理"误删 13 step + 11 plugintype，恢复时无任何可查备份/记录；solution ZIP 覆盖不到
+org 级注册）。组件 `components/env_guard.py` + CLI `pp env-guard`：
+
+- **`backup_solution(client, solution, ws)`**：导出 ZIP 到 `workspace/docs/env_backup/{name}.zip`；
+  已存在则先**轮转**为 `{name}.{UTC}.zip`（历史永不丢，规范路径永远是最新版）。
+- **`snapshot_plugin_registrations(client, ws)`**：org 级插件注册 JSON 快照
+  （assemblies→plugintypes→steps 含 stage/mode/filteringattributes→images）——
+  **solution ZIP 盲区的补充**（org 级注册的 step/plugintype 不进 solution 导出）。
+  live 钉死：**默认跳过 `Microsoft.*`/`System.*` 系统程序集**（全量遍历 + 逐 step 查询
+  会超时）；image 用 `get_step_images_bulk` OR-filter 批量（≤15 id/请求，292 step ≈ 20 请求）。
+  `assemblies=[...]` 指定范围 / `include_system=True` 显式包含系统程序集。
+- **`append_change(ws, env, actor, intent, changes, backups, basis)`**：append-only 台账
+  `docs/env_backup/CHANGELOG.md`——时间/环境/操作者/意图/变更明细/备份文件/依据。
+  纠错 = 新条目，**绝不改历史**。**恢复时先读台账**（`read_journal` / `pp env-guard log`）。
+- **CLI**：`pp env-guard backup <sol>… [--note] [--no-plugin-snapshot]`（备份+台账原子一条）/
+  `snapshot [--assemblies]` / `log [--last N] [--json]` / `show`。需 workspace。
+- 任何写脚本（deploy/restore/清理）接入模式：写前 `backup_solution` +
+  `snapshot_plugin_registrations` + `append_change`；写后 `append_change` 记结果。
+
+### 9.11 App SiteMap 实体菜单域（Phase 10 / ADR-015，已 live 验证）
+
+把新表加进模型驱动 App 菜单（区域 → 组 → SubArea）。`components/sitemap.py`
+（`AppSitemap → SiteArea → SiteGroup → SubArea` + `SitemapTitle`，attrs/extras 全保留 →
+语义无损往返，同 form/view 契约）+ `sitemap_sync.py`（app 解析/plan/加删实体）+
+CLI `pp sitemap apps|show|plan|add-entity|remove-entity`。详见
+`ninebot-project/docs/spec/adr-015-app-sitemap-management.md` 与 `dv-sitemap-python` skill。
+
+- **live 钉死：app-aware sitemap 模型**——`appmodule` **没有** `sitemapxml` 列；导航 XML 在
+  独立 `sitemap` 实体，键 `sitemap.sitemapnameunique == appmodule.uniquename`
+  （app `new_CustomerService` → sitemap 同名）。
+- **部署** = `PATCH sitemaps({id}) {sitemapxml}` + 发布；定向
+  `PublishXml(<sitemaps><sitemap>{unique}</sitemap></sitemaps>)` 本环境 **400** → 回退
+  `PublishAllXml`（组织级）。
+- **新增 SubArea 样式克隆**自 sitemap 内既有实体 SubArea（Client/AvailableOffline/
+  PassParams/Sku）；标题默认实体显示名（1033+2052）。
+- **幂等**：实体已有 SubArea → `skipped_unchanged`；lint 对同实体多处 SubArea 报 error。
+- **写前备份**原始 XML 到 `docs/env_backup/sitemap_{unique}.{ts}.bak.xml`（ADR-013 对齐，
+  恢复 = PATCH 回去）。
+- **解决方案**：sitemap = 组件 **code 62**；已在解决方案内（如 `new_entity930` 含
+  Customer Service 的 sitemap）则随该解决方案 transport，**不要再 add-component**。
+  sitemap 承载**整个 app 导航**（引用解决方案外实体）——transport 时需意识到。
+- **live 踩坑（2026-08-27，Workspace.backup_dir）**：`sitemap add-entity/remove-entity`
+  曾报 `'Workspace' object has no attribute 'backup_dir'`——`_sitemap_backup_dir` 走
+  workspace 解析但 `Workspace` 没有该目录键。已补 `DEFAULT_DIRS["backup"]="docs/env_backup"`
+  + `backup_dir` 属性（与 `env_guard.BACKUP_DIRNAME` 对齐），修改需保持二者同步。
+
+### 9.12 实体删除域（已 live 踩坑，2026-08-27 CI 形式发票 2 表移除）
+
+删自定义实体远比"DELETE 实体"复杂，按序排障（工具：`RetrieveDependenciesForDelete`）：
+
+- **依赖查询函数的 Web API 形状**：`GET RetrieveDependenciesForDelete(ObjectId=@i,
+  ComponentType=@t)?@i={MetadataId}&@t=1`（参数名是 **ObjectId/ComponentType**，不是
+  SDK 消息的 TargetId/TargetComponentType；不带命名空间前缀直接 404）。返回
+  `dependentcomponentobjectid/type`（挡删的组件）+ `requiredcomponentobjectid/type`。
+- **`0x8004f01f CannotDeleteInUseComponent` 的真实成因优先级**（本次逐一排除）：app
+  成员（`appmodulecomponents`，注意 FK 是 `_appmoduleidunique_value` 不是
+  `_appmoduleid_value`）、sitemap 引用（`sitemap remove-entity` + PublishAllXml 后即清）、
+  解决方案组件行（`RemoveSolutionComponent`）、其它实体的 lookup 关系、workflows/charts/
+  其它表单视图 XML 引用——**全查完仍剩 published 层依赖**。
+- **published 层依赖环（本次实锤）**：头↔明细互为依赖死锁——头表 Main 窗体的 subgrid
+  **依赖明细 Active 视图**（dependencytype=2 已发布），明细的父 **Relationship 依赖头表
+  主键 Attribute**；先删谁都被另一个挡。**破环**：不能删最后一个 Main 窗体（`0x8004f661`
+  "must have at least one active Main form"）→ 从头表 Main 窗体 formxml **摘掉 subgrid
+  cell**（PATCH + `publish_entity` 刷新 published 依赖）→ 删明细 → 删头表。
+- **经验顺序**：先 sitemap 摘实体 → RemoveSolutionComponent 摘实体组件 → 用依赖函数看
+  剩余依赖 → 破环后再 `pp delete`。0 条记录的表也会被这些元数据依赖挡住。
+
+### 9.13 视图名多语言域（已 live 踩坑，2026-08-28 5 表视图名中文修复）
+
+**API 建表的隐藏副作用**：通过 `POST EntityDefinitions` 建表时，平台自动生成的系统视图
+（Active/Inactive/My/QuickFind/Associated/Lookup/AdvancedFind）名称标签会把 **base 语言
+（本组织 1033）的英文文本原样复制进所有已启用语言的标签位**（2052 标签存在但文本是英文）
+→ 中文个性化用户在视图选择器看到英文名。maker 门户手建的表（如 new_vehiclemodel）则
+正确双语。**建表后视图名中文要单独补**（engine 暂未自动化，未来可加）。
+
+修复机制（已 live 验证 35/35）：
+
+- **读**：`GET RetrieveLocLabels(EntityMoniker=@m,AttributeName=@a,IncludeUnpublished=@u)
+  ?@m={'@odata.id':'savedqueries(<id>)'}&@a='name'` → 响应在 **`Label.LocalizedLabels`**
+  （不是 `value`）。
+- **写**：`POST SetLocLabels`，两个坑：① **`EntityMoniker` 用 typed 形态**
+  `{"@odata.type":"Microsoft.Dynamics.CRM.savedquery","savedqueryid":"<id>"}`（Action 载荷
+  不认 `@odata.id`，报 `0x80048d19`）；② **本组织不接受 `PublishFlag` 参数**（同名 400，
+  去掉即 204 成功），发布另走 `publish_entity`。`Labels` 传**完整标签集**（1033 原值 +
+  2052 新值）防 replace 语义丢英文。
+- **命名按组织健康表惯例**（参照 new_vehiclemodel）：qt=0 → 活动{复数}/停用{复数}（isdefault
+  区分）、qt=8192 → 我的{复数}、qt=4 → 快速查找活动{复数}、qt=64/2/1 → {单数}查找视图/
+  关联视图/高级查找视图；窗体（type 2/6/11）→ `信息`；{复数}/{单数}取实体 2052
+  DisplayCollectionName/DisplayName。
+- **引擎已内建自动修复（ADR-016，2026-08-29 live 验证 20/20）**：`deploy_table` 全量
+  模式末尾跑 `sync_auto_component_labels`（`label_sync.py`，`DeployConfig.
+  localize_auto_components` 可关）——只碰**默认模板命名**的组件（改名过的
+  `skipped_custom_name` 不碰），写标签后 **sleep → publish → 回读验证 → 重试**。
+  `plan_table` 输出 `auto_component_labels` 预览。新表 deploy 后即双语；存量表重
+  deploy 自动治愈（幂等零写入）。
+- **窗体标签发布坑（live 钉死）**：`SetLocLabels` 写的是**未发布层**，且不"弄脏"
+  窗体记录 → `PublishXml(entity)` 会**跳过**窗体名标签（视图不受影响）；补发
+  `PATCH systemforms(name=中文名)`（1033 不动）标脏后再 publish 才生效。引擎已在
+  窗体分支自动做这步。
 
 ## 10. 如何扩展
 

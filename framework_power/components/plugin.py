@@ -19,7 +19,7 @@ from typing import Any, Optional
 from ..codegen import emit_label
 from ..lint import ERROR, WARNING, Issue
 from ._common import is_custom
-from .models import ContentKind, CustomAction, IsolationMode, Plugin, PluginStep, SourceType
+from .models import ContentKind, CustomAction, IsolationMode, Plugin, PluginStep, SourceType, StepImage
 
 KEY = "plugin"
 SOLUTION_CODE = 91  # PluginAssembly (90=PluginType, 92=Step); pinned live
@@ -30,6 +30,7 @@ DEPENDS_ON: tuple[str, ...] = ("table",)
 CODEGEN_IMPORTS: tuple[str, ...] = (
     "Plugin",
     "PluginStep",
+    "StepImage",
     "CustomAction",
     "IsolationMode",
     "SourceType",
@@ -84,13 +85,68 @@ def _step_payload(step: PluginStep, *, sdkmessage_id: str, plugintype_id: str,
     return payload
 
 
-def _resolve_plugintype(client: Any, assembly_id: str, plugin_type: str) -> Optional[dict[str, Any]]:
+def _resolve_plugintype(client: Any, assembly_id: str, plugin_type: str,
+                        assembly_name: str = "") -> Optional[dict[str, Any]]:
     """Resolve the PluginType (IPlugin class) for an assembly. ``plugin_type`` matches typename/name; empty
-    uses the assembly's single plugintype (None if 0 or >1)."""
+    uses the assembly's single plugintype (None if 0 or >1).
+
+    If the typename is missing from the assembly's plugintype list (a content update does NOT
+    re-enumerate types), create the record so the step can bind (verified live)."""
     ptypes = client.get_plugintypes_by_assembly(assembly_id)
     if plugin_type:
-        return next((p for p in ptypes if plugin_type in (p.get("typename"), p.get("name"))), None)
+        pt = next((p for p in ptypes if plugin_type in (p.get("typename"), p.get("name"))), None)
+        if pt is None:
+            try:
+                created = client.create_plugintype({
+                    "typename": plugin_type,
+                    "friendlyname": plugin_type.rsplit(".", 1)[-1],
+                    "name": plugin_type.rsplit(".", 1)[-1],
+                    "pluginassemblyid@odata.bind": f"/pluginassemblies({assembly_id})",
+                })
+                return {"plugintypeid": created["plugintypeid"], "typename": plugin_type,
+                        "name": plugin_type.rsplit(".", 1)[-1], "created": True}
+            except Exception:  # noqa: BLE001 — fall through to None; step registration reports it
+                return None
+        return pt
     return ptypes[0] if len(ptypes) == 1 else None
+
+
+def _image_payload(image: StepImage, *, step_id: str, message: str) -> dict[str, Any]:
+    """Build the sdkmessageprocessingstepimage create payload (pinned live).
+
+    ``imagetype`` 0=Pre, 1=Post; ``attributes`` omitted for all-attributes images (an empty
+    string would be rejected). ``messagepropertyname`` is message-dependent (pinned live):
+    Create → ``Id`` (Target is rejected 0x8004416b on Create); Update/Delete/others → ``Target``.
+    """
+    payload: dict[str, Any] = {
+        "entityalias": image.alias,
+        "imagetype": 0 if image.image_type.lower() == "pre" else 1,
+        "messagepropertyname": "Id" if message.lower() == "create" else "Target",
+        "sdkmessageprocessingstepid@odata.bind": f"/sdkmessageprocessingsteps({step_id})",
+    }
+    attrs = (image.attributes or "").strip()
+    if attrs and attrs != "*":
+        payload["attributes"] = attrs  # the live attribute is 'attributes' (not 'attributes1')
+    return payload
+
+
+def _register_images(client: Any, step: PluginStep, step_id: str) -> list[dict[str, Any]]:
+    """Create the step's Pre/Post images; warn-not-block on failure (idempotent by alias)."""
+    results: list[dict[str, Any]] = []
+    if not step.images:
+        return results
+    existing = {img.get("entityalias") for img in client.get_step_images(step_id)}
+    for image in step.images:
+        if image.alias in existing:
+            results.append({"alias": image.alias, "action": "exists"})
+            continue
+        try:
+            res = client.create_step_image(_image_payload(image, step_id=step_id, message=step.message))
+            results.append({"alias": image.alias, "action": "created",
+                            "id": res.get("sdkmessageprocessingstepimageid")})
+        except Exception as e:  # noqa: BLE001
+            results.append({"alias": image.alias, "action": "failed", "error": str(e)[:200]})
+    return results
 
 
 def _register_step(client: Any, step: PluginStep, assembly_id: str) -> dict[str, Any]:
@@ -124,7 +180,11 @@ def _register_step(client: Any, step: PluginStep, assembly_id: str) -> dict[str,
                 return {"name": step.name, "action": "failed", "error": f"sdkmessagefilter: {str(e)[:160]}"}
     res = client.create_plugin_step(
         _step_payload(step, sdkmessage_id=sdkmessage_id, plugintype_id=pt["plugintypeid"], filter_id=filter_id))
-    return {"name": step.name, "action": "created", "id": res["sdkmessageprocessingstepid"]}
+    result = {"name": step.name, "action": "created", "id": res["sdkmessageprocessingstepid"]}
+    images = _register_images(client, step, res["sdkmessageprocessingstepid"])
+    if images:
+        result["images"] = images
+    return result
 
 
 def _wait_for_assembly(client: Any, name: str, *, attempts: int = 6, delay: float = 5.0) -> Optional[dict[str, Any]]:
@@ -184,39 +244,104 @@ def _label_text(label: Any, languagecode: int) -> str:
     return getattr(locs[0], "text", "")
 
 
+def _strip_publisher_prefix(schema_name: str) -> str:
+    """``new_Interface_X`` → ``Interface_X`` — the workflow ``uniquename`` has no publisher prefix
+    (pinned live: the SDK message carries the prefix, the workflow record does not)."""
+    _, _, rest = schema_name.partition("_")
+    return rest or schema_name
+
+
 def _deploy_custom_action(client: Any, action: CustomAction, *, assembly_id: str,
                           languagecode: int = 2052) -> dict[str, Any]:
-    """Best-effort: create the Action definition via workflows (category=3) + register a step on its SDK
-    message. Falls back to ``manual_update_required`` if creation or message resolution fails."""
+    """Create the Action definition via workflows (category=3) + activate + register a step on its SDK
+    message. Activation is what provisions the SDK message — without it the action is not callable.
+    Idempotent: an existing workflow (by uniquename) is reused, not duplicated."""
+    uniquename = action.uniquename or _strip_publisher_prefix(action.schema_name)
     name = _label_text(action.display_name, languagecode) or action.schema_name
-    payload = {
-        "name": name,
-        "category": 3,  # Action
-        "type": 1,  # Definition
-        "uniquename": action.schema_name,
-        "primaryentity": action.entity or "none",
-        "languagecode": languagecode,
-        "scope": 4,  # Organization
-        "triggeroncreate": False,
-        "triggeronupdate": False,
-    }
-    try:
-        client.create_custom_action(payload)
-    except Exception as e:  # noqa: BLE001
-        return {"schema_name": action.schema_name, "action": "manual_update_required",
-                "reason": _MANUAL_ACTION_NOTE, "error": str(e)[:200]}
+    result: dict[str, Any] = {"schema_name": action.schema_name, "workflow_uniquename": uniquename}
+
+    wf = client.get_workflow_by_uniquename(uniquename)
+    wf_id: Optional[str] = None
+    if wf is not None:
+        wf_id = wf.get("workflowid")
+        result["workflow"] = "exists"
+    else:
+        payload = {
+            "name": name,
+            "category": 3,  # Action
+            "type": 1,  # Definition
+            "uniquename": uniquename,
+            "primaryentity": action.entity or "none",
+            "languagecode": languagecode,
+            "scope": 4,  # Organization
+        }
+        # NOTE: triggeroncreate/triggeronupdate do not exist on this entity version (pinned live:
+        # 400 "property does not exist"); triggeroncreateattributelist is the modern equivalent.
+        if action.xaml:
+            payload["xaml"] = action.xaml  # XAML w/ x:Members declares the In/Out arguments (jsondata/msg)
+        try:
+            res = client.create_custom_action(payload)
+            wf_id = res.get("workflowid")
+            result["workflow"] = "created"
+        except Exception as e:  # noqa: BLE001
+            result.update({"action": "manual_update_required", "reason": _MANUAL_ACTION_NOTE,
+                           "error": str(e)[:200]})
+            return result
+
+    if wf is not None and wf.get("statecode") != 1 and wf.get("type") == 1:
+        # Existing draft definition (type=1) → activate so the SDK message exists
+        try:
+            client.activate_workflow(wf_id)
+            result["workflow"] = "activated"
+        except Exception as e:  # noqa: BLE001
+            result.update({"action": "manual_update_required",
+                           "reason": "Action definition exists but activation failed (maker portal).",
+                           "error": str(e)[:200]})
+            return result
+    elif wf is None:
+        # Newly created definitions start as draft → activate
+        try:
+            client.activate_workflow(wf_id)
+            result["workflow"] = "created+activated"
+        except Exception as e:  # noqa: BLE001
+            result.update({"action": "manual_update_required",
+                           "reason": "Action created but activation failed — SDK message not provisioned.",
+                           "error": str(e)[:200]})
+            return result
+
     sdkmessage_id = client.get_sdk_message_id(action.schema_name)
     if not sdkmessage_id:
-        return {"schema_name": action.schema_name, "action": "manual_update_required",
-                "reason": "Action created but its SDK message is not resolvable (may need activation)."}
-    step = PluginStep(name=f"{action.schema_name}.Invoke", message=action.schema_name,
-                      entity=action.entity or "", stage=40, mode=0)
+        result.update({"action": "manual_update_required",
+                       "reason": "Action created+activated but its SDK message is not resolvable yet."})
+        return result
+
+    # PRT step-name convention for action steps: "{typename}: {message} of any Entity" (pinned live)
+    handler = _resolve_plugintype(client, assembly_id, action.plugin_type)
+    handler_typename = (handler or {}).get("typename") or action.plugin_type or action.schema_name
+    step = PluginStep(
+        name=f"{handler_typename}: {action.schema_name} of any Entity",
+        message=action.schema_name, entity="", stage=40, mode=0,
+        plugin_type=action.plugin_type)
+    # idempotency: a step with this name already exists → reuse (deploy is re-runnable)
+    existing = {s.get("name"): s.get("sdkmessageprocessingstepid")
+                for s in client.get_steps_by_assembly(assembly_id)}
+    if step.name in existing:
+        result["step"] = {"name": step.name, "action": "exists", "id": existing[step.name]}
+        result["action"] = "created"
+        result["add_target"] = (29, wf_id, name)  # Workflow — for solution management
+        result["add_target_step"] = (92, existing[step.name], step.name)
+        return result
     res = _register_step(client, step, assembly_id)
+    result["step"] = res
     if res.get("id"):
-        return {"schema_name": action.schema_name, "action": "created", "workflow_created": True,
-                "step_id": res["id"]}
-    return {"schema_name": action.schema_name, "action": "manual_update_required",
-            "reason": _MANUAL_ACTION_NOTE, "error": res.get("error", "")[:200]}
+        result["action"] = "created"
+        result["workflow_created"] = True
+        result["add_target"] = (29, wf_id, name)  # Workflow — for solution management
+        result["add_target_step"] = (92, res["id"], step.name)
+        return result
+    result.update({"action": "manual_update_required", "reason": _MANUAL_ACTION_NOTE,
+                   "error": res.get("error", "")[:200]})
+    return result
 
 
 def deploy(
@@ -237,7 +362,11 @@ def deploy(
     for step in model.steps:
         if step.name in existing_steps:
             sid = existing_steps[step.name]
-            steps_result.append({"name": step.name, "action": "exists", "id": sid})
+            entry: dict[str, Any] = {"name": step.name, "action": "exists", "id": sid}
+            images = _register_images(client, step, sid)  # backfill images on pre-existing steps
+            if images:
+                entry["images"] = images
+            steps_result.append(entry)
             add_targets.append((92, sid, step.name))
             continue
         try:
@@ -249,6 +378,11 @@ def deploy(
             steps_result.append({"name": step.name, "action": "failed", "error": str(e)})
 
     actions_result = [_deploy_custom_action(client, a, assembly_id=assembly_id) for a in model.custom_actions]
+    for a_res in actions_result:
+        if a_res.get("add_target"):
+            add_targets.append(a_res.pop("add_target"))  # Workflow (29) — solution management
+        if a_res.get("add_target_step"):
+            add_targets.append(a_res.pop("add_target_step"))  # the action's Invoke step (92)
 
     result: dict[str, Any] = {
         "action": info["action"],
@@ -277,8 +411,21 @@ def plan(client: Any, model: Plugin, *, prefix: str = "new") -> dict[str, Any]:
 def reverse(client: Any, ident: str) -> Plugin:
     asm = client.get_plugin_assembly_by_id(ident)
     steps_raw = client.get_steps_by_assembly(ident)
-    steps = [
-        PluginStep(
+    steps = []
+    for s in steps_raw:
+        images: tuple[StepImage, ...] = ()
+        try:
+            images = tuple(
+                StepImage(
+                    alias=img.get("entityalias") or "",
+                    image_type="Pre" if int(img.get("imagetype") or 1) == 0 else "Post",
+                    attributes=img.get("attributes") or "",
+                )
+                for img in client.get_step_images(s.get("sdkmessageprocessingstepid"))
+            )
+        except Exception:  # noqa: BLE001 — images are supplementary; never block reverse
+            pass
+        steps.append(PluginStep(
             name=s.get("name") or "",
             message=_step_message(s),
             entity="",
@@ -288,9 +435,8 @@ def reverse(client: Any, ident: str) -> Plugin:
             filtering_attributes=s.get("filteringattributes") or "",
             description=s.get("description") or "",
             rank=int(s.get("rank") or 1),
-        )
-        for s in steps_raw
-    ]
+            images=images,
+        ))
     try:
         source_type = SourceType(int(asm.get("sourcetype") or 0))
     except ValueError:
@@ -329,6 +475,12 @@ def _emit_step(step: PluginStep) -> str:
         parts.append(f"description={step.description!r}")
     if step.rank != 1:
         parts.append(f"rank={step.rank}")
+    if step.images:
+        imgs = ", ".join(
+            f"StepImage(alias={img.alias!r}, image_type={img.image_type!r}, attributes={img.attributes!r})"
+            for img in step.images
+        )
+        parts.append(f"images=({imgs},)")
     return "PluginStep(" + ", ".join(parts) + ")"
 
 

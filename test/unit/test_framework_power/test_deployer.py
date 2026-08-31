@@ -1060,3 +1060,37 @@ def test_deploy_table_syncs_referenced_optionset_before_entity(tmp_path):
     assert 9 in codes
     # Entity still deployed as before.
     assert result["entity"]["action"] == "created"
+
+
+def test_deploy_table_creates_global_picklist_column_with_bind():
+    """ADR-014: attribute create for a global-optionset Picklist binds the resolved
+    MetadataId (GlobalOptionSet@odata.bind); inline OptionSet refs hit 0x80048403."""
+    client = OptionsetAwareFakeClient(
+        table_exists=True,
+        existing_optionsets={
+            "new_salesgroup": {"MetadataId": "osid:new_salesgroup", "Options": []}
+        },
+    )
+    result = deploy_table(client, _global_picklist_table(), config=NO_DELAY)
+    entry = next(a for a in result["attributes"] if a["attribute"] == "new_BusinessGroupId")
+    assert entry["action"] == "created"
+    payload = next(
+        p for _n, p in client.calls["create_attribute"] if p["SchemaName"] == "new_BusinessGroupId"
+    )
+    assert payload["GlobalOptionSet@odata.bind"] == "/GlobalOptionSetDefinitions(osid:new_salesgroup)"
+    assert "OptionSet" not in payload
+
+
+def test_deploy_table_fresh_entity_attributes_use_bind():
+    """ADR-014: entity-create inline Attributes bind referenced global optionsets too."""
+    client = OptionsetAwareFakeClient(
+        existing_optionsets={
+            "new_salesgroup": {"MetadataId": "osid:new_salesgroup", "Options": []}
+        },
+    )
+    result = deploy_table(client, _global_picklist_table(), config=NO_DELAY)
+    assert result["entity"]["action"] == "created"
+    payload = client.calls["create_entity"][0]
+    picklist = next(a for a in payload["Attributes"] if a["SchemaName"] == "new_BusinessGroupId")
+    assert picklist["GlobalOptionSet@odata.bind"] == "/GlobalOptionSetDefinitions(osid:new_salesgroup)"
+    assert "OptionSet" not in picklist
