@@ -96,10 +96,14 @@ python -m framework_power solution publish --env dev             # PublishAllXml
 |-----|------|------|
 | table | 1 | EntityMetadata |
 | optionset（全局） | 9 | OptionSetMetadata |
+| workflow（custom action 定义） | 29 | workflow |
 | view | 26 | savedquery |
 | form | 60 | systemform |
 | webresource | 61 | webresource |
-| pluginassembly | 90 / step 92 / action 91 | pluginassembly + sdkmessageprocessingstep |
+| pluginassembly | 91 | pluginassembly（降级路径） |
+| sdkmessageprocessingstep | 92 | sdkmessageprocessingstep（含 image 的宿主） |
+| plugintype | 90 | plugintype（一般不单独加） |
+| pluginpackage（NuGet） | 10030 | pluginpackage（**包路径的解决方案单元**；加 91 会 405） |
 
 ## Dataverse 关键行为（务必遵守）
 
@@ -113,6 +117,8 @@ python -m framework_power solution publish --env dev             # PublishAllXml
 
 ## 不要做
 
+- **【ADR-013】不要在未备份的情况下改环境**：写操作前 `pp env-guard backup <解决方案> --env <env> --note "…"`
+  （solution ZIP + 插件注册快照 + 台账）。恢复时先读 `docs/env_backup/CHANGELOG.md`。
 - 不要 import 或修改 `framework/`、`ninebot-project/metadata/`。
 - 不要让 `solution deploy` 变成破坏性操作。
 - 不要在库内生成/改写 FormXml/FetchXml/LayoutXml（保持不透明字符串）。

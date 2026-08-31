@@ -185,7 +185,7 @@ CLI 在执行任何命令前，会自动发现当前 workspace：
 | 5 | **窗体** | 结构化 Form 模型，逆向→改布局→正向无损往返 | `pp form deploy <entity>` |
 | 6 | **视图** | 结构化 View 模型，FetchXml+LayoutXml 配对 | `pp view deploy <entity>` |
 | 7 | **Ribbon** | 自定义按钮、JS command、显隐规则、隐藏 OOB | `pp ribbon deploy --env dev` |
-| 8 | **插件** | NuGet PluginPackage 优先，net462/net471 | `pp plugin build` |
+| 8 | **插件** | NuGet PluginPackage 优先，net462/net471；Step Pre/Post Image + Custom Action 全链路（ADR-012） | `pp plugin build` |
 | 9 | **工作流编排** | `project.py` 清单驱动整条开发链 | `pp workflow deploy` |
 
 ### Workspace 管理

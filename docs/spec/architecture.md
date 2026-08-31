@@ -389,6 +389,7 @@ COMPONENT_DEPLOY_ORDER = (
     "webresource",
     "form",
     "view",
+    "sitemap",      # Phase 10 / ADR-015
     "plugin",
 )
 ```
@@ -397,11 +398,15 @@ COMPONENT_DEPLOY_ORDER = (
 | 类型 | SolutionComponentCode | 说明 |
 |------|---------------------|------|
 | table | 1 | 表/实体 |
-| optionset | 2 | 全局选项集 |
-| webresource | 61 | Web 资源 |
+| optionset | 9 | 全局选项集 |
+| view | 26 | 保存的查询 |
+| workflow | 29 | 工作流/自定义 Action 定义（ADR-012） |
 | form | 60 | 系统表单 |
-| view | 4230 | 保存的查询 |
-| plugin | 10030 | 插件程序集 |
+| webresource | 61 | Web 资源 |
+| sitemap | 62 | App SiteMap 实体菜单（app-aware，ADR-015/Phase 10） |
+| plugin (assembly) | 91 | 插件程序集（降级路径） |
+| plugin (step) | 92 | SDK message 处理步骤 |
+| plugin (package) | 10030 | NuGet 插件包（包路径的解决方案单元） |
 
 ### 5. 解决方案管理 (solution_*.py)
 
@@ -464,15 +469,19 @@ COMPONENT_DEPLOY_ORDER = (
 ```
 1. 开发者修改 .NET 插件代码
    ↓
-2. plugin_build.py 构建 DLL
+2. plugin_build.py 构建 DLL/.nupkg（NuGet PluginPackage 优先）
    ↓
-3. plugin_sync.py 部署程序集
+3. plugin_sync.py 部署程序集/包（content 更新前清孤儿 step/plugintype）
    ↓
-4. 注册/更新 Plugin Steps
+4. 注册/更新 Plugin Steps（幂等，按名查重）
    ↓
-5. 添加到解决方案
+5. 注册 Pre/Post Step Images（Create→Id，Update/Delete→Target；ADR-012）
    ↓
-6. PublishAllXml
+6. Custom Action 全链路（workflow 创建+XAML → 激活 → SDK message → Invoke step）
+   ↓
+7. 添加到解决方案（10030 包 / 91 程序集 / 92 step / 29 workflow）
+   ↓
+8. PublishAllXml
 ```
 
 ### 解决方案部署流程
@@ -597,11 +606,14 @@ def lint(model, *, prefix): ...
    ↓
 3. pp deploy <table>：依赖优先自动同步选项集 → 再部署实体/字段
    (ADR-011；带 --solution 时选项集加入同一解决方案 code 9)
-   ↓
 4. 数据字典自动生成选项集文档
    ↓
 5. LLM 读取文档获取正确的选项值
    (独立管理：pp optionset list | plan | deploy)
+
+注：裸 `create_attribute` 新建绑定既有全局选项集的字段时，payload 必须用
+`GlobalOptionSet@odata.bind` 绑定语法（内联 `OptionSet.IsGlobal+Name` 引用被
+`0x80048403` 拒），详见 ADR-014。
 ```
 
 ### Git Hook 触发流程

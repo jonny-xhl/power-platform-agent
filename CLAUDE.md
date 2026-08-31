@@ -23,6 +23,8 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 
 - `Table`/`Column`/`Relationship`/`Label` 类型化模型；幂等 `deploy_table`（create + PATCH-sync 字段
   + create-only 关系，**非破坏**）+ 只读 `plan_table` + `reverse_table`（环境→本地全量快照）。
+  deploy 末尾自动补齐**自动创建视图/窗体名的双语标签**（ADR-016：平台建表把 base 英文
+  复制进 2052 标签位致中文用户看到英文名；按组织模板命名，只碰默认命名组件，幂等）。
 - 定义文件 `ninebot-project/metadata_py/tables/<schema>.py`（每文件导出 `TABLE`）；**双向单文件**：逆向覆盖、正向同步，
   标准（无 `new_` 前缀）组件自动跳过 → 全量快照正向同步幂等且安全。
 - **全局选项集引用自洽**（ADR-011）：Picklist 列声明 `optionset_name` 引用
@@ -52,7 +54,7 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
   | `webresource` | 61 | create 或 PATCH base64 `content` |
   | `form` | 60 | create 或 PATCH 不透明 `formxml` |
   | `view` | 26 | create 或 PATCH 不透明 `fetchxml`/`layoutxml` |
-  | `plugin` | 90+92 | assembly + steps；自定义 Action 报 `manual_update_required` |
+  | `plugin` | 91+92（包路径 10030） | assembly/package + steps + Pre/Post images；custom action 全链路（+29 workflow） |
 
   新增类型只需加一个 per-type 模块并注册，`solution_codegen`/`solution_reverse` 自动支持。
 - **不透明负载**：FormXml/FetchXml/LayoutXml 与 DLL/WebResource 内容为字符串字段（库不生成/解析）；
@@ -176,21 +178,27 @@ Power Platform Agent 是一个基于 MCP (Model Context Protocol) 协议的服�
 - CLI：`python -m framework_power ribbon build|show|lint|plan|deploy|reverse`（全局 `--ribbon-solution
   new_RibbonSoln`、`--ribbons-dir`）。Skill：`dv-ribbon-python`。
 
-### Phase 8 — Plugin 操作（已完成，核心已 live 验证）
+### Phase 8 — Plugin 操作（已完成，核心已 live 验证；image/action 全链路 ADR-012 已 live 验证）
 
-构建 .NET plugin（**NuGet `PluginPackage` 优先**，net48+ILMerge+签名降级）+ 自动注册 assembly/step + best-effort
-custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly 上传」（step 注册从未 live 测，全是错的）。
+构建 .NET plugin（**NuGet `PluginPackage` 优先**，net48+ILMerge+签名降级）+ 自动注册 assembly/step（**含 Pre/Post
+Image**）+ **custom action 全链路**（workflow 创建 + XAML + 激活 + Invoke step）+ 加进解决方案。Phase 2 只有
+「不透明 pluginassembly 上传」（step 注册从未 live 测，全是错的）。
 
-- `Plugin`/`PluginProject`/`PluginStep`/`CustomAction`/`DeployMode`/`ContentKind` 模型；`client/plugin_build.py`
-  `build_plugin_project`（`dotnet build`+`pack`→base64 .nupkg，按 TFM 选 Package/Assembly，build 前清 bin/obj）；
-  `plugin_sync.py`（`deploy_plugin`/`list_plugins`/`reverse_plugin`）。
+- `Plugin`/`PluginProject`/`PluginStep`/`StepImage`/`CustomAction`/`DeployMode`/`ContentKind` 模型；
+  `client/plugin_build.py` `build_plugin_project`（`dotnet build`+`pack`→base64 .nupkg，按 TFM 选 Package/Assembly，
+  build 前清 bin/obj）；`plugin_sync.py`（`deploy_plugin`/`list_plugins`/`reverse_plugin`）。
 - **已 live 踩坑**（详见 `framework_power/CLAUDE.md §9.7`）：pluginpackage 包名**必须含发布商前缀** `new_<assembly>`
   （`0x80040265`）；本环境 TFM**强制 net462 标准**（net471 也收；net6/net8/netstandard build 时直接拒），免 ILMerge/签名；step **引用 PluginType 不是
   assembly**——nav prop 只认 `eventhandler_plugintype@odata.bind`（`pluginassemblyid`/`eventhandler`/`plugintypeid` 全 404），
-  实体限定走 `sdkmessagefilterid`；组件码 `90=PluginType`/`91=PluginAssembly`/`92=Step`/`10030=PluginPackage`；
+  实体限定走 `sdkmessagefilterid`；组件码 `90=PluginType`/`91=PluginAssembly`/`92=Step`/`10030=PluginPackage`/`29=Workflow`；
   **包插件加进命名解决方案要加 `PluginPackage(10030)`（assembly 91 报 405 "export the Package directly"），不是 assembly**；
-  step 注册幂等（按名 skip existing）；命名 `{company}.{project}.{Plugin|Action}.{Module}` 动态 per-project
-  （默认 `PP.Crm`）；custom action 自动建 best-effort（失败回退 manual）。
+  step 注册幂等（按名 skip existing + 既有 step 补挂 image）；命名 `{company}.{project}.{Plugin|Action}.{Module}` 动态 per-project
+  （默认 `PP.Crm`）。
+- **ADR-012（2026-08 live 钉死，RollingForecast 18 step + 19 image + 4 action 全量验证）**：Step Image 字段名是
+  `attributes`（非 `attributes1`）、`messagepropertyname` 随消息（**Create→`Id`**，Update/Delete→`Target`）；custom action
+  workflow `uniquename` 不带前缀、XAML 存 `xaml` 字段、**激活才生成 SDK message**、action step 命名 `{typename}: {message}
+  of any Entity`；**content 更新不重枚举 plugintype**（解析失败自动补建，不带 `type` 字段）；更新 content 前须清孤儿
+  step/plugintype（`0x8004418b`）。详见 `ninebot-project/docs/spec/adr-012-plugin-image-and-custom-action-deploy.md`。
 - CLI：`python -m framework_power plugin build|deploy|list|reverse`（`--plugin-solution new_PluginSoln`）。Skill：`dv-plugin-python`。
 
 ### Phase 9 — 开发工作流编排（已完成，离线验证 + 待 live）
@@ -213,8 +221,43 @@ custom action + 加进解决方案。Phase 2 只有「不透明 pluginassembly �
 - CLI：`python -m framework_power workflow show|lint|plan|deploy`（`--project ninebot-project/metadata_py/project.py`）。
   Skill：`dv-workflow-python`。
 
+### Phase 10 — App SiteMap 实体菜单管理（已完成，已 live 验证）
+
+把新表加进模型驱动 App 的菜单（区域 → 组 → SubArea），新表上线闭环（建表 → 视图/窗体 →
+**app 菜单** → 数据字典）的最后一块。**live 钉死：app-aware sitemap 模型**——`appmodule`
+无 `sitemapxml` 列，导航 XML 在独立 `sitemap` 实体，键 `sitemapnameunique ==
+appmodule.uniquename`（如 app `new_CustomerService`）。详见 ADR-015 与
+`framework_power/CLAUDE.md §9.11`。
+
+- 结构化模型 `AppSitemap → SiteArea → SiteGroup → SubArea`（attrs/extras 全保留 → 无损往返，
+  同 form/view 契约）；组件 registry key=`sitemap`（**code 62**，部署序 view 后）。
+- **部署** = `PATCH sitemaps({id}) {sitemapxml}` + 发布（定向 `PublishXml(<sitemaps>)` 本环境
+  400 → 回退 `PublishAllXml`）；新增 SubArea **样式克隆**既有实体条目；幂等（已有 →
+  `skipped_unchanged`，lint 对重复实体报 error）；写前自动备份原始 XML 到
+  `docs/env_backup/sitemap_{unique}.{ts}.bak.xml`（ADR-013 对齐）。
+- **解决方案**：sitemap 已在解决方案内（`new_entity930` 含 Customer Service 的 sitemap）则
+  PATCH 后随其 transport，**不要再 add-component**；sitemap 承载整个 app 导航。
+- CLI：`python -m framework_power sitemap apps|show|plan|add-entity|remove-entity`
+  （`--app` 接 uniquename/显示名，`--area/--group` 接 Id 或中/英标题）。Skill：`dv-sitemap-python`。
+
 ### 关键约束
 
+- **【强制守则 ADR-013：改环境前必先备份 + 全程留台账】任何对 Dataverse 环境的写操作
+  （deploy/update/delete/清理/注册）之前，必须先执行 `python -m framework_power --workspace
+  ninebot-project env-guard backup <解决方案名> --env dev --note "意图"`（备份 ZIP 到
+  `workspace/docs/env_backup/{解决方案名}.zip` + org 级插件注册快照 JSON），操作后用
+  `env-guard log` 核对台账。恢复时**先读台账** `docs/env_backup/CHANGELOG.md` 再动手。
+  动机：2026-08-19 误删 13 step + 11 plugintype 后无任何可查备份/记录。详见
+  `docs/spec/adr-013-env-backup-and-change-journal.md`。
+- **【文档同步守则：引擎代码变更必须同步文档】任何对引擎代码（`framework_power/**`、
+  `framework/**`、`.claude/skills/**` 脚本）的行为性变更——新能力、新 API/CLI 命令、
+  payload 语法、错误码语义、已踩坑行为——当次任务内必须同步更新对应文档，不等下次：
+  ① 新决策/行为 → 新 ADR（`docs/spec/adr-0XX-*.md`）或增补现有 ADR；② 架构 →
+  `docs/spec/architecture.md`；③ 作者契约 → `docs/spec/metadata-spec.md`；④ 部署语义 →
+  `docs/guides/metadata-deploy.md`；⑤ 使用说明 → 对应 `.claude/skills/*/skill.md`；
+  ⑥ 概览 → 根 `CLAUDE.md` / `framework_power/CLAUDE.md`（§9 踩坑清单）；⑦ README。
+  Git hook（`scripts/hooks/pre-commit.sh`，`bash scripts/install_hooks.sh` 安装）只做
+  **建议**级提醒，不构成豁免；未同步文档的引擎变更视为任务未完成。
 - 与 `framework/`、`metadata/` 隔离；复用代码在 `framework_power/client/`；认证复用
   `ninebot-project/config/environments.yaml` + `.env`（`get_client`，client-secret + MSAL）。
 - `deploy` **非破坏**（create/update/add）；标准（非 `new_` 前缀）组件正向同步**跳过** → 全量快照安全。
@@ -442,6 +485,7 @@ Claude Code 技能位于 `.claude/skills/`：
 - `dv-ribbon-python` — `framework_power` ribbon 定制（加按钮/绑 JS/CustomRule 显隐/隐藏 OOB，Phase 7）
 - `dv-plugin-python` — `framework_power` plugin 构建/注册（NuGet PluginPackage 优先，net462/net471，Phase 8）
 - `dv-workflow-python` — `framework_power` 跨阶段开发工作流编排（project.py 清单驱动整条链，主 + ribbon 两个解决方案，Phase 9）
+- `dv-sitemap-python` — `framework_power` App SiteMap 实体菜单管理（加表进 app 区域/组，app-aware sitemap 模型，Phase 10）
 
 ### CI
 

@@ -275,9 +275,12 @@ pp deploy-all --env dev           # 全量部署，按引用顺序处理
 | 实体 | 缺失则创建（创建 payload 即携带 `IsAuditEnabled` 等属性）；否则 PATCH 可更新属性（DisplayName、Description、HasNotes、IsAuditEnabled、IsQuickCreateEnabled）；若环境拒绝 EntityDefinitions PATCH（405 / 0x80060888），自动降级为「强一致 GET 完整定义 → 叠加差异 → 清理响应字段 → PUT」，结果标注 `method: put`。 |
 | 字段 | 实体首次创建时内联携带。实体已存在时：缺失则 POST；否则计算可变属性差异，通过具体类型强一致 GET 获取完整定义，清理只读属性、叠加差异后 PUT。无差异时不发 PUT。 |
 | 本地 Picklist 选项 | 对已有字段执行 typed GET + `$expand=OptionSet`；缺少值调用 `InsertOptionValue`，已存在值的本地声明语言标签发生变化时调用 `UpdateOptionValue(MergeLabels=true)`；远端额外值保留；有修改才定向发布实体。 |
-| 全局选项集引用 | 字段声明 `optionset_name="<global>"` 时，创建 payload 使用 `OptionSet.IsGlobal=true + Name` 引用已有全局选项集，**不内联选项**；已有字段的选项同步自动跳过（选项归全局选项集所有，由其独立流程维护）。 |
+| 全局选项集引用 | 字段声明 `optionset_name="<global>"` 时，创建 payload **先 resolve MetadataId 再用 `GlobalOptionSet@odata.bind` 绑定**已有全局选项集（ADR-014，不内联选项；MetadataId 无法解析时回退内联 `OptionSet.IsGlobal+Name` 引用块）；已有字段的选项同步自动跳过（选项归全局选项集所有，由其独立流程维护）。 |
 | 引用的全局选项集本体 | **依赖优先自动同步**（ADR-011）：部署表前先收集 `optionset_name` 引用，从 `metadata_py/optionsets/<name>.py` 加载本地定义并先行同步（create-only、幂等、漂移报 `manual_update_required`）；带 `--solution` 时同步加入同一解决方案（code 9）。无本地定义时降级为只读在线检查并在 `optionsets_missing` 记录告警，**不阻断部署**。 |
+| 绑定既有全局选项集的**新建**字段（裸 `create_attribute`） | 内联 `OptionSet.IsGlobal+Name` 引用会被 `0x80048403` 拒绝；必须用 **`GlobalOptionSet@odata.bind": "/GlobalOptionSetDefinitions(<MetadataId>)"`** 绑定语法（先按小写名取 MetadataId），详见 ADR-014。声明式 `optionset_name` 路径已于 2026-08-21 迁移为同一 bind 语法（`deployer` 先行 resolve）并 live 验证。 |
 | 关系 | 仅创建（Dataverse 不支持 PATCH 关系定义）。已存在则跳过。 |
+| 自动创建视图/窗体名称（ADR-016） | 全量 `pp deploy <table>` 末尾自动**补齐双语名称标签**：平台建表把 base 语言（英文）文本复制进所有语言标签位 → 中文个性化用户看到英文名。引擎按组织模板（活动/停用/我的/快速查找活动{复数}、{单数}查找/关联/高级查找视图、窗体"信息"）写 2052 标签（1033 不动），只碰**默认命名**组件（改名过的跳过），写后 sleep→publish→验证→重试（窗体额外 PATCH name 标脏才可发布）。幂等：已本地化零写入；`plan` 出 `auto_component_labels` 预览。`DeployConfig(localize_auto_components=False)` 可关。 |
+| App SiteMap 实体菜单（Phase 10/ADR-015） | `pp sitemap add-entity <entity> --app <app> --area <A> --group <G>`：定位 app-aware sitemap（`sitemap.sitemapnameunique == appmodule.uniquename`，appmodule 本身无 `sitemapxml` 列）→ 实体已有 SubArea 则 `skipped_unchanged`（幂等，lint 对重复报 error）→ 否则**写前备份**原始 XML 到 `docs/env_backup/sitemap_{unique}.{ts}.bak.xml` → `PATCH sitemaps({id}) {sitemapxml}`（新 SubArea 样式克隆自既有实体条目）→ 发布（定向 `PublishXml(<sitemaps>)` 400 → 回退 `PublishAllXml`）→ 回读验证。sitemap 是解决方案组件 **code 62**：已在解决方案内（如 `new_entity930`）则随其 transport，勿再 add-component。`remove-entity` 同语义（全局或按 area/group 范围）。 |
 
 本地 Picklist 的值和多语言标签已经支持由 `pp deploy <table> --fields <field>`
 增量同步，并可传递 `--solution`。该流程默认**不删除**远端额外值，因为删除可能导致
