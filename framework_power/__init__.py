@@ -3,7 +3,7 @@ framework_power - self-contained, Python-first Dataverse table deploy library.
 
 AI-authored scripts build a :class:`Table` from the typed models below and call
 :func:`deploy_table` to reconcile it against a Dataverse environment. This package is
-intentionally isolated from the legacy ``framework/`` YAML toolchain.
+self-contained (the legacy ``framework/`` YAML toolchain was removed 2026-08-31).
 
 Quick start::
 

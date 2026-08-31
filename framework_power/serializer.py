@@ -2,7 +2,7 @@
 Model -> Dataverse Web API JSON serializer (framework_power).
 
 Pure functions (no client, no I/O) so they are trivially unit-testable. They mirror
-the proven per-type branches of the legacy ``framework/utils/dataverse_client.py``
+the proven per-type update branches (originally from the removed legacy framework)
 ``_convert_*`` methods, generalized for multi-language labels and full type coverage,
 and aligned with the Microsoft Dataverse Web API create payloads shown in the
 ``dv-metadata`` skill.

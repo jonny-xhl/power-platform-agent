@@ -118,7 +118,6 @@
   - Python：`pip install -e .`（setup.py），无 bundler。
   - 前端：**无**。JS 原样下发（`XRM.Common.js` 压缩版与 `XRM.Common.debug.js` 注释版手工维护）。
   - 插件：`dotnet build` + `dotnet pack`（由 `framework_power/client/plugin_build.py` 驱动）。
-- **MCP**：`mcp 0.9.1`，stdio 传输（`framework/mcp_serve.py`）。
 
 ### Figma 集成指引
 - 不要为"对齐 Figma"而引入 JS 框架或 bundler —— 设计必须能用原生 JS/CSS 或 FormXml 表达。
@@ -190,7 +189,6 @@
 
 ```
 power-platform-agent/
-├── framework/              # （遗留）YAML→Dataverse MCP 工具链
 ├── framework_power/        # Python 优先 Dataverse 部署库（P1–P9）
 │   ├── models.py           # Table/Column/Relationship 类型化模型
 │   ├── components/         # 解决方案组件类型（注册表）

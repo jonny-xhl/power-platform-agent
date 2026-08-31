@@ -186,8 +186,8 @@ power-platform-agent/
 │   └── ...
 │
 ├── scripts/              # 脚本层
-│   ├── generate_data_dictionary.py
-│   └── hooks/           # Git hooks
+│   ├── ci/              # CI 辅助
+│   └── hooks/           # Git hooks（建议级文档提醒）
 │
 ├── webresources/         # Web Resource源文件
 │   ├── css/
@@ -548,21 +548,17 @@ def lint(model, *, prefix): ...
 ### Git Hook 触发流程
 
 ```
-1. 开发者修改 metadata/tables/*.yaml（Gen 1 YAML，Legacy）
+1. 开发者修改 framework_power/** 或 .claude/skills/**
    ↓
 2. git add 添加文件到暂存区
    ↓
 3. git commit 触发 pre-commit hook
    ↓
-4. generate_data_dictionary.py 执行（读取 Gen 1 YAML）
+4. hook 输出建议级文档同步提醒（ADR/架构/契约/部署语义/skill/概览 六处自查）
    ↓
-5. 更新 docs/data_dictionary/（Workspace 产物）
-   ↓
-6. 将生成的文档添加到本次提交
-   ↓
-7. 提交完成
+5. 提交完成（不阻塞）
 
-注意：metadata_py/tables/*.py（Gen 2 Python 定义）的变更不触发此 hook。
+数据字典不入库、不经 hook 生成：按需 `pp reverse <table> --env <env> --dictionary`。
 从环境同步数据字典：`pp reverse <table> --env <env> --dictionary`（云端为准）。
 ```
 

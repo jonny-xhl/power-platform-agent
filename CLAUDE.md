@@ -323,7 +323,7 @@ bash test/scripts/run_unit_tests.sh
 bash test/scripts/run_with_coverage.sh
 
 # 运行单个测试文件
-cd test && pytest unit/test_agents/test_core_agent.py
+cd test && pytest unit/test_framework_power/test_label_sync.py
 
 # 按标记运行测试
 cd test && pytest -m unit

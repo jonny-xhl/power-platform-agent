@@ -170,33 +170,6 @@ CLI 自动发现 workspace，在**任何子目录**执行命令都能正确解�
 
 ---
 
-## MCP Server（AI 交互路径）
-
-MCP Server 将 Dataverse 操作暴露为 Claude Code 可调用的工具。
-
-### 在 Claude Code 中配置
-
-安装后直接使用：
-
-```json
-{
-  "mcpServers": {
-    "power-platform": {
-      "command": "pp-mcp"
-    }
-  }
-}
-```
-
-### Claude Code 中使用
-
-```plaintext
-# 通过自然语言操作
-请创建一个客户表，包含账户编号、余额和状态字段
-```
-
----
-
 ## 插件开发
 
 ### 创建插件项目

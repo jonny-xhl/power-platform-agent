@@ -1,7 +1,7 @@
 # framework_power — 开发指南 (CLAUDE.md)
 
 本文件为 Claude Code 在 `framework_power/` 包内工作时提供指导。它是该项目"Python 优先的 Dataverse
-表元数据部署库"，替代旧 `framework/` 的 YAML→转换→Web API 链路（仅限**表**域：表 + 字段 + 关系）。
+表元数据部署库"（取代已移除的 legacy `framework/` YAML 链路；2026-08-31 起本仓库唯一引擎，仅限**表**域：表 + 字段 + 关系）。
 
 > 入口文档：根目录 `CLAUDE.md`；部署说明 `docs/metadata-deploy.md`；作者契约
 > `docs/spec/metadata-spec.md`；相关 skill：`dv-model-to-python`、`dv-reverse-metadata`、
@@ -84,8 +84,8 @@ remove-entity`，详见 `dv-sitemap-python` skill 与 §9.11 / ADR-015。
   踩坑 → 本文件 §9 + 根 `CLAUDE.md`。pre-commit hook（`scripts/hooks/pre-commit.sh`）只是建议级
   提醒，不豁免；漏更文档 = 任务未完成。
   详见 §9.10 与 `docs/spec/adr-013-env-backup-and-change-journal.md`。
-- **与 `framework/` 完全隔离**：本包**不得 import** `framework.*`，也**不得修改** `framework/` 或
-  `metadata/`。复用的传输/认证/配置/重试代码已**拷贝**到 `framework_power/client/`，在本包内维护。
+- **自包含**：legacy `framework/` 已于 2026-08-31 移除，本包是唯一引擎；
+  复用的传输/认证/配置/重试代码已**拷贝**到 `framework_power/client/`，在本包内维护。
 - **发布商前缀**取自 `config/publishers.yaml`（默认 `new`）。自定义组件 = 带 `new_` 前缀；标准/系统
   组件（无前缀）在正向同步时**自动跳过**。
 - **`deploy` 默认非破坏**：只 create/update，从不 delete（delete 需显式 `delete` 命令）。
@@ -122,7 +122,7 @@ framework_power/
     env_guard.py       环境变更守卫（ADR-013）：backup_solution（ZIP 轮转）+
                        snapshot_plugin_registrations（org 级插件注册 JSON 快照）+
                        append_change/read_journal（append-only 台账），见 §9.10
-  client/            拷贝自 framework/utils 并精简（与 framework/ 隔离）
+  client/            自包含 Web API client（原拷贝自 legacy framework/utils，已精简）
     dataverse_client.py  精简 DataverseClient（表元数据 + 各组件端点 + 解决方案/发布商/发布端点）
     plugin_build.py      dotnet build → base64（插件作者期工具，需 .NET SDK）
     auth.py              AutoAuthenticator（MSAL client-credentials + 缓存）
@@ -759,13 +759,13 @@ CLI `pp sitemap apps|show|plan|add-entity|remove-entity`。详见
 - Lint：`python -m flake8 framework_power/ --max-line-length=120`。
 - 类型：`python -m mypy framework_power --ignore-missing-imports --explicit-package-bases`。
   > **注意**：仓库根目录有个遗留 `__init__.py`，会导致 `mypy <pkg>` 报 "not a valid Python package
-  > name" 而中止；**必须加 `--explicit-package-bases`**（这也影响 `mypy framework/`）。
+  > name" 而中止；**必须加 `--explicit-package-bases`**。
 - 覆盖率/HTML 报告等由根 `test/pytest.ini` 控制（默认 `--cov=framework`，对本包测试可用 `-o addopts=""`
   临时关闭以避免 `--cov-fail-under`）。
 
 ## 12. 不要做
 
-- 不要 import 或修改 `framework/`、`metadata/`。
+- 不要把 workspace 数据（ninebot-project/）当引擎代码修改。
 - 不要在本包硬编码 token / 环境 URL / 凭据（一律走 `get_client` → `config/` + `.env`）。
 - 不要让 `deploy` 变成破坏性操作（delete 是独立显式命令）。
 - 不要自动改写用户写的 `schema_name`（命名由作者负责，lint 只校验）。

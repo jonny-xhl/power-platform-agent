@@ -7,7 +7,7 @@ wait helpers to absorb those delays. The default error patterns are expanded wit
 the transient signals documented by the Dataverse `dv-metadata` skill.
 
 This is a standalone copy managed inside `framework_power/`; it does NOT import
-from the legacy `framework/` package.
+from the legacy `framework/` package (removed 2026-08-31; this copy is the only one).
 """
 
 import time

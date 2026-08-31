@@ -775,7 +775,6 @@ power-platform-agent/
 │   └── guides/            # 使用指南
 │
 ├── scripts/               # 脚本层
-│   ├── generate_data_dictionary.py
 │   └── hooks/             # Git hooks
 │
 ├── config/                # 配置文件

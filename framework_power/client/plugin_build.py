@@ -9,7 +9,7 @@ Phase 8 adds :func:`build_plugin_project` which builds a .NET plugin project and
   (the .csproj is responsible for strong-name signing + ILMerge/ILRepack of layered deps into one DLL).
 
 Naming follows the project-wide rule ``{company}.{project}.{kind}.{Module}`` (dynamic per project; defaults
-``Ninebot.Crm``). Self-contained; isolated from ``framework/``. Requires the .NET SDK on PATH.
+``Ninebot.Crm``). Self-contained. Requires the .NET SDK on PATH.
 """
 
 from __future__ import annotations
