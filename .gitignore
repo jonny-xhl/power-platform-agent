@@ -77,13 +77,6 @@ plugins/
 .pp-local/
 .workbuddy/
 
-# Engine-level schema definitions ARE tracked
-!metadata/_schema/
-!metadata/_schema/**
-
-# Metadata generated files
-metadata/.generated/
-
 # Data dictionary temp files (generated per-workspace)
 docs/data_dictionary/*
 docs/data_dictionary/*.md

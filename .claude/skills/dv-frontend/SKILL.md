@@ -608,7 +608,6 @@ tabs:
 完整示例参考：`ninebot-project/metadata/forms/account_main.yaml`
 
 ```yaml
-$schema: "../_schema/form_schema.yaml"
 
 form:
   schema_name: "account_main_form"
@@ -717,7 +716,6 @@ events:
 完整示例参考：`ninebot-project/metadata/views/account_active.yaml`
 
 ```yaml
-$schema: "../_schema/view_schema.yaml"
 
 view:
   schema_name: "account_active_view"
@@ -1121,18 +1119,18 @@ naming_validate --name "new_customer_number" --type schema_name
 1. 需求分析
    └── 确定字段、Tab、Section 布局
 
-2. YAML 定义
-   └── 创建 ninebot-project/metadata/forms/{entity}_main.yaml
+2. 结构化定义
+   └── pp form reverse {entity} → builder 编辑（dv-form-python）
 
 3. 本地验证
-   └── metadata_validate(form_yaml, schema="form_schema")
+   └── pp form lint <file>
 
 4. 预览现有表单
-   └── metadata_get_form(entity="{entity}", form_type=2)
+   └── pp form list {entity} / pp form plan <file>
 
 5. 应用变更（mode选择）
-   └── 首次创建: metadata_create_form(form_yaml, mode="auto")
-   └── 更新现有: metadata_create_form(form_yaml, mode="update", target_form_id="...")
+   └── 首次创建: pp <domain> (form_yaml, mode="auto")
+   └── 更新现有: pp <domain> (form_yaml, mode="update", target_form_id="...")
 
 6. 测试验证
    └── 在 Dataverse 中测试表单
@@ -1279,15 +1277,12 @@ resources:
 
 | 类型 | 路径 | 说明 |
 |------|------|------|
-| 表单 Schema | `metadata/_schema/form_schema.yaml` | 表单元数据验证 |
-| 视图 Schema | `metadata/_schema/view_schema.yaml` | 视图元数据验证 |
-| WebResource Schema | `metadata/_schema/webresource_schema.yaml` | Web Resource 元数据验证 |
-| 表单示例 | `ninebot-project/metadata/forms/account_main.yaml` | 表单 YAML 示例 |
-| 视图示例 | `ninebot-project/metadata/views/account_active.yaml` | 视图 YAML 示例 |
-| WebResource 示例 | `ninebot-project/metadata/ninebot-project/webresources/account_form.yaml` | Web Resource 配置示例 |
-| JS 示例 | `ninebot-project/webresources/js/account_handler.js` | 表单脚本示例 |
-| CSS 示例 | `ninebot-project/webresources/css/account_form.css` | 样式文件示例 |
-| 命名规则 | `ninebot-project/config/publishers.yaml` | 命名转换配置（naming 段） |
+| 窗体建模/校验 | `framework_power/form_xml.py` + `pp form lint` | 结构化窗体模型与离线校验 |
+| 视图建模/校验 | `framework_power/view_xml.py` + `pp view lint` | 结构化视图模型与离线校验 |
+| WebResource 同步 | `pp webresource scan|plan|sync` | 本地目录 → 环境 + 精准发布 |
+| 窗体/视图示例 | `ninebot-project/metadata_py/forms|views/*.py` | 逆向生成的结构化定义 |
+| JS 示例 | `ninebot-project/webresources/js/` | 表单脚本（Phase 4 命名 `new_/js/...`） |
+| 命名规则 | `ninebot-project/config/publishers.yaml` | 命名校验配置（naming 段） |
 
 ## 相关 CLI
 
