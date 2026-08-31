@@ -62,29 +62,23 @@ YAML files support `${VAR_NAME}` syntax to reference environment variables:
 client_id: "${DEV_CLIENT_ID}"
 
 # With default value
-provider: "${LLM_PROVIDER:anthropic}"
+tenant_id: "${DEV_TENANT_ID:common}"
 
 # In strings
 url: "https://${ORG}.crm.dynamics.com"
-
-# Nested expansion
-connection_string: "Server=${DB_HOST};Database=${DB_NAME}"
 ```
 
 ## Loading Configuration in Code
 
 ```python
-from framework.utils.env_config import EnvConfig, load_yaml_with_env
+from framework_power.client.env_config import load_yaml_with_env, load_env_file
 
-# Option 1: Use EnvConfig manager
-config = EnvConfig()
-provider = config.get("llm.provider", "anthropic")
+# 1. Load workspace .env (auto-discovered; also explicit path)
+load_env_file()
 
-# Option 2: Load YAML with auto-expansion
-
-# Option 3: Direct environment access
-import os
-api_key = os.getenv("ANTHROPIC_API_KEY")
+# 2. Load YAML with ${VAR} expansion
+config = load_yaml_with_env("config/environments.yaml")
+print(config["environments"]["dev"]["url"])
 ```
 
 ## Configuration Priority
@@ -119,19 +113,14 @@ ls -la .env
 ### YAML variables not expanding
 
 ```python
-# Use load_yaml_with_env instead of yaml.safe_load
-from framework.utils.env_config import load_yaml_with_env
+# Use load_yaml_with_env (expands ${VAR}) instead of plain yaml.safe_load
+from framework_power.client.env_config import load_yaml_with_env
 config = load_yaml_with_env("config/environments.yaml")
 ```
 
 ### Test your configuration
 
 ```bash
-# Test environment loading
-python -c "
-from framework.utils.env_config import EnvConfig
-config = EnvConfig()
-print('Provider:', config.get('llm.provider'))
-print('Current env:', config.get('environments.current'))
-"
+# 引擎侧冒烟：列出 workspace 内的表定义（会走完整认证链）
+python -m framework_power --workspace <ws> list
 ```
