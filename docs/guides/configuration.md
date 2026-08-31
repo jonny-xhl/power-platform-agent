@@ -9,7 +9,6 @@ The project uses a **layered configuration approach**:
 | File | Purpose | Contains |
 |------|---------|----------|
 | `.env` | **Secrets only** (workspace-level) | Dataverse credentials |
-| `~/.power-platform-agent/.env` | **Secrets only** (user-level) | LLM API keys |
 | `config/environments.yaml` | **Environment config** | Dataverse URLs, settings |
 | `config/publishers.yaml` | **Publisher + naming** | Publisher prefix, naming rules, validation |
 | `config/pipeline.yaml` | **CI/CD pipeline** | Branch→environment→strategy mapping |
@@ -44,26 +43,7 @@ environments:
     client_secret: "${DEV_CLIENT_SECRET}" # References .env
 ```
 
-### 3. Configure LLM (optional)
-
-```yaml
-llm:
-  provider: "${LLM_PROVIDER:anthropic}"  # Use .env or default
-  temperature: 0.3
-  max_tokens: 4000
-```
-
 ## Environment Variable Reference
-
-### LLM Configuration
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `LLM_PROVIDER` | LLM provider | `anthropic`, `zhipu`, `qwen` |
-| `ANTHROPIC_API_KEY` | Anthropic API key | `sk-ant-...` |
-| `ZHIPUAI_API_KEY` | Zhipu AI API key | `...` |
-| `DASHSCOPE_API_KEY` | Qwen/DashScope key | `sk-...` |
-| `OPENAI_API_KEY` | OpenAI API key | `sk-...` |
 
 ### Dataverse Configuration
 
