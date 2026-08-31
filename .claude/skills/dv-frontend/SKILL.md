@@ -25,7 +25,7 @@ description: |
 ### 1. 在表单中添加库引用
 
 ```yaml
-# ninebot-project/metadata/forms/your_entity.yaml
+# 结构化窗体定义（metadata_py/forms/，经 pp form reverse + builder 编辑）
 events:
   - schema_name: "onload"
     handlers:
@@ -438,7 +438,6 @@ XRM.Common.Util.retry(
 | 生产库 | `ninebot-project/webresources/shared/js/XRM.Common.js` | 压缩版 |
 | 类型定义 | `ninebot-project/webresources/shared/js/XRM.Common.d.ts` | TypeScript 支持 |
 | 样式文件 | `ninebot-project/webresources/shared/css/XRM.Common.css` | 配套样式 |
-| YAML配置 | `ninebot-project/metadata/ninebot-project/webresources/xrm_common.yaml` | 部署配置 |
 
 ---
 
@@ -605,7 +604,7 @@ tabs:
 
 ### 表单 YAML 示例
 
-完整示例参考：`ninebot-project/metadata/forms/account_main.yaml`
+完整示例参考：`ninebot-project/metadata_py/forms/`（逆向生成的结构化定义）
 
 ```yaml
 
@@ -713,7 +712,7 @@ events:
 
 ### 视图 YAML 示例
 
-完整示例参考：`ninebot-project/metadata/views/account_active.yaml`
+完整示例参考：`ninebot-project/metadata_py/views/`（逆向生成的结构化定义）
 
 ```yaml
 
@@ -891,7 +890,7 @@ span { }
 ### 依赖管理
 
 ```yaml
-# ninebot-project/metadata/ninebot-project/webresources/my_entity.yaml
+# web 资源本地目录（webresources/，经 pp webresource sync 部署）
 resources:
   - schema_name: "entity_handler"
     type: "js"
@@ -1142,17 +1141,17 @@ naming_validate --name "new_customer_number" --type schema_name
 1. 定义需求
    └── 确定列、排序、过滤条件
 
-2. YAML 定义
-   └── 创建 ninebot-project/metadata/views/{entity}_{view}.yaml
+2. 结构化定义
+   └── pp view reverse {entity} → builder 编辑（加列/排序/过滤）
 
-3. FetchXML 编写
-   └── 定义查询和过滤
+3. 过滤条件
+   └── set_filter / add_condition（AND/OR 树）
 
 4. 列配置
-   └── 设置列宽和格式
+   └── add_column（列同时驱动 fetch attribute + layout cell）
 
-5. 应用同步
-   └── metadata_apply_yaml(metadata_type="view", name="{entity}_{view}")
+5. 部署
+   └── pp view lint → plan → deploy <file>
 ```
 
 ### Web 资源工作流
@@ -1162,7 +1161,7 @@ naming_validate --name "new_customer_number" --type schema_name
    └── ninebot-project/webresources/js/*.js, ninebot-project/webresources/css/*.css
 
 2. YAML 配置
-   └── ninebot-project/metadata/ninebot-project/webresources/{entity}.yaml
+   └── webresources/ 目录（Phase 4 命名 {prefix}_/{relpath}）
 
 3. 依赖声明
    └── 指定依赖的 Web Resources
@@ -1171,7 +1170,7 @@ naming_validate --name "new_customer_number" --type schema_name
    └── naming_validate --name "new_js/script.js" --type webresource
 
 5. 部署
-   └── metadata_apply_yaml(metadata_type="webresource", name="{entity}")
+   └── pp webresource sync <dir>（自动精准发布）
 ```
 
 ## 九、常见问题与解决方案
@@ -1286,13 +1285,14 @@ resources:
 
 ## 相关 CLI
 
-| 工具 | 说明 |
+| CLI | 说明 |
 |------|------|
-| `metadata_create_form` | 创建/更新表单 |
-| `metadata_get_form` | 获取表单详情 |
-| `metadata_create_view` | 创建/更新视图 |
-| `metadata_list_views` | 列出视图 |
-| `metadata_apply_yaml` | 应用元数据变更 |
-| `metadata_validate` | 验证元数据定义 |
-| `naming_convert` | 命名转换 |
+| `pp form list <entity>` | 列出实体窗体 |
+| `pp form reverse <entity>` | 逆向窗体为结构化定义 |
+| `pp form lint/plan/deploy <file>` | 校验/预演/部署窗体 |
+| `pp view list <entity>` | 列出实体视图 |
+| `pp view reverse <entity>` | 逆向视图为结构化定义 |
+| `pp view lint/plan/deploy <file>` | 校验/预演/部署视图 |
+| `pp webresource sync <dir>` | 同步/发布 JS/CSS 资源 |
+| `pp lint <table>` | 命名与约定校验 |
 | `naming_validate` | 命名验证 |
