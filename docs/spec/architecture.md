@@ -178,7 +178,6 @@ power-platform-agent/
 │   ├── spec/             # 规范文档
 │   └── guides/           # 使用指南
 
-├── transformers/         # 转换器层 (架构保留，暂不实现)
 
 ├── metadata/             # 元数据层 (legacy YAML)
 │   ├── _schema/          # Schema定义

@@ -44,7 +44,7 @@ setup(
     packages=find_packages(exclude=[
         "tests*", "test*", "docs*", "metadata*", "metadata_py*",
         "config*", "plugins*", "webresources*", "sources*",
-        "scripts*", "transformers*", "build_and_validate*",
+        "scripts*", "build_and_validate*",
     ]),
 
     # 入口点
