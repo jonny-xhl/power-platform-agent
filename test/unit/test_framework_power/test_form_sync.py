@@ -155,4 +155,6 @@ def test_reverse_writes_python_file(tmp_path):
     ns = {}
     exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), ns)
     written_form = ns["FORM"]
-    assert written_form == form_mod.reverse(fake, "fid")
+    # compact codegen: file omits rebuildable attrs -> compare normalized
+    from framework_power.components.compact import normalize
+    assert normalize(written_form) == normalize(form_mod.reverse(fake, "fid"))

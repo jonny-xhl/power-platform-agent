@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .components import form as form_component
+from .components.compact import normalize
 from .components.models import Form
 from .deployer import _is_already_exists
 
@@ -65,6 +66,16 @@ class FormSyncConfig:
 
 
 # ----------------------------------------------------------------- reverse helper
+
+
+def _models_equal(a: Form, b: Form) -> bool:
+    """Structured equality for the skip-if-unchanged diff.
+
+    Compares :func:`compact.normalize`d models so a compact reverse file (attrs
+    omitted where the serializer rebuilds them) still equals the live-reversed
+    full-attrs model — keeping reverse->deploy idempotency.
+    """
+    return normalize(a) == normalize(b)
 
 
 def _reverse_live(client: Any, form: Form) -> Optional[Form]:
@@ -106,7 +117,7 @@ def plan_forms(client: Any, forms: list[Form], *, prefix: str = "new") -> dict[s
             continue
         if live is None:
             action = "would_create"
-        elif live == form:
+        elif _models_equal(live, form):
             action = "would_skip"
         else:
             action = "would_update"
@@ -144,7 +155,7 @@ def sync_forms(
         except Exception as e:  # noqa: BLE001
             result["synced"].append({"name": form.name, "deploy": {"action": "failed", "error": str(e)}})
             continue
-        if live is not None and live == form:
+        if live is not None and _models_equal(live, form):
             # Unchanged: leave the live formxml untouched (non-destructive).
             result["synced"].append(
                 {"name": form.name, "deploy": {"action": "skipped_unchanged", "id": _existing_id(client, form)}}

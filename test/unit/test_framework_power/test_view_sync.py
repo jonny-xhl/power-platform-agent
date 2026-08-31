@@ -152,4 +152,6 @@ def test_reverse_writes_python_file(tmp_path):
     assert path.exists() and path.suffix == ".py"
     ns = {}
     exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), ns)
-    assert ns["VIEW"] == view_mod.reverse(fake, "vid")
+    # compact codegen: file omits rebuildable attrs -> compare normalized
+    from framework_power.components.compact import normalize
+    assert normalize(ns["VIEW"]) == normalize(view_mod.reverse(fake, "vid"))

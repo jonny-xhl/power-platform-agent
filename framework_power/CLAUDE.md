@@ -149,20 +149,28 @@ framework_power/
 - **正向 `deploy <name>`**：读同一文件同步；**自动跳过标准（无 `new_` 前缀）项**，只创建/同步自定义项
   → 全量快照正向同步是**幂等且安全**的。
 
+**紧凑 codegen（form/view 逆向文件，2026-08-31）**：`components/compact.py` 让逆向生成的
+窗体/视图文件省略与模型字段完全重复的 `attrs` 键（仅当 attrs 键集**精确等于**序列化器回退
+分支会重建的集合——control 回退无条件发 `datafieldname`，宽松规则会引入 `datafieldname=""`
+这类字节差异）；体积约 -25%。**语义无损**：`form_sync`/`view_sync` 的 skip-if-unchanged diff
+改用 `normalize()` 两边归一化后比较 → 紧凑文件 vs live 全量 attrs 仍 `would_skip`（幂等保持）。
+
 ## 6. CLI
 
 ```bash
 python -m framework_power list                                   # 发现 metadata_py/tables/*.py
 python -m framework_power show <name>                            # 打印序列化 payload（离线）
 python -m framework_power lint [<name>]                          # 离线约定门（0 errors 必须）
-python -m framework_power plan <name> --env dev                  # 只读预演
-python -m framework_power deploy <name> --env dev                # 正向同步
-python -m framework_power deploy-all --env dev                   # 按依赖顺序部署全部
+python -m framework_power plan <name> --env dev                  # 只读预演（默认紧凑摘要）
+python -m framework_power deploy <name> --env dev                # 正向同步（默认紧凑摘要）
+python -m framework_power deploy-all --env dev                   # 按依赖顺序部署全部（紧凑摘要）
 python -m framework_power reverse <name> --env dev               # 逆向导出（全量快照）
 python -m framework_power delete <name> --env dev                # 删除表（破坏性；级联字段+关系）
 python -m framework_power sitemap apps|show|plan|add-entity|remove-entity --env dev
                                                                   # App 菜单管理（Phase 10/ADR-015）
 # 全局参数：--definitions-dir <dir>（默认 metadata_py/tables）
+# plan/deploy/deploy-all：--json 打全量结果 JSON（默认紧凑摘要——action 计数 + changed 明细，
+#   一眼可审计、token 友好；AI/脚本消费全量时用 --json）
 ```
 
 认证：`get_client(env)` 复用 `config/environments.yaml` + `.env`（client-secret），MSAL

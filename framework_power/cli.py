@@ -454,18 +454,72 @@ def cmd_lint(args: argparse.Namespace) -> int:
     return 1 if any_errors else 0
 
 
+def _compact_deploy_summary(result: dict) -> str:
+    """One-block human/agent summary of a plan/deploy result (token-lean)."""
+    skip_actions = {"skipped", "skipped_standard", "would_skip", "would_skip_standard"}
+    lines = [
+        f"{result.get('schema_name') or result.get('logical_name')}: "
+        f"entity={ (result.get('entity') or {}).get('action', '?') }"
+    ]
+    for key, label in (("attributes", "attrs"), ("relationships", "rels"),
+                       ("alternate_keys", "keys")):
+        items = result.get(key) or []
+        if not items:
+            continue
+        counts: dict[str, int] = {}
+        changed = []
+        for item in items:
+            action = str(item.get("action", "?"))
+            counts[action] = counts.get(action, 0) + 1
+            if action not in skip_actions:
+                changed.append(
+                    f"{item.get('attribute') or item.get('relationship') or item.get('alternate_key')}"
+                    f":{action}")
+        lines.append(f"  {label}: " + ", ".join(f"{v} {k}" for k, v in sorted(counts.items())))
+        if changed:
+            lines.append("  changed: " + ", ".join(changed))
+    acl = result.get("auto_component_labels")
+    if isinstance(acl, dict):
+        label_counts: dict[str, int] = {}
+        for group in ("views", "forms"):
+            for item in acl.get(group) or []:
+                action = str(item.get("action", "?"))
+                label_counts[action] = label_counts.get(action, 0) + 1
+        pub = acl.get("publish")
+        pub_s = f" ({pub.get('action')})" if isinstance(pub, dict) and pub.get("action") else ""
+        lines.append("  labels: " + (", ".join(f"{v} {k}" for k, v in sorted(label_counts.items()))
+                                  or "none") + pub_s)
+    if result.get("optionsets_missing"):
+        lines.append(f"  warnings: {result['optionsets_missing']}")
+    if result.get("publish"):
+        lines.append(f"  publish: {(result['publish'] or {}).get('action', 'done')}")
+    if result.get("solution"):
+        lines.append(f"  solution: {(result['solution'] or {}).get('name')}"
+                     f" {(result['solution'] or {}).get('action', '')}")
+    return "\n".join(lines)
+
+
+def _print_deploy_result(args: argparse.Namespace, result: dict) -> None:
+    """Compact summary by default (token-lean CLI); ``--json`` for the full payload."""
+    if getattr(args, "json", False):
+        _print_json(result)
+    else:
+        print(_compact_deploy_summary(result))
+
+
 def cmd_plan(args: argparse.Namespace) -> int:
     tables_dir = _resolve_dir(args, "tables_dir", args.definitions_dir, DEFAULT_DEFINITIONS_DIR)
     defn = get_definition(args.name, tables_dir)
     client = _get_client_ws(args, args.env)
     optionsets_dir = _workspace_dir(args, "optionsets_dir", "metadata_py/optionsets")
-    _print_json(
+    _print_deploy_result(
+        args,
         plan_table(
             client,
             defn.table,
             prefix=_effective_prefix(args),
             optionsets_dir=optionsets_dir,
-        )
+        ),
     )
     return 0
 
@@ -477,7 +531,8 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     fields = None
     if args.fields:
         fields = [f.strip() for f in args.fields.split(",") if f.strip()]
-    _print_json(
+    _print_deploy_result(
+        args,
         deploy_table(
             client,
             defn.table,
@@ -486,7 +541,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
             solution_clean=args.solution_clean,
             fields=fields,
             optionsets_dir=_workspace_dir(args, "optionsets_dir", "metadata_py/optionsets"),
-        )
+        ),
     )
     return 0
 
@@ -509,7 +564,7 @@ def cmd_deploy_all(args: argparse.Namespace) -> int:
             client, defs[name].table, prefix=prefix, optionsets_dir=optionsets_dir
         )
         summary.append({"name": name, "entity": result["entity"].get("action")})
-        _print_json(result)
+        _print_deploy_result(args, result)
     print("\n=== summary ===")
     _print_json(summary)
     return 0
@@ -2095,11 +2150,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan = sub.add_parser("plan", help="Read-only dry run against an environment.")
     p_plan.add_argument("name")
     p_plan.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p_plan.add_argument(
+        "--json", action="store_true",
+        help="Print the full result JSON (default is a compact summary).",
+    )
     p_plan.set_defaults(func=cmd_plan)
 
     p_dep = sub.add_parser("deploy", help="Deploy (create/sync) a definition to Dataverse.")
     p_dep.add_argument("name")
     p_dep.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p_dep.add_argument(
+        "--json", action="store_true",
+        help="Print the full result JSON (default is a compact summary).",
+    )
     p_dep.add_argument(
         "--solution",
         default=None,
@@ -2123,6 +2186,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_all = sub.add_parser("deploy-all", help="Deploy all definitions in dependency order.")
     p_all.add_argument("--env", default=None, help="Target environment (default: config 'current').")
+    p_all.add_argument(
+        "--json", action="store_true",
+        help="Print full result JSON per table (default is compact summaries).",
+    )
     p_all.set_defaults(func=cmd_deploy_all)
 
     p_rev = sub.add_parser(

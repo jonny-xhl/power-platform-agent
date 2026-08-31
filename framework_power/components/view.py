@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from ..lint import ERROR, WARNING, Issue
 from ..view_xml import parse_view, to_fetchxml, to_layoutxml
+from .compact import compact_attrs
 from .models import (
     QueryType,
     UPDATABLE_VIEW_TYPES,
@@ -136,10 +137,11 @@ def _to_py(value: Any, indent: int) -> str:
         items = [inner + repr(k) + ": " + _to_py(v, indent + 1) for k, v in value.items()]
         return "{\n" + ",\n".join(items) + "\n" + pad + "}"
     if is_dataclass(value) and not isinstance(value, type):
-        parts = [
-            inner + f.name + "=" + _to_py(getattr(value, f.name), indent + 1)
-            for f in dataclasses.fields(value)
-        ]
+        parts = []
+        for f in dataclasses.fields(value):
+            # Compact codegen: omit attrs the serializer rebuilds identically.
+            item = compact_attrs(value) if f.name == "attrs" else getattr(value, f.name)
+            parts.append(inner + f.name + "=" + _to_py(item, indent + 1))
         return type(value).__name__ + "(\n" + ",\n".join(parts) + "\n" + pad + ")"
     return repr(value)
 

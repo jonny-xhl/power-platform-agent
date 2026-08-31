@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .components import view as view_component
+from .components.compact import normalize
 from .components.models import View
 from .deployer import _is_already_exists
 
@@ -61,6 +62,11 @@ def load_view(path: Any) -> View:
 
 
 # ----------------------------------------------------------------- reverse helper
+
+
+def _models_equal(a: View, b: View) -> bool:
+    """Structured equality for the skip-if-unchanged diff (compact-aware)."""
+    return normalize(a) == normalize(b)
 
 
 def _reverse_live(client: Any, view: View) -> Optional[View]:
@@ -106,7 +112,7 @@ def plan_views(client: Any, views: list[View], *, prefix: str = "new") -> dict[s
             continue
         if live is None:
             action = "would_create"
-        elif live == view:
+        elif _models_equal(live, view):
             action = "would_skip"
         else:
             action = "would_update"
@@ -145,7 +151,7 @@ def sync_views(
         except Exception as e:  # noqa: BLE001
             result["synced"].append({"name": view.name, "deploy": {"action": "failed", "error": str(e)}})
             continue
-        if live is not None and live == view:
+        if live is not None and _models_equal(live, view):
             result["synced"].append(
                 {"name": view.name, "deploy": {"action": "skipped_unchanged", "id": _existing_id(client, view)}}
             )
