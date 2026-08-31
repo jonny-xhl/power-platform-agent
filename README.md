@@ -35,12 +35,6 @@ Power Platform Agent 采用 **Engine + Workspace 分离架构**：
 | **Engine** | CLI 工具、部署引擎、模板——作为 pip 包分发 |
 | **Workspace** | 项目数据（表定义、配置、插件、资源）——`pp-workspace.yaml` 作为锚文件标识 |
 
-**两条路径**：
-
-| 路径 | 入口 | 适合场景 |
-|------|------|----------|
-| **`pp` CLI**（推荐） | `pp <command>` | 新项目、CI/CD 流水线、类型安全 |
-
 ---
 
 ## 快速开始（外部项目）
@@ -142,9 +136,9 @@ cd power-platform-agent
 pip install -r requirements.txt
 pip install -e .
 
-# 本仓库自身也是一个 workspace（pp-workspace.yaml 在根目录）
-pp workspace info
-pp list
+# 本仓库是 ENGINE；开发/测试时指向任意 workspace（如 ninebot-project/）
+pp --workspace ninebot-project list
+pp --workspace ninebot-project lint
 ```
 
 ---

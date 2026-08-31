@@ -189,7 +189,7 @@
 
 ```
 power-platform-agent/
-├── framework_power/        # Python 优先 Dataverse 部署库（P1–P9）
+├── framework_power/        # Python 优先 Dataverse 部署库（P1–P10）
 │   ├── models.py           # Table/Column/Relationship 类型化模型
 │   ├── components/         # 解决方案组件类型（注册表）
 │   │   ├── models.py       # Form/View/Ribbon/Plugin 结构化模型 ← "组件库"
@@ -211,7 +211,6 @@ power-platform-agent/
 │   ├── html/*.html                 # 自定义页面/仪表板
 │   └── img/<feature>/*.svg
 ├── plugins/                # C# .NET 插件工程（net462）
-├── metadata/               # （遗留）YAML 元数据
 ├── config/                 # environments.yaml / publishers.yaml / pipeline.yaml ...
 ├── .claude/skills/         # dv-* 技能（dv-form-python / dv-frontend ...）
 ├── test/                   # pytest（test/unit/test_framework_power/）

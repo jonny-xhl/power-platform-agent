@@ -26,10 +26,6 @@ cp .env.example .env
 Edit `.env` and add your credentials:
 
 ```bash
-# LLM for documentation updates
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-
 # Dataverse credentials
 DEV_CLIENT_ID=your-client-id
 DEV_CLIENT_SECRET=your-client-secret

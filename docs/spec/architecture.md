@@ -130,13 +130,15 @@ power-platform-agent/
 │   │   └── retry_helper.py  # 重试帮助器
 │   │
 │   ├── components/        # 组件类型注册表
-│   │   ├── __init__.py   # ComponentType 注册表
-│   │   ├── models.py     # 组件模型 (Solution, Publisher, Form, View, Plugin, Ribbon...)
-│   │   ├── optionset.py  # 选项集组件处理器
-│   │   ├── webresource.py  # Web Resource 组件处理器
-│   │   ├── form.py       # 表单组件处理器
-│   │   ├── view.py       # 视图组件处理器
-│   │   └── plugin.py     # 插件组件处理器
+│   │   ├── __init__.py   # ComponentType 注册表 + 部署顺序
+│   │   ├── models.py     # 组件模型 (Solution, Publisher, Form, View, Plugin,
+│   │   │                 #   Ribbon, Sitemap, SecurityRole...)
+│   │   ├── optionset.py / webresource.py / form.py / view.py
+│   │   │                 # 各类型处理器 (serialize/deploy/plan/reverse/codegen/lint)
+│   │   ├── sitemap.py    # App SiteMap 处理器 (code 62, Phase 10)
+│   │   ├── plugin.py     # 插件处理器 (91/92/10030, ADR-012)
+│   │   ├── env_guard.py  # 环境变更守卫 (ADR-013 备份+台账)
+│   │   └── compact.py    # 逆向 codegen 紧凑化 + normalize diff
 │   │
 │   ├── optionset_sync.py # 全局选项集同步 (discover/plan/sync；deploy 依赖优先调用 + pp optionset CLI)
 │   ├── webresource_sync.py  # Web Resource 同步
@@ -163,51 +165,37 @@ power-platform-agent/
 │   ├── workflow.py       # 跨阶段开发工作流编排
 │   └── examples/         # 示例代码
 │
-├── metadata_py/          # Python 元数据定义 (framework_power)
-│   ├── project.py       # 项目清单
-│   ├── tables/           # 表定义 Python 文件
-│   ├── forms/            # 表单定义
-│   ├── views/            # 视图定义
-│   ├── ribbons/         # Ribbon 定义
-│   └── optionsets/       # 选项集定义
+│   ├── optionset_sync.py  # 全局选项集同步 (ADR-011 依赖优先)
+│   ├── sitemap_sync.py   # App SiteMap 菜单同步 (Phase 10/ADR-015)
+│   ├── label_sync.py     # 自动视图/窗体名双语标签 (ADR-016)
+│   ├── data_dictionary.py # reverse --dictionary 数据字典生成
+│   ├── workspace.py      # pp-workspace.yaml 工作区解析
+│   │
+│   ├── workflow.py       # 跨阶段开发工作流编排
+│   └── examples/         # 示例代码
 │
-├── docs/                 # 文档层
-│   ├── features/         # 按功能迭代组织（PRD/设计/输出）
-│   ├── templates/        # 需求文档模板库 (PRD/实体设计/Excel)
-│   ├── data_dictionary/  # Workspace 产物，从云端同步或脚本生成
-│   ├── spec/             # 规范文档
-│   └── guides/           # 使用指南
-
-
-├── metadata/             # 元数据层 (legacy YAML)
-│   ├── _schema/          # Schema定义
-│   ├── tables/          # 表定义YAML
-│   ├── forms/           # 表单定义
-│   └── ...
+├── test/
+│   └── unit/test_framework_power/  # 单元测试（fake client，离线）
 │
-├── scripts/              # 脚本层
-│   ├── ci/              # CI 辅助
-│   └── hooks/           # Git hooks（建议级文档提醒）
+├── docs/                 # 文档层（本仓库）
+│   ├── spec/             # 规范文档（本文件、metadata-spec.md、ADR）
+│   ├── guides/           # 使用指南
+│   └── templates/        # 需求文档模板库 (PRD/实体设计/Excel)
 │
-├── webresources/         # Web Resource源文件
-│   ├── css/
-│   ├── js/
-│   ├── html/
-│   └── img/
-│
-├── plugins/              # .NET插件源码
-│
-├── config/               # 配置文件
-│
-├── setup.py              # 包安装配置
+├── .claude/skills/       # Claude Code 技能（dv-*-python 系列）
+├── scripts/              # CI 辅助 + Git hooks（建议级文档提醒）
+├── .github/workflows/    # CI（flake8 + pytest + 覆盖率）
+├── setup.py              # 包安装配置（pp / pp-agent 入口）
 └── requirements.txt
 ```
 
 **说明**：
 - **framework_power/** - Python-first 引擎（本仓库唯一引擎）
-- **metadata_py/** - framework_power 的元数据定义（类型化 Python，而非 YAML）
-- **docs/** - 按内容生命周期分层 (PRD/设计 → 模板 → 产物)，所有文档类输入输出统一管理
-- **docs/data_dictionary/** - Workspace 产物，由 `pp reverse <table> --dictionary` 从 Dataverse 云端生成
+- **工作区目录**（`metadata_py/`、`webresources/`、`plugins/`、`config/`、
+  `docs/features/`、`docs/data_dictionary/`、`docs/env_backup/`）位于 workspace
+  （如 `ninebot-project/`），**不在本仓库**（gitignored，以 `pp-workspace.yaml` 标识）
+- **docs/data_dictionary/** - Workspace 产物，由 `pp reverse <table> --dictionary`
+  从 Dataverse 云端生成
 
 ## 核心组件
 
@@ -241,17 +229,12 @@ sitemap / label：每域提供 plan/sync/reverse 与发布语义。
 MSAL client-credentials 认证 + Dataverse Web API 全量封装（元数据/数据/操作/
 PublishXml/解决方案 ZIP/插件注册/loc labels）。
 
-**虚拟字段检测规则**：
-| 类型 | 检测模式 | 示例 |
-|------|----------|------|
-| Lookup _name 后缀 | `_[a-z]+_name$` | `primarycontactid_name` |
-| 计算字段 | `is_calculated: true` | - |
-| 汇总字段 | `aggregate_type` 存在 | - |
+**逆向快照的虚拟字段过滤**（reverse 时过滤）：
+- Lookup 显示名伴生列：`*name` 后缀（如 `primarycontactid_name`）
+- `*_base` 货币换算列、系统查找类型列
+- 主键列（`{entity}id`）单独建模
 
-**Git Hook 集成**：
-- 触发时机：Pre-commit
-- 处理范围：仅变更的文件（仅 Gen 1 YAML `metadata/` 路径）
-- 自动更新：docs/data_dictionary/（Workspace 产物）
+**Git Hook 集成**：Pre-commit 对引擎/技能变更输出**建议级**文档同步提醒（不阻塞）。
 
 ## framework_power 核心模块
 
@@ -430,24 +413,25 @@ COMPONENT_DEPLOY_ORDER = (
 
 ## 命名规则
 
-### Schema Name 转换
+### Schema Name 校验（不自动改写）
 
-根据 `config/naming_rules.yaml` 配置，命名会自动转换：
+引擎对命名**只校验、不改写**：作者负责命名，`pp lint` 按 workspace 的
+`config/naming_rules.yaml` 风格规则（本组织 lowercase + `_`）校验并告警，
+`deploy` 原样发送。自定义组件必须带发布商前缀（默认 `new`）；
+标准实体受保护（正向同步自动跳过标准组件）。
 
-| 输入 | lowercase | camelCase | PascalCase |
-|-----|-----------|-----------|------------|
-| `AccountNumber` | `new_account_number` | `newAccountNumber` | `NewAccountNumber` |
-| `CustomerEmail` | `new_customer_email` | `newCustomerEmail` | `NewCustomerEmail` |
+> Dataverse 标准 PascalCase（`new_PaymentNumber`）同样接受；与既有表风格保持
+> 一致即可（本组织既有表多为 snake_case，与 Excel 数据字典 API 名对齐）。
 
-### Web Resource 命名
+### Web Resource 命名（Phase 4 目录同步）
 
-遵循模式：`{prefix}{category}/{name}.{ext}`
+遵循模式：`{prefix}_/{relpath}`（本地目录相对路径原样保留）：
 
-| 类型 | 输入 | 输出 |
+| 类型 | 本地路径 | 环境中的名称 |
 |-----|------|------|
-| CSS | `account_form` | `new_css/account_form.css` |
-| JS | `handler` | `new_js/handler.js` |
-| HTML | `dashboard` | `new_html/dashboard.html` |
+| JS | `js/order/handler.js` | `new_/js/order/handler.js` |
+| CSS | `css/account_form.css` | `new_/css/account_form.css` |
+| HTML | `html/dashboard.html` | `new_/html/dashboard.html` |
 
 ## 扩展性
 
@@ -475,9 +459,9 @@ def lint(model, *, prefix): ...
 # 自动注册
 ```
 
-### 自定义处理器 (legacy framework)
+### 命名规则配置
 
-在 `config/publishers.yaml` 的 `naming` 部分配置命名规则和验证器。
+在 workspace 的 `config/publishers.yaml` 的 `naming` 部分配置命名规则与验证器。
 
 ## 配置文件
 
@@ -486,7 +470,7 @@ def lint(model, *, prefix): ...
 - `config/pipeline.yaml` - CI/CD 流水线
 - `config/environment_settings.yaml` - 环境变量与连接引用
 - `.claude/context_config.yaml` - LLM 上下文配置
-- `metadata/optionsets/global_optionsets.yaml` - 全局选项集定义
+- `metadata_py/optionsets/<name>.py` - 全局选项集定义（workspace，导出 OPTIONSET）
 
 ## 元数据工作流
 
@@ -509,21 +493,6 @@ def lint(model, *, prefix): ...
                      │  deploy_workflow │
                      │  (全流程编排)     │
                      └─────────────────┘
-```
-
-### 完整开发流程 (legacy)
-
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  源文件     │ -> │ YAML元数据  │ -> │  Dataverse  │
-│  (Excel)    │    │ (metadata/) │    │  (部署)      │
-└─────────────┘    └─────────────┘    └─────────────┘
-                          │
-                          ▼
-                   ┌─────────────┐
-                   │ 数据字典    │
-                   │ (自动生成)  │
-                   └─────────────┘
 ```
 
 ### 选项集复用流程
@@ -558,8 +527,8 @@ def lint(model, *, prefix): ...
    ↓
 5. 提交完成（不阻塞）
 
-数据字典不入库、不经 hook 生成：按需 `pp reverse <table> --env <env> --dictionary`。
-从环境同步数据字典：`pp reverse <table> --env <env> --dictionary`（云端为准）。
+数据字典不入库、不经 hook 生成：按需 `pp reverse <table> --env <env> --dictionary`
+（云端为准）。
 ```
 
 ## 安全考虑
@@ -582,22 +551,23 @@ def lint(model, *, prefix): ...
 
 | Phase | 功能 | 状态 |
 |-------|------|------|
-| 1 | 表部署 (Table, Column, Relationship) | ✅ |
-| 2 | 解决方案管理 (Solution, Publisher, 组件注册表) | ✅ |
-| 3 | 表单/视图同步 | ✅ |
-| 4 | 插件部署 | ✅ |
-| 5 | Web Resource 同步 | ✅ |
-| 6 | 安全角色管理 | ✅ |
-| 7 | Ribbon 命令同步 | ✅ |
-| 8 | 插件包 (NuGet) / 自定义 Action | ✅ |
-| 9 | 跨阶段工作流编排 | ✅ |
+| 1 | 表部署 (Table, Column, Relationship) | ✅ live 验证 |
+| 2 | 解决方案管理 (Solution, Publisher, 组件注册表) | ✅ live 验证 |
+| 3 | 安全角色权限同步 (role deploy/reverse) | ✅ live 验证 |
+| 4 | Web Resource 目录同步 (scan/plan/sync/reverse/publish) | ✅ live 验证 |
+| 5 | 窗体结构化建模 (form_xml parse/serialize + builder) | ✅ live 验证 |
+| 6 | 视图结构化建模 (view_xml parse/serialize + builder) | ✅ live 验证 |
+| 7 | Ribbon 定制 (专用解决方案 export→import) | ✅ live 验证 |
+| 8 | Plugin 操作 (NuGet PluginPackage + step/image/action) | ✅ live 验证 |
+| 9 | 跨阶段工作流编排 (project.py 清单) | ✅ |
+| 10 | App SiteMap 实体菜单 (add/remove-entity) | ✅ live 验证 |
+| 横切 | 环境守卫 (ADR-013)、自动名本地化 (ADR-016)、紧凑 codegen | ✅ live 验证 |
 
 ## 后续扩展方向
 
 | 方向 | 说明 |
 |------|------|
-| 表单和视图管理 | 创建/修改表单和视图的完整 CRUD 支持 |
-| 全局选项集管理 | 创建全局选项集、更新选项集选项 |
-| 解决方案管理 | 添加到解决方案、解决方案导入/导出 |
-| 批量操作 | 批量应用多个 YAML、增量同步 |
-| 回滚功能 | 记录变更历史，支持回滚到之前版本 |
+| 解决方案 ZIP 导入导出 | 组件级管理已就绪；全包 transport（ribbon 已用底层）待产品化 |
+| 选项集选项删除流程 | 目前 create-only + 漂移报 manual_update_required，可加受控删除 |
+| 回滚功能 | env_guard 台账已有变更历史，可加从备份 ZIP 自动恢复 |
+| 多语言扩展 | label_sync 模板表按语言扩展（现 2052/1033） |

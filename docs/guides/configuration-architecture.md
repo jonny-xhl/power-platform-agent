@@ -57,8 +57,6 @@
 
 **.env** - 只放 LLM 密钥
 ```bash
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 **config/environments.yaml** - 直接填写凭证
@@ -76,8 +74,6 @@ environments:
 
 **.env** - 包含所有凭证
 ```bash
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
 
 DEV_CLIENT_ID=xxx
 DEV_CLIENT_SECRET=xxx
