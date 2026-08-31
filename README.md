@@ -347,7 +347,6 @@ bash scripts/install_hooks.sh
 | 层级 | 技术 |
 |------|------|
 | 主语言 | Python 3.9+（完整类型注解、mypy 严格模式） |
-| MCP 协议 | `mcp>=0.1.0`（stdio 传输） |
 | 认证 | MSAL（OAuth 2.0 client-credentials） |
 | 配置格式 | YAML + JSON Schema 验证 |
 | 插件语言 | C# / .NET（net462/net471） |

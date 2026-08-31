@@ -4,7 +4,7 @@
 
 Power Platform Agent 采用 **Engine + Workspace 分离架构**：
 
-- **Engine**（pip 包 `power-platform-agent`）：提供 CLI 工具 `pp`、部署引擎、MCP Server
+- **Engine**（pip 包 `power-platform-agent`）：提供 CLI 工具 `pp` 与部署引擎
 - **Workspace**（每个项目独立）：包含表定义、配置、插件、Web 资源
 
 外部项目只需 `pip install power-platform-agent` + `pp workspace init`，无需 clone 任何仓库。
