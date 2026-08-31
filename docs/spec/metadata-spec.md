@@ -2,15 +2,13 @@
 
 ## 概述
 
-本规范涵盖两套元数据定义方式：
+本规范是 **Python API（`framework_power`）** 的作者契约：元数据以类型化 Python 模型定义
+（`metadata_py/*.py`），经 `pp` CLI 同步到 Dataverse。
 
-- **YAML 元数据** (`metadata/`) - legacy framework 的声明式 YAML 定义
-- **Python API** (`metadata_py/` + `framework_power/`) - 现代化的类型化 Python API
+> legacy YAML 规范随 `framework/` 于 2026-08-31 一并移除（历史版本见 git）。
+> 选项集（全局/本地）的建模方式见下方各字段类型节。
 
-推荐新项目使用 **Python API**，它提供更好的类型安全、IDE 支持和代码补全。
-
-> 本规范只覆盖 **Python API（framework_power）** 作者契约；legacy YAML 规范随 `framework/`
-> 于 2026-08-31 一并移除（历史版本见 git）。选项集（全局/本地）的建模方式见下方各字段类型节。
+---
 
 ## Python API (framework_power)
 
@@ -77,16 +75,16 @@ from framework_power.models import AttributeType
 
 # 支持的字段类型
 AttributeType.String      # 字符串
-AttributeType.Integer      # 整数
-AttributeType.BigInt       # 大整数
-AttributeType.Money        # 货币
-AttributeType.Decimal      # 小数
-AttributeType.Double       # 双精度浮点
-AttributeType.Picklist     # 选项集
-AttributeType.Boolean      # 是/否
-AttributeType.Memo         # 多行文本
-AttributeType.DateTime     # 日期时间
-AttributeType.File         # 文件
+AttributeType.Integer     # 整数
+AttributeType.BigInt      # 大整数
+AttributeType.Money       # 货币
+AttributeType.Decimal     # 小数
+AttributeType.Double      # 双精度浮点
+AttributeType.Picklist    # 选项集
+AttributeType.Boolean     # 是/否
+AttributeType.Memo        # 多行文本
+AttributeType.DateTime    # 日期时间
+AttributeType.File        # 文件
 ```
 
 ### Column 定义
@@ -166,7 +164,7 @@ Column(
 )
 ```
 
-#### 全局选项集引用（Python 路径）
+#### 全局选项集引用
 
 `optionset_name` 指向 `metadata_py/optionsets/<name>.py` 中独立建模的
 `GlobalOptionSet`（模块级 `OPTIONSET` 变量，导出 `name` / `display_name` /
@@ -191,7 +189,7 @@ from framework_power.models import (
 # 定义查找字段 (通过 Relationship 部署)
 Relationship(
     schema_name="new_ProjectBudget_Contact",
-    referenced_entity="contact",          # 父表
+    referenced_entity="contact",            # 父表
     referencing_entity="new_projectbudget", # 子表
     lookup=LookupColumn(
         schema_name="new_ContactId",
@@ -242,9 +240,11 @@ table = Table(
 
 - 每表一个文件：`metadata_py/tables/<schema_lowercase>.py`
 - 每个文件暴露模块级 `TABLE: Table`（注册表通过此变量发现定义）
-- 文件名 stem = CLI 定义键（如 `new_projectbudget`）
+- 文件名 stem = CLI 定义键（如 `new_projectbudget.py` → CLI `new_projectbudget`）
 - 全局选项集：`metadata_py/optionsets/<name>.py`，暴露模块级
   `OPTIONSET: GlobalOptionSet`（被表引用时由 deploy 自动加载，ADR-011）
+- 双向单文件：同一文件可被 `pp reverse` 覆盖（全量快照）、也可正向 `pp deploy`；
+  标准（无 `new_` 前缀）项自动跳过 → 全量快照正向同步幂等且安全
 
 ### 开发流水线
 
@@ -253,23 +253,25 @@ table = Table(
   → design-dv-model → Excel 设计 (docs/features/<feature>/02-designs)
   → dv-model-to-python  → metadata_py/tables/<schema>.py   （AI 生成步骤）
   → (引用全局选项集时) metadata_py/optionsets/<name>.py
-  → framework_power lint          （离线入口校验）
-  → framework_power plan --env    （只读预演，含引用选项集 would_* 计划）
-  → framework_power deploy --env  （依赖优先同步选项集 → 表同步到 Dataverse）
+  → pp lint <name>                 （离线入口校验，0 errors）
+  → pp plan <name> --env dev       （只读预演，含引用选项集 would_* 计划）
+  → pp deploy <name> --env dev     （依赖优先同步选项集 → 表同步到 Dataverse）
 ```
 
-### Python 命名规则
+### 命名规则
 
-> **与 YAML 路径不同！** YAML 路径使用小写命名（`new_payment_number`）。
-> Python 路径使用 Dataverse 标准的 **PascalCase**，命名由作者自行负责 —
-> CLI **不会**静默改写名称，`lint` 负责校验，`deploy` 原样部署。
+引擎**不自动改写名称**：作者负责命名，`lint` 校验、`deploy` 原样发送。
+
+- Dataverse 标准 **PascalCase**（`new_PaymentNumber`）是引擎文档的默认约定；
+  **本组织既有表多用 snake_case**（`new_payment_number`，与 Excel 数据字典的
+  API 名对齐）——`lint` 对小写风格仅告警不拦截，**与既有表保持一致即可**。
 
 | 元素 | 规则 | 示例 |
 |---|---|---|
-| 自定义表 `schema_name` | `{prefix_}{PascalCase}` | `new_ProjectBudget` |
-| 自定义列 `schema_name` | `{prefix_}{PascalCase}` | `new_PaymentNumber` |
+| 自定义表 `schema_name` | `{prefix_}{Name}` | `new_ProjectBudget` |
+| 自定义列 `schema_name` | `{prefix_}{Name}` | `new_PaymentNumber` |
 | 关系 `schema_name` | `{prefix_}_{Referenced}{Referencing}` | `new_ProjectBudget_Account` |
-| Lookup 列 `schema_name` | `{prefix_}{PascalCase}` 以 `Id` 结尾 | `new_AccountId` |
+| Lookup 列 `schema_name` | `{prefix_}{Name}` 以 `Id` 结尾 | `new_AccountId` |
 | 标准实体（扩展） | 保持逻辑名称 | `account` |
 
 发布商前缀来自 `config/publishers.yaml`，默认 `new`。
@@ -295,13 +297,14 @@ table = Table(
 | 浮点数 | `Double` | 设置 `precision` |
 | 是/否 | `Boolean` | 设置 `boolean_labels`、`default_value` |
 | 选项集（本地） | `Picklist` | `options=[Option(value, Label...)]` |
+| 选项集（跨表复用/既有全局） | `Picklist` | `optionset_name="<name>"` 引用（ADR-011） |
 | 日期和时间 | `DateTime` | 设置 `date_time_behavior`、`format` |
 | Lookup | 通过 `Relationship` | 不是 `Column` |
 
 ### Required 级别
 
 `RequiredLevel.ApplicationRequired` / `Recommended` / `None_`。
-主名称列通常为 `ApplicationRequired`。
+主名称列通常为 `ApplicationRequired`。所有 `Column` 定义中通过 `required=` 参数设置。
 
 ### 关系约束
 
@@ -310,98 +313,7 @@ table = Table(
 - 1:N 关系通过 Deep Insert 创建其 Lookup — **切勿将 Lookup 定义为独立的 `Column`**。
 - `lookup.target_entity` 必须等于 `referenced_entity`。
 - 被引用的实体必须在目标环境中已存在（deploy 会检查此条件）。
-
-### 结构规则（lint 强制执行）
-
-- **有且仅有一个主名称**：一个 `String` 列设置 `is_primary_name=True`
-  （或设置 `Table.primary_name_column`）。零个 String 列为错误。
-- 列 `schema_name` 不重复（大小写不敏感）
-- Picklist 选项值不重复（同一列内）
-- 关系 `schema_name` 不重复
-- 每个自定义 `schema_name` 以发布商前缀开头
-
-### 编写后校验
-
-```bash
-pp lint new_projectbudget          # 离线；必须 0 错误
-pp plan new_projectbudget --env dev    # 只读差异预览
-pp deploy new_projectbudget --env dev  # 实际同步
-```
-
-`lint` 是约束入口：在 `plan`/`deploy` 之前必须报告 **0 错误**。
-警告（如命名风格）属于建议性质，但仍应修复。
-
-### 定义位置与注册表
-
-- 每表一个文件：`metadata_py/tables/<schema_lowercase>.py`
-- 每个文件暴露一个模块级变量 `TABLE: Table`（注册表通过此变量自动发现定义）
-- 文件名 stem = CLI 使用的定义键（如文件名 `new_projectbudget.py` → CLI 中使用 `new_projectbudget`）
-
-### 开发流水线
-
-```
-需求 (docs/features/<feature>/01-prd)
-  → design-dv-model → Excel 设计 (docs/features/<feature>/02-designs)
-  → dv-model-to-python  → metadata_py/tables/<schema>.py   （AI 生成步骤）
-  → framework_power lint          （离线入口校验）
-  → framework_power plan --env    （只读预演）
-  → framework_power deploy --env  （同步到 Dataverse）
-```
-
-### 命名规则 — Python 路径
-
-> **关键差异**：YAML 路径使用小写命名（`new_payment_number`），Python 路径使用 Dataverse 标准的
-> **PascalCase**。命名由作者自行负责 — CLI **不会**静默改写名称，`lint` 负责校验，
-> `deploy` 原样部署。
-
-| 元素 | 规则 | 示例 |
-|---|---|---|
-| 自定义表 `schema_name` | `{prefix_}{PascalCase}` | `new_ProjectBudget` |
-| 自定义列 `schema_name` | `{prefix_}{PascalCase}` | `new_PaymentNumber` |
-| 关系 `schema_name` | `{prefix_}_{Referenced}{Referencing}` | `new_ProjectBudget_Account` |
-| Lookup 列 `schema_name` | `{prefix_}{PascalCase}` 以 `Id` 结尾 | `new_AccountId` |
-| 标准实体（扩展） | 保持逻辑名称 | `account` |
-
-发布商前缀来自 `config/publishers.yaml`，默认为 `new`。
-
-> **`*Id` 冲突陷阱**：普通列名为 `new_FooId` 会与后续添加的 Lookup 列 `new_FooId`
-> 冲突。源系统 ID 请使用 `new_SrcFooId`。
-
-### 类型映射（Excel → `AttributeType`）
-
-| Excel 类型 | `AttributeType` | 说明 |
-|---|---|---|
-| 文本 / 电子邮件 / 电话 / URL | `String` | 通过 `format_name` 设置 Email/Phone/Url |
-| 多行文本 | `Memo` | `max_length` |
-| 整数 | `Integer` | `min_value`/`max_value` |
-| 小数 | `Decimal` | `precision` |
-| 货币 | `Money` | `precision`、`precision_source=2` |
-| 浮点数 | `Double` | `precision` |
-| 是/否 | `Boolean` | `boolean_labels`、`default_value` |
-| 选项集（本地） | `Picklist` | `options=[Option(value, Label...)]` |
-| 日期和时间 | `DateTime` | `date_time_behavior`、`format` |
-| Lookup | （通过 `Relationship`） | 不是 `Column` |
-
-### Required 级别
-
-`RequiredLevel.ApplicationRequired` / `Recommended` / `None_`。
-主名称列通常为 `ApplicationRequired`。所有 `Column` 定义中通过 `required=` 参数设置。
-
-### 结构规则（lint 强制执行）
-
-`pp lint` 在部署前进行离线校验，以下规则零容忍：
-
-- **有且仅有一个主名称**：一个 `String` 列设置 `is_primary_name=True`（或设置
-  `Table.primary_name_column`）。若未指定，自动选取第一个 String 列。零个 String 列为错误。
-- **列 schema_name 不重复**（大小写不敏感）。
-- **Picklist 选项值不重复**（同一列内）。
-- **关系 schema_name 不重复**。
-- 每个自定义 `schema_name` 以发布商前缀开头。
-
-### 关系级联约束
-
-自定义 Lookup 必须使用 **Referential** 级联（Dataverse 每个实体只允许一个 Parental 级联，
-而 `UserOwned` 实体已通过 Owner 占用一个）。切勿使用 `Cascade.Active`。
+- 关系仅支持创建（Dataverse 不支持 PATCH 关系定义）；已存在则跳过。
 
 ```python
 Relationship(
@@ -409,308 +321,81 @@ Relationship(
     referenced_entity="account",              # 父表（1 端），逻辑名称
     referencing_entity="new_projectbudget",   # 本表，逻辑名称
     lookup=LookupColumn("new_AccountId",
-        Label.bilingual("客户","Account"),
+        Label.bilingual("客户", "Account"),
         target_entity="account"),
     cascade=CascadeConfig(delete=Cascade.RemoveLink, assign=Cascade.NoCascade),
 )
 ```
 
-- 1:N 关系通过 Deep Insert 创建其 Lookup — 切勿将 Lookup 定义为独立的 `Column`。
-- `lookup.target_entity` 必须等于 `referenced_entity`。
-- 被引用的实体必须在目标环境中已存在（deploy 会检查）。
+### 结构规则（lint 强制执行）
+
+`pp lint` 在部署前进行离线校验，以下规则零容忍（0 errors 才能 plan/deploy）：
+
+- **有且仅有一个主名称**：一个 `String` 列设置 `is_primary_name=True`（或设置
+  `Table.primary_name_column`）。零个 String 列为错误。
+- 列 `schema_name` 不重复（大小写不敏感）
+- Picklist 选项值不重复（同一列内）
+- 关系 `schema_name` 不重复
+- 每个自定义 `schema_name` 以发布商前缀开头
+
+警告（如命名风格）属于建议性质，但仍应修复。
 
 ### 编写后校验
 
 ```bash
-pp lint new_projectbudget         # 离线；必须 0 错误
-pp plan new_projectbudget --env dev    # 只读差异预览
+pp lint new_projectbudget              # 离线；必须 0 错误
+pp plan new_projectbudget --env dev    # 只读差异预览（默认紧凑摘要，--json 全量）
 pp deploy new_projectbudget --env dev  # 实际同步
 ```
 
-`lint` 是部署入口：必须报告 **0 错误** 才能执行 `plan`/`deploy`。
-警告（如命名风格）属于建议性质，但仍应修复。
-
 ---
 
-## 表 (Table) 元数据 (YAML)
-
-### 必需字段
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `schema.schema_name` | string | 表的Schema名称（自动加前缀） |
-| `schema.display_name` | string | 显示名称 |
-| `schema.ownership_type` | string | 所有者类型 |
-
-### 可选字段
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `schema.description` | string | - | 表描述 |
-| `schema.has_activities` | boolean | false | 是否启用活动 |
-| `schema.has_notes` | boolean | false | 是否启用注释 |
-
-### 字段类型
-
-支持的字段类型：
-
-| 类型 | 说明 | 特殊属性 |
-|------|------|----------|
-| `String` | 字符串 | `max_length` |
-| `Integer` | 整数 | `min_value`, `max_value` |
-| `Money` | 货币 | `precision`, `min_value` |
-| `Picklist` | 选项集 | `option_set_ref` 或 `local_options` |
-| `MultiSelectPicklist` | 多选选项集 | `options` |
-| `Lookup` | 查找 | `entity`, `relationship_name` |
-| `Customer` | 客户查找 | - |
-| `Owner` | 所有者查找 | - |
-| `DateTime` | 日期时间 | - |
-| `Boolean` | 是/否 | - |
-| `Memo` | 多行文本 | `max_length` |
-| `Decimal` | 小数 | `precision`, `min_value`, `max_value` |
-| `Double` | 双精度浮点 | `min_value`, `max_value` |
-| `BigInt` | 大整数 | `min_value`, `max_value` |
-
-### Picklist 字段详细规范
-
-Picklist 类型字段必须使用以下两种方式之一定义选项：
-
-**方式一：引用全局选项集 (推荐)**
-
-```yaml
-- name: customer_status
-  type: Picklist
-  display_name: 客户状态
-  required: true
-  option_set_ref: new_customer_status
-```
-
-**方式二：本地选项集**
-
-```yaml
-- name: region
-  type: Picklist
-  display_name: 地区
-  required: false
-  local_options:
-    - value: 1
-      label: 华东
-      color: 008000
-    - value: 2
-      label: 华南
-```
-
-### 字段虚拟属性
-
-用于标识特殊字段的属性：
-
-| 属性 | 类型 | 说明 |
-|------|------|------|
-| `is_calculated` | boolean | 标识为计算字段 |
-| `aggregate_type` | string | 汇总字段类型 (如: sum, count) |
-| `is_primary_name` | boolean | 是否为主名称字段 |
-
-**注意**：包含以上属性的虚拟字段在生成数据字典时会被自动过滤。
-
-## 表单 (Form) 元数据
-
-### 表单类型
-
-- `Main` - 主表单
-- `QuickCreate` - 快速创建表单
-- `QuickView` - 快速视图表单
-- `Card` - 卡片表单
-- `MainInteraction` - 交互对话框
-
-### 结构定义
-
-```yaml
-form:
-  schema_name: "account_main_form"
-  entity: "account"
-  type: "Main"
-  display_name: "账户主表单"
-
-  tabs:
-    - name: "general"
-      display_name: "常规"
-      sections:
-        - name: "basicInfo"
-          display_name: "基本信息"
-          rows:
-            - cells:
-                - attribute: "name"
-                  width: "1"
-```
-
-## 视图 (View) 元数据
-
-### 视图类型
-
-- `PublicView` - 公共视图
-- `PrivateView` - 私有视图
-- `AdvancedFind` - 高级查找视图
-- `AssociatedView` - 关联视图
-- `QuickFindView` - 快速查找视图
-- `LookupView` - 查找视图
-
-### Fetch XML 操作符
-
-支持的操作符：
-
-- `eq` - 等于
-- `ne` - 不等于
-- `gt` - 大于
-- `ge` - 大于等于
-- `lt` - 小于
-- `le` - 小于等于
-- `like` - 相似
-- `in` - 包含于
-- `between` - 介于
-- `null` - 为空
-- `today` - 今天
-- `this-week` - 本周
-- `this-month` - 本月
-- `this-year` - 今年
-
-## Web Resource 元数据
-
-### 资源类型
-
-| 类型 | 扩展名 | MIME类型 |
-|-----|--------|---------|
-| CSS | .css | text/css |
-| JavaScript | .js | text/javascript |
-| HTML | .html | text/html |
-| PNG | .png | image/png |
-| JPEG | .jpg | image/jpeg |
-| GIF | .gif | image/gif |
-| SVG | .svg | image/svg+xml |
-| ICO | .ico | image/x-icon |
-| XAP | .xap | application/x-silverlight-app |
-| XML | .xml | text/xml |
-| XSLT | .xslt | text/xslt |
-
-### 命名模式
-
-```
-{prefix}{category}/{name}.{ext}
-```
-
-示例：
-- `new_css/account_form.css`
-- `new_js/account_handler.js`
-- `new_html/dashboard.html`
-
-## Ribbon (命令栏) 元数据
-
-### 按钮位置
-
-位置格式：`Mscrm.{Location}.{Entity}.{Tab}.{Group}`
-
-常用位置：
-- `Mscrm.HomepageGrid.{entity}.MainTab.Actions` - 主页网格操作
-- `Mscrm.Form.{entity}.MainTab.Actions` - 表单操作
-- `Mscrm.HomepageGrid.{entity}.ContextMenu` - 右键菜单
-
-### 命令类型
-
-- `javascript` - JavaScript 函数
-- `popup` - 弹出窗口
-- `navigation` - 导航到 URL
-- `event` - 触发事件
-
-### 规则类型
-
-显示规则：
-- `selectioncount` - 选择计数
-- `customrule` - 自定义规则
-- `entityrule` - 实体规则
-- `formrule` - 表单规则
-
-启用规则：
-- `customrule` - 自定义规则
-- `formrule` - 表单规则
-- `ocrulerule` - OCR 规则
-
-## Sitemap (应用导航) 元数据
-
-### 子区域类型
-
-- `entity` - 实体列表
-- `dashboard` - 仪表板
-- `webresource` - Web Resource 页面
-- `url` - 外部 URL
-
-### 结构定义
-
-```yaml
-sitemap:
-  schema_name: "customer_app_sitemap"
-  display_name: "客户管理应用"
-
-  areas:
-    - name: "customerArea"
-      display_name: "客户区域"
-      groups:
-        - name: "customerGroup"
-          display_name: "客户管理"
-          subareas:
-            - name: "account"
-              type: "entity"
-              entity: "account"
-              default_view: "account_active_view"
-```
-
-## 插件元数据
-
-### 消息阶段
-
-- `pre-validation` - 验证前 (Stage 10)
-- `pre-operation` - 操作前 (Stage 20)
-- `post-operation` - 操作后 (Stage 40)
-
-### 执行模式
-
-- `0` - 同步
-- `1` - 异步
-
-### 部署类型
-
-- `0` - 仅服务器端
-- `1` - 仅 Microsoft Dynamics 365 for Outlook
-- `2` - 两者
-
-## 关系类型
-
-### OneToMany 属性
-
-- `cascade_assign` - 级联分配
-- `cascade_delete` - 级联删除
-- `cascade_reparent` - 级联重新分配父级
-- `cascade_share` - 级联共享
-- `cascade_unshare` - 级联取消共享
+## Dataverse 关键行为（引擎契约相关）
 
 ### 级联类型
 
 - `NoCascade` - 无操作
 - `Cascade` - 级联
-- `Active` - 激活级联
+- `Active` - 激活级联（Parental；每实体仅一个，UserOwned 已被 Owner 占用）
 - `RemoveLink` - 移除链接
 - `Restrict` - 限制
 
 ### Deep Insert 模式
 
-Lookup 字段和关系通过 Deep Insert 一次性创建：
+Lookup 字段和关系通过 `RelationshipDefinitions` Deep Insert 一次性创建：
 
-1. Lookup 属性定义在 `lookup_attributes` 中
-2. 关系定义在 `relationships` 中
-3. 创建关系时，Lookup 属性自动嵌入关系定义
-4. 一次 API 调用同时创建关系和查找字段
+1. Lookup 属性定义在 `Relationship.lookup`（`LookupColumn`）
+2. 创建关系时，Lookup 属性自动嵌入关系定义
+3. 一次 API 调用同时创建关系和查找字段
 
-## 标准实体保护
+### FetchXml 操作符（视图过滤条件可用）
 
-以下标准实体不会被命名转换影响：
+`eq` / `ne` / `gt` / `ge` / `lt` / `le` / `like` / `in` / `between` / `null` /
+`not-null` / `today` / `this-week` / `this-month` / `this-year` /
+`last-x-months`（如明细视图"最近6个月"）/ `eq-userid` 等用户相关操作符。
+多值用 `values=[...]`（生成多个 `<value>` 子元素）。
+
+### Web Resource 类型（Phase 4 目录同步）
+
+| 类型 | 扩展名 | webresourcetype |
+|-----|--------|---------|
+| CSS | .css | 2 |
+| JavaScript | .js | 3 |
+| HTML | .html | 1 |
+| PNG | .png | 5 |
+| JPEG | .jpg | 6 |
+| GIF | .gif | 7 |
+| SVG | .svg | 11 |
+| ICO | .ico | 8 |
+| XML | .xml | 4 |
+| XSLT | .xslt | 9 |
+
+命名模式：`{prefix}_/{relpath}`（如 `js/order/test.js` → `new_/js/order/test.js`），
+类型由扩展名推导；未知扩展名跳过并告警。
+
+### 标准实体保护
+
+以下标准实体不会被前缀规则影响（正向同步自动跳过标准组件）：
 
 系统核心：`account`, `contact`, `systemuser`, `team`, `businessunit`, `role`
 
@@ -727,105 +412,51 @@ Lookup 字段和关系通过 Deep Insert 一次性创建：
 ### 项目目录结构
 
 ```
-power-platform-agent/
-├── framework_power/       # 引擎层 - Python-first 部署库（唯一引擎）
-│   ├── __init__.py        # Public API 导出
-│   ├── models.py          # 类型化数据模型 (Label, Table, Column...)
-│   ├── serializer.py      # 模型序列化器
-│   ├── deployer.py        # 表部署逻辑
-│   ├── solution_deployer.py # 解决方案管理
-│   ├── workflow.py        # 跨阶段工作流编排
-│   ├── client/            # API 客户端
-│   │   ├── dataverse_client.py
-│   │   ├── auth.py
-│   │   └── env_config.py
-│   ├── components/        # 组件模型注册表
-│   │   ├── models.py      # Form, View, Ribbon, Plugin, WebResource...
-│   │   ├── optionset_sync.py
-│   │   ├── webresource_sync.py
-│   │   ├── form_sync.py
-│   │   ├── view_sync.py
-│   │   └── ribbon_sync.py
-│   └── plugins/           # .NET 插件相关
-│       └── plugin_build.py
+power-platform-agent/            # 引擎仓库
+├── framework_power/             # 引擎层 - Python-first 部署库（唯一引擎）
+│   ├── models.py / serializer.py / deployer.py / cli.py
+│   ├── client/                  # 自包含 Dataverse Web API client
+│   ├── components/              # 组件注册表（table/optionset/webresource/form/
+│   │                            #   view/sitemap/plugin/ribbon + compact codegen）
+│   └── *_sync.py                # 各域 plan/sync/reverse（solution/optionset/
+│                                #   webresource/form/view/ribbon/plugin/role/
+│                                #   sitemap/label）
 │
-├── metadata_py/           # Python 元数据定义 - 类型安全定义
-│   ├── tables/           # 表定义 (*.py)
-│   ├── optionsets/       # 全局选项集定义 (*.py)
-│   ├── forms/            # 表单定义 (*.py)
-│   ├── views/            # 视图定义 (*.py)
-│   ├── ribbons/          # 命令栏定义 (*.py)
-│   └── roles/            # 安全角色定义 (*.py)
+├── <workspace>/                 # 工作区（如 ninebot-project/，不入引擎仓库）
+│   ├── metadata_py/
+│   │   ├── tables/              # 表定义 (*.py)
+│   │   ├── optionsets/          # 全局选项集定义 (*.py)
+│   │   ├── forms/               # 窗体定义 (*.py，逆向生成)
+│   │   ├── views/               # 视图定义 (*.py，逆向生成)
+│   │   ├── ribbons/             # 命令栏定义 (*.py)
+│   │   ├── roles/               # 安全角色定义 (*.py)
+│   │   └── project.py           # 跨阶段工作流清单 (Phase 9)
+│   ├── webresources/            # Web 资源源文件（Phase 4 目录同步）
+│   ├── plugins/                 # .NET 插件工程 (Phase 8)
+│   ├── config/                  # environments.yaml / publishers.yaml / .env
+│   └── docs/                    # features/ 数据字典/ env_backup/ 台账
 │
-├── metadata/              # 元数据层 - YAML 定义 (legacy)
-│   ├── _schema/           # Schema 定义文件
-│   ├── tables/            # 表定义 (*.yaml)
-│   ├── forms/             # 表单定义 (*.yaml)
-│   ├── views/             # 视图定义 (*.yaml)
-│   ├── optionsets/        # 选项集定义
-│   ├── webresources/      # Web Resource 配置
-│   ├── ribbon/            # 命令栏定义
-│   └── sitemap/           # 应用导航定义
-│
-├── docs/                  # 文档层
-│   ├── features/          # 按功能迭代组织（PRD/设计/输出）
-│   ├── templates/         # 需求文档模板库 (PRD/实体设计/Excel)
-│   ├── data_dictionary/   # Workspace 产物，从云端同步或脚本生成
-│   ├── spec/              # 规范文档
-│   └── guides/            # 使用指南
-│
-├── scripts/               # 脚本层
-│   └── hooks/             # Git hooks
-│
-├── config/                # 配置文件
-├── plugins/               # .NET插件
-├── webresources/          # Web资源源文件
-└── .claude/               # Claude Code配置
+├── docs/                        # 引擎文档层
+│   ├── spec/                    # 规范文档（本文件、architecture.md、ADR）
+│   └── guides/                  # 使用指南
+└── .claude/skills/              # Claude Code 技能
 ```
 
-### 命名规范
+### 文件命名
 
-**文件命名**：
-- 使用小写字母和下划线
-- 表定义文件: `{schema_name}.yaml`
-- 例如: `account.yaml`, `contact.yaml`
-
-**Schema 引用**：
-```yaml
-# 表定义文件顶部引用 Schema
-$schema: "../_schema/table_schema.yaml"
-```
+- 使用小写字母和下划线：`new_projectbudget.py`
+- 表定义文件 stem = CLI 定义键
 
 ---
 
 ## 数据字典生成
 
-### 自动生成
-
-项目配置了 Git pre-commit hook，在提交 Gen 1 YAML 元数据（`metadata/`）变更时自动生成数据字典。`metadata_py/`（Gen 2 Python 定义）的变更不触发此 hook。
-
-### 手动生成
-
-**路径 1：MCP 工具（推荐，从 Dataverse 云端导出）**
-
-```
-调用工具: metadata_export_dictionary
-参数: output_dir="docs/data_dictionary", environment="dev"
-```
-
-**路径 2：本地脚本（Legacy，从 Gen 1 YAML 生成）**
-
 ```bash
-# 生成所有文档
-python scripts/generate_data_dictionary.py --all
-
-# 生成指定文件
-python scripts/generate_data_dictionary.py --files metadata/tables/account.yaml
+# 按环境逆向生成（云端为准，写入 <workspace>/docs/data_dictionary/）
+pp reverse <table> --env dev --dictionary
 ```
 
-> 注意：此脚本读取 `metadata/*.yaml`（Gen 1 YAML），不适用于 `metadata_py/` Python 定义。
-
-### 生成内容
+生成内容：
 
 ```
 docs/data_dictionary/
@@ -843,11 +474,7 @@ docs/data_dictionary/
 
 ## 复用模式
 
-项目提供多种复用机制，减少重复定义：
-
 ### 需求文档模板 (docs/templates)
-
-位于 `docs/templates/`，为 Feature 需求编写提供标准化模板：
 
 | 模板文件 | 用途 |
 |---------|------|
@@ -857,13 +484,13 @@ docs/data_dictionary/
 
 创建新 Feature 时，复制对应模板到 `docs/features/{feature-name}/` 后填写即可。
 
-### Python 组合复用 (framework_power)
+### Python 组合复用
 
 Python 原生支持 import，复用自然且类型安全：
 
 ```python
 # metadata_py/shared/audit_fields.py
-from framework_power import Column, Label, AttributeType, RequiredLevel
+from framework_power import Column, Label, AttributeType
 
 AUDIT_COLUMNS = [
     Column("new_CreatedBy", AttributeType.String,
@@ -899,192 +526,48 @@ CascadeConfig()
 CascadeConfig(delete=Cascade.Cascade_, assign=Cascade.Cascade_)
 ```
 
-
-
----
-
 ---
 
 ## 开发工作流
 
 ### 初始化流程
 
-1. 在 `metadata/tables/` 下创建 YAML 定义文件
-2. （可选）使用 `metadata_plan` 预览变更
-3. 使用 `metadata_apply_yaml` 应用到 Dataverse
+1. 在 `metadata_py/tables/` 下创建表定义文件（或 `pp reverse <table>` 逆向既有表）
+2. `pp lint <name>` 校验（0 errors）
+3. `pp plan <name> --env dev` 预览 → `pp deploy <name> --env dev` 应用
 
 ### 迭代流程
 
-1. 修改 YAML 文件
-2. 调用 `metadata_apply_yaml` — Agent 自动计算差异
-3. 仅应用变更的部分，无需删除重建
+1. 修改 Python 定义
+2. `pp plan` → `pp deploy` — 引擎在结构化模型上 diff，仅应用变更部分
+3. 重部署幂等：无差异 = `would_skip` / `skipped`，从不删除
 
-> 完整的 MCP 工具清单和部署工作流详见 [元数据部署文档](../metadata-deploy.md)。
-
----
-
-## 完整 YAML 示例
-
-以下是一个完整的发票表定义，涵盖常用字段类型和关系：
-
-```yaml
-$schema: "../_schema/table_schema.yaml"
-
-schema:
-  schema_name: "new_invoice"
-  display_name: "发票"
-  description: "销售发票信息"
-  ownership_type: "UserOwned"
-  has_activities: true
-  has_notes: true
-
-attributes:
-  # 主名称字段
-  - name: "new_invoice_number"
-    type: "String"
-    display_name: "发票号"
-    max_length: 50
-    required: true
-    is_primary_name: true
-
-  # 日期字段
-  - name: "new_invoice_date"
-    type: "DateTime"
-    display_name: "发票日期"
-    required: true
-    date_only: true
-
-  # 货币字段
-  - name: "new_amount"
-    type: "Money"
-    display_name: "发票金额"
-    required: true
-    precision: 2
-    min_value: 0
-
-  # 本地选项集
-  - name: "new_status"
-    type: "Picklist"
-    display_name: "发票状态"
-    required: true
-    options:
-      - value: 100000000
-        label: "草稿"
-        color: "#808080"
-      - value: 100000001
-        label: "待审核"
-        color: "#FFFF00"
-      - value: 100000002
-        label: "已审核"
-        color: "#008000"
-
-  # 多行文本
-  - name: "new_notes"
-    type: "Memo"
-    display_name: "备注"
-    max_length: 2000
-
-# 查找字段
-lookup_attributes:
-  - name: "new_customerid"
-    type: "Lookup"
-    display_name: "客户"
-    description: "关联客户"
-    required: true
-    target: "account"
-
-# 关系定义
-relationships:
-  - name: "account_new_invoice"
-    related_entity: "account"
-    relationship_type: "ManyToOne"
-    display_name: "客户发票"
-    referencing_attribute: "new_customerid"
-    cascade_assign: "Cascade"
-    cascade_delete: "RemoveLink"
-    cascade_reparent: "Cascade"
-    cascade_share: "Cascade"
-    cascade_unshare: "Cascade"
-```
-
----
-
-## 差异检测与变更应用
-
-### 差异检测算法
-
-当调用 `metadata_apply_yaml` 时，Agent 执行以下步骤：
-
-1. 获取当前状态 — 通过 Dataverse API 查询目标环境中的现有元数据
-2. 解析期望状态 — 从 YAML 文件中解析目标定义
-3. 逐项比较：
-   - 实体级别：检查表是否已存在
-   - 属性级别：检查每个字段的显示名、描述、必填状态等
-   - 关系级别：检查关系和级联配置
-4. 生成变更列表 — 明确哪些需要创建、哪些需要更新
-
-### 变更应用顺序
-
-为确保依赖关系正确，变更按以下顺序执行：
-
-1. 创建实体（如不存在）
-2. 创建普通属性（非 Lookup）
-3. 创建关系（通过 Deep Insert，同时创建 Lookup）
-
-### 自动检测的变更类型
-
-| 差异场景 | Agent 行为 |
-|----------|-----------|
-| 实体不存在 | 创建实体 |
-| 属性不存在 | 创建属性 |
-| 属性显示名/描述/必填状态变更 | 更新属性 |
-| 关系不存在 | 创建关系（Deep Insert） |
-| 关系级联配置变更 | 更新关系 |
-| 选项集选项变更 | 更新选项集 |
+> 完整部署语义（含 ADR-016 自动名本地化、ADR-011 选项集先行同步）详见
+> [元数据部署文档](../guides/metadata-deploy.md)。
 
 ---
 
 ## 错误处理
 
-### 常见错误及处理
-
-| 错误场景 | Agent 行为 |
+| 错误场景 | 引擎行为 |
 |----------|-----------|
-| 属性已存在 | 自动检测并跳过 |
-| 关系创建失败 | 检查引用的实体是否存在、关系名称是否正确 |
-| 全局选项集不存在 | 确保目标环境中已创建对应的全局选项集 |
-
-### 错误处理策略
+| 属性/关系已存在 | 自动检测并跳过（幂等） |
+| 关系创建失败 | 检查引用实体是否存在、关系名是否正确 |
+| 全局选项集本地未建模 | `optionsets_missing` 告警，不阻断（新环境会失败） |
+| 全局选项集选项漂移 | `manual_update_required`（选项归选项集侧管理） |
+| 环境写操作前 | ADR-013：先 `pp env-guard backup` + 台账 |
 
 - **部分失败继续执行**：单个字段或关系失败不会中断整个部署
-- **详细成功/失败列表**：返回每个操作的执行结果，方便定位问题
-- **错误追踪信息**：提供完整的错误消息供调试
-
-### 错误响应格式
-
-```json
-{
-  "success": false,
-  "entity": "new_payment_recognition",
-  "failed": [
-    {
-      "type": "relationship",
-      "action": "create",
-      "name": "invalid_relationship",
-      "error": "Referenced entity not found"
-    }
-  ]
-}
-```
+- **详细结果列表**：deploy/plan 返回每个操作的动作与错误，方便定位
+- 元数据传播等待与瞬时错误（`0x80040216` 等）自动退避重试
 
 ---
 
 ## 相关文档
 
 - [架构文档](architecture.md) - 系统架构设计
-- [元数据部署](../metadata-deploy.md) - 完整部署工作流和 MCP 工具参考
+- [元数据部署](../guides/metadata-deploy.md) - 完整部署工作流与部署语义
 - [快速开始](../guides/getting-started.md) - 详细入门指南
-- [数据字典](../data_dictionary/index.md) - Workspace 产物，从 Dataverse 云端同步的数据字典索引
 
 ## framework_power API 参考
 
@@ -1092,7 +575,7 @@ relationships:
 
 | 函数 | 说明 |
 |------|------|
-| `deploy_table(client, table, config?)` | 部署表到 Dataverse |
+| `deploy_table(client, table, config?)` | 部署表到 Dataverse（幂等非破坏） |
 | `plan_table(client, table)` | 生成部署计划（预览变更） |
 | `reverse_table(client, logical_name)` | 从现有表反向生成 Python 定义 |
 | `lint_table(table)` | 检查表定义的正确性 |
@@ -1110,11 +593,11 @@ relationships:
 
 | 函数 | 说明 |
 |------|------|
-| `sync_webresources(client, config?)` | 同步 Web Resources |
-| `sync_forms(client, config?)` | 同步表单 |
-| `sync_views(client, config?)` | 同步视图 |
-| `sync_ribbons(client, config?)` | 同步 Ribbon 定义 |
-| `sync_optionsets(client, config?)` | 同步全局选项集 |
+| `sync_webresources(client, config?)` | 同步 Web Resources 目录 |
+| `sync_forms(client, forms)` | 同步窗体（结构化模型 diff） |
+| `sync_views(client, views)` | 同步视图（结构化模型 diff） |
+| `sync_ribbons(client, ribbons)` | 同步 Ribbon（专用解决方案 export→import） |
+| `sync_optionsets(client, optionsets)` | 同步全局选项集 |
 
 ### 工作流编排
 
