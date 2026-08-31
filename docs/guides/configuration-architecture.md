@@ -10,11 +10,8 @@
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │  .env (本地开发，不提交)                                      │   │
 │  │  ─────────────────────────────────────────────────────────── │   │
-│  │  LLM_PROVIDER=anthropic                                      │   │
-│  │  ANTHROPIC_API_KEY=sk-ant-...                               │   │
-│  │                                                             │   │
-│  │  (可选) DEV_CLIENT_ID=xxx    ────────┐                      │   │
-│  │  (可选) DEV_CLIENT_SECRET=xxx ───────┤                      │   │
+│  │  DEV_CLIENT_ID=xxx          ────────┐                      │   │
+│  │  DEV_CLIENT_SECRET=xxx      ────────┤                      │   │
 │  │                                    │   │                      │   │
 │  └────────────────────────────────────┼─────────────────────────┘   │
 │                                       │                              │
@@ -93,18 +90,15 @@ environments:
 ```python
 # 系统按以下顺序查找配置值：
 
-# 1. 直接参数（最高优先级）
-client = LangChainLLMClient(api_key="explicit-key")
+# 1. --workspace <path> 显式指定（最高优先级）
+# 2. PP_WORKSPACE 环境变量
+# 3. CWD/pp-workspace.yaml 锚文件
+# 4. 从 CWD 向上搜索（如 git）
 
-# 2. 环境变量
-#    先加载 .env 文件（如果存在）
-#    再读取系统环境变量
-os.getenv("ANTHROPIC_API_KEY")
-
-# 3. YAML 配置文件（支持 ${VAR} 展开）
-
-# 4. 代码默认值（最低优先级）
-DEFAULT_MODELS["anthropic"] = "claude-sonnet-4-20250514"
+凭据解析（get_client）：
+1. config/environments.yaml 引用 ${DEV_CLIENT_ID} 等变量
+2. workspace .env（不提交）展开变量
+3. MSAL client-credentials 获取/刷新 token（缓存 .pp-local/state/tokens.json）
 ```
 
 ## 安全建议
