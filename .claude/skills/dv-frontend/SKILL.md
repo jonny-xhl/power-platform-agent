@@ -1289,7 +1289,7 @@ resources:
 | CSS 示例 | `ninebot-project/webresources/css/account_form.css` | 样式文件示例 |
 | 命名规则 | `ninebot-project/config/publishers.yaml` | 命名转换配置（naming 段） |
 
-## 相关 MCP 工具
+## 相关 CLI
 
 | 工具 | 说明 |
 |------|------|

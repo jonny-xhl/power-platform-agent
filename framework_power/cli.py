@@ -459,7 +459,7 @@ def _compact_deploy_summary(result: dict) -> str:
     skip_actions = {"skipped", "skipped_standard", "would_skip", "would_skip_standard"}
     lines = [
         f"{result.get('schema_name') or result.get('logical_name')}: "
-        f"entity={ (result.get('entity') or {}).get('action', '?') }"
+        f"entity={(result.get('entity') or {}).get('action', '?')}"
     ]
     for key, label in (("attributes", "attrs"), ("relationships", "rels"),
                        ("alternate_keys", "keys")):
@@ -487,8 +487,8 @@ def _compact_deploy_summary(result: dict) -> str:
                 label_counts[action] = label_counts.get(action, 0) + 1
         pub = acl.get("publish")
         pub_s = f" ({pub.get('action')})" if isinstance(pub, dict) and pub.get("action") else ""
-        lines.append("  labels: " + (", ".join(f"{v} {k}" for k, v in sorted(label_counts.items()))
-                                  or "none") + pub_s)
+        joined = ", ".join(f"{v} {k}" for k, v in sorted(label_counts.items())) or "none"
+        lines.append("  labels: " + joined + pub_s)
     if result.get("optionsets_missing"):
         lines.append(f"  warnings: {result['optionsets_missing']}")
     if result.get("publish"):

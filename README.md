@@ -15,7 +15,6 @@ Power Platform Agent 采用 **Engine + Workspace 分离架构**：
 ┌─────────────────────────────────────────────────────┐
 │  Engine（pip 包：power-platform-agent）              │
 │  ├── framework_power/   CLI + 部署引擎               │
-│  ├── framework/         MCP Server（Legacy）         │
 │  └── framework_power/templates/  脚手架模板          │
 └──────────────────────┬──────────────────────────────┘
                        │ pip install power-platform-agent
@@ -33,7 +32,7 @@ Power Platform Agent 采用 **Engine + Workspace 分离架构**：
 
 | 组件 | 职责 |
 |------|------|
-| **Engine** | CLI 工具、部署引擎、MCP Server、模板——作为 pip 包分发 |
+| **Engine** | CLI 工具、部署引擎、模板——作为 pip 包分发 |
 | **Workspace** | 项目数据（表定义、配置、插件、资源）——`pp-workspace.yaml` 作为锚文件标识 |
 
 **两条路径**：
@@ -41,7 +40,6 @@ Power Platform Agent 采用 **Engine + Workspace 分离架构**：
 | 路径 | 入口 | 适合场景 |
 |------|------|----------|
 | **`pp` CLI**（推荐） | `pp <command>` | 新项目、CI/CD 流水线、类型安全 |
-| **MCP Server**（Legacy） | `pp-mcp` | AI 辅助开发（Claude Code / Cursor）、已有 YAML 资产 |
 
 ---
 
@@ -247,55 +245,6 @@ pp pipeline promote --branch release/1.0
 
 ---
 
-## MCP Server（AI 交互路径）
-
-MCP Server 将 Dataverse 操作暴露为 Claude Code 可调用的工具，支持通过自然语言管理元数据。
-
-### 在 Claude Code 中配置
-
-在 `.mcp.json` 中添加：
-
-```json
-{
-  "mcpServers": {
-    "power-platform": {
-      "command": "python",
-      "args": ["{repo_path}/framework/mcp_serve.py"],
-      "env": {
-        "TENANT_ID": "${TENANT_ID}",
-        "CLIENT_ID": "${CLIENT_ID}",
-        "CLIENT_SECRET": "${CLIENT_SECRET}"
-      }
-    }
-  }
-}
-```
-
-或者安装为包后：
-
-```json
-{
-  "mcpServers": {
-    "power-platform": {
-      "command": "pp-mcp"
-    }
-  }
-}
-```
-
-### 可用工具
-
-| 前缀 | 功能 | 说明 |
-|------|------|------|
-| `auth_*` | 认证管理 | 登录、状态、环境切换 |
-| `metadata_*` | 元数据 CRUD | YAML ↔ Dataverse 的表/字段/关系/表单/视图管理 |
-| `naming_*` | 命名转换 | Schema Name 规范化、批量转换、合规校验 |
-| `plugin_*` | 插件管理 | .NET 插件构建、部署、Step 注册 |
-| `solution_*` | 解决方案 | 导入/导出/差异对比/双向同步 |
-| `doc_*` | 文档自律 | 变更检测、影响分析、文档自动更新 |
-
----
-
 ## 项目结构
 
 ### Engine（本仓库 = pip 包源码）
@@ -309,8 +258,7 @@ power-platform-agent/
 │   ├── pipeline/                #   CI/CD pipeline 模块
 │   ├── components/              #   6 种解决方案组件注册表
 │   └── templates/               #   脚手架模板（pp workspace init 使用）
-├── framework/                   # MCP Server（Legacy 路径）
-├── setup.py                     # pip 包定义（pp / pp-mcp 入口点）
+├── setup.py                     # pip 包定义（pp / pp-agent 入口点）
 └── test/                        # 测试（337+ 单元测试）
 ```
 
@@ -365,7 +313,7 @@ my-cpq-solution/                 # ← Workspace（独立 Git 仓库）
 pip install -e ".[dev]"
 
 # 代码检查
-flake8 framework/ framework_power/ --max-line-length=120
+flake8 framework_power/ --max-line-length=120
 mypy framework_power --ignore-missing-imports --explicit-package-bases
 
 # 运行测试

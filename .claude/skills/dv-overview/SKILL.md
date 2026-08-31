@@ -69,14 +69,14 @@ Lookup / 关系：双实体必须先存在
 
 ## 核心操作模式
 
-- **通过 MCP 工具调用（推荐）**：`metadata_apply_yaml`、`metadata_create_table` 等工具
+- **通过 framework_power CLI（推荐）**：`pp plan|deploy <table> --env <env>`（类型化 Python 定义，见 `dv-model-to-python`）
 - **通过 Python 代码调用**：`core_agent.get_client()` 获取已认证的 DataverseClient 实例
 
 ## 表单操作模式
 
 Dataverse 中一个实体可能有多个 Main 表单（form_type=2），为防止重复创建，`metadata_create_form` 工具支持多种操作模式。
 
-### MCP 工具参数
+### CLI 参数
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
@@ -110,7 +110,7 @@ Dataverse 中一个实体可能有多个 Main 表单（form_type=2），为防�
 
 返回包含表单 ID、名称、描述的列表，用于选择要更新的目标表单。
 
-> 参考实现：`framework/agents/metadata_agent.py` 中的 `list_main_forms()` 和 `create_form()` 方法
+> 参考实现：`framework_power/form_sync.py`（plan/sync/reverse）
 
 ## API 基础
 
@@ -138,7 +138,7 @@ Dataverse 中一个实体可能有多个 Main 表单（form_type=2），为防�
 
 - 解决方案关联：创建组件时通过 `MSCRM.SolutionUniqueName` 请求头将组件添加到目标解决方案
 
-> 参考实现：`framework/utils/dataverse_client.py` 中的 `_create_session()` 和 `get_api_url()` 方法
+> 参考实现：`framework_power/client/dataverse_client.py` 的 `_create_session()` / `get_api_url()`
 
 # 六、数据类型映射
 
@@ -169,7 +169,7 @@ YAML 中定义的属性类型与 Dataverse AttributeMetadata 类型的完整映�
   - 本地选项集：`OptionSet.IsGlobal: false`，在 `Options` 数组中内联定义选项值
 - **Boolean**：自动生成 `TrueOption`（值=1）和 `FalseOption`（值=0），标签默认为"是"/"否"
 
-> 参考实现：`framework/utils/dataverse_client.py` 中的 `_convert_attribute_metadata()` 方法
+> 参考实现：`framework_power/client/dataverse_client.py` 同名能力
 
 # 七、命名规则（基于 publishers.yaml）
 
@@ -206,7 +206,7 @@ YAML 中定义的属性类型与 Dataverse AttributeMetadata 类型的完整映�
 
 模式：`{prefix}{category}/{name}.{ext}`，例如 `new_css/account.css`、`new_js/form.js`
 
-> 参考实现：`framework/utils/naming_converter.py`、`config/publishers.yaml`
+> 参考实现：`framework_power/lint.py` 命名校验、`config/publishers.yaml`
 
 # 八、Deep Insert 模式
 
@@ -339,7 +339,7 @@ POST /api/data/v9.2/RelationshipDefinitions
 
 **解决方案**：将所有自定义 Lookup 关系使用 Referential 模式（`NoCascade` + `RemoveLink`），只保留一个核心关系为 Parental（如需要）。
 
-> 参考实现：`framework/utils/dataverse_client.py` 中的 `create_relationship()` 和 `_create_many_to_one_as_one_to_many()` 方法
+> 参考实现：`framework_power/client/dataverse_client.py` 的 `create_relationship_from_json()`
 
 # 九、增量更新策略
 
@@ -378,7 +378,7 @@ POST /api/data/v9.2/RelationshipDefinitions
 - AttributeType（数据类型不可更改）
 - MaxLength 等结构性属性（String.MaxLength 等不可更改）
 
-> 参考实现：`framework/agents/metadata_manager.py` 中的 `compute_diff()`、`apply_diff()`、`_compare_attribute()` 方法
+> 参考实现：`framework_power/deployer.py` 的 `plan_table` / `deploy_table`（结构化 diff）
 
 # 十、错误处理与重试
 
@@ -414,7 +414,7 @@ POST /api/data/v9.2/RelationshipDefinitions
 
 - 使用 `Prefer: odata.continue-on-error` 头允许 $batch 中部分失败继续执行
 
-> 参考实现：`framework/utils/dataverse_client.py` 中的 `_create_session()` 方法
+> 参考实现：`framework_power/client/dataverse_client.py` 同名能力
 
 # 十一、API 限流与并发
 
@@ -474,7 +474,7 @@ DisplayName 和 Description 使用 `LocalizedLabels` 数组格式。
 - `LanguageCode`：语言代码（1033=英语，2052=简体中文）
 - 标签为空时返回 `null`，不发送到 API
 
-> 参考实现：`framework/utils/dataverse_client.py` 中各处的 `_create_localized_label()` 函数
+> 参考实现：`framework_power/serializer.py` 的 `serialize_label`
 
 # 十三、参考文档
 

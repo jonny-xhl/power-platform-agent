@@ -12,17 +12,6 @@ description: 将Excel实体设计转换为 framework_power 的 Python 表定义�
 **重要约束（必须先读）**: `docs/spec/metadata-spec.md` § Python API conventions 是 AI 生成的硬性契约；
 `framework_power/models.py` 是类型契约。生成的定义必须通过 `python -m framework_power lint <name>`（0 errors）才能进入 plan/deploy。
 
-## 与 dv-model-to-yaml 的关键区别
-
-| 维度 | dv-model-to-yaml（旧） | dv-model-to-python（本技能） |
-|------|----------------------|-----------------------------|
-| 输出 | `ninebot-project/metadata/tables/<schema>.yaml` | `ninebot-project/metadata_py/tables/<schema>.py`（暴露 `TABLE`） |
-| 命名风格 | lowercase (`new_payment_number`) | **PascalCase** (`new_PaymentNumber`) |
-| 命名处理 | NamingConverter 自动改写 | 作者负责；lint 校验、deploy 原样发送 |
-| 多语言 | 仅中文 (2052) | **双语** `Label.bilingual(zh, en)` |
-| 同步触发 | MCP 工具 `metadata_create_table` | CLI `python -m framework_power deploy` |
-| 类型覆盖 | YAML + 后端转换 | framework_power 全类型直发 |
-
 ## 使用场景
 
 - 把 `design-dv-model` 产出的 Excel 实体设计转为 Python 定义
@@ -134,7 +123,7 @@ TABLE: Table = Table(
 ## 转换步骤
 
 1. **定位 Excel**：`ninebot-project/docs/features/{feature}/02-designs/entities/{design}.xlsx`。
-   Windows 终端读中文可能乱码——写入 UTF-8 临时文件后用 Read 查看（见 dv-model-to-yaml 的编码处理）。
+   Windows 终端读中文可能乱码——写入 UTF-8 临时文件后用 Read 查看。
 2. **读取 `02_实体模型`**：提取实体名、字段（名称/显示名/英文名/类型/长度/必填/主字段/选项）、关系（关联实体/关联类型）。
 3. **按契约生成 `Table`**：PascalCase + 前缀；双语 `Label.bilingual`；每个表有且仅有一个 String 主字段；
    选项值唯一；关系用 Referential 级联。

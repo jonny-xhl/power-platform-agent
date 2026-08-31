@@ -7,7 +7,7 @@ description: 用 framework_power（Python 优先）管理 Power Platform 解决�
 
 本技能是 **framework_power**（Python 优先的 Dataverse 部署库）的**解决方案（Solution）**管理
 入口，对应 Phase 1 的表管理（`dv-model-to-python` / `dv-reverse-metadata`）。它替代旧的
-YAML/Agent 路径（`dv-solution` skill + `framework/agents/solution_agent.py`）用于解决方案域。
+> legacy YAML/Agent 路径（`dv-solution` skill + `framework/`）已于 2026-08-31 移除；本 skill 是解决方案域唯一路径。
 
 ## 是什么
 
@@ -25,7 +25,7 @@ YAML/Agent 路径（`dv-solution` skill + `framework/agents/solution_agent.py`�
 
 ## 硬性约束
 
-- 与 `framework/` 完全隔离（不 import、不改）；复用代码在 `framework_power/client/`。
+- 自包含包；Web API client 在 `framework_power/client/`（本仓库唯一引擎）。
 - **发布商前缀**（默认 `new`）决定"自定义"组件；标准/系统组件（无前缀）在正向同步时**自动跳过**
   → 全量快照正向同步是**幂等且安全**的。
 - `solution deploy` **非破坏**：只 create/update/add，从不 delete。
@@ -119,7 +119,7 @@ python -m framework_power solution publish --env dev             # PublishAllXml
 
 - **【ADR-013】不要在未备份的情况下改环境**：写操作前 `pp env-guard backup <解决方案> --env <env> --note "…"`
   （solution ZIP + 插件注册快照 + 台账）。恢复时先读 `docs/env_backup/CHANGELOG.md`。
-- 不要 import 或修改 `framework/`、`ninebot-project/metadata/`。
+- 不要逆向覆盖 `ninebot-project/metadata_py/solutions/` 下他人维护的定义前先确认。
 - 不要让 `solution deploy` 变成破坏性操作。
 - 不要在库内生成/改写 FormXml/FetchXml/LayoutXml（保持不透明字符串）。
 - 旧路径 `dv-solution`（YAML/Agent）仍存在，但新工作请用本 Python 优先路径。

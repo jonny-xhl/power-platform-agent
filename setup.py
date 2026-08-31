@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Power Platform Agent Setup
-Power Platform MCP Server安装脚本
+framework_power — Python-first Dataverse 部署库（CLI `pp`）
 """
 
 from pathlib import Path
@@ -20,7 +20,7 @@ version = "1.0.0"
 setup(
     name="power-platform-agent",
     version=version,
-    description="MCP Server for Microsoft Power Platform - Dataverse metadata management",
+    description="framework_power — Python-first Dataverse metadata deploy library (CLI `pp`)",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Power Platform Agent Team",
@@ -37,7 +37,7 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
-    keywords="power-platform dataverse mcp microsoft dynamics crm",
+    keywords="power-platform dataverse microsoft dynamics crm metadata",
     python_requires=">=3.9",
 
     # 包发现 — exclude all workspace data; engine ships as pure tooling
@@ -50,8 +50,6 @@ setup(
     # 入口点
     entry_points={
         "console_scripts": [
-            "power-platform-mcp=framework.mcp_serve:main",
-            "pp-mcp=framework.mcp_serve:main",
             # CLI entry point for framework_power (enables `pp` command)
             "pp=framework_power.cli:main",
             "pp-agent=framework_power.cli:main",
@@ -67,12 +65,8 @@ setup(
 
     # 依赖项
     install_requires=[
-        # MCP Server
-        "mcp>=0.1.0",
-
         # YAML Processing
         "PyYAML>=6.0",
-        "jsonschema>=4.0.0",
 
         # Microsoft Authentication
         "msal>=1.20.0",

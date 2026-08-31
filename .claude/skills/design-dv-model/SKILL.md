@@ -162,7 +162,7 @@ ninebot-project/docs/features/{feature_name}/02-designs/entities/
 | 必填字段 | 放在 Tab 顶部、靠左位置 |
 | Lookup 字段 | 与普通字段放在同一 Section |
 
-设计完成后，通过 `dv-model-to-yaml` 将 Excel 表单设计转换为 `ninebot-project/metadata/forms/{entity}_main.yaml`，再通过 `/dv-sync` 同步到 Dataverse。窗体 YAML 格式和同步策略详见 `dv-model-to-yaml` skill。
+设计完成后，通过 `dv-model-to-python` 生成表定义并 `pp deploy` 部署；窗体/视图定制用 `dv-form-python` / `dv-view-python`（在自动创建组件上 in-place 修改）。
 
 ## 视图设计
 
@@ -194,7 +194,7 @@ ninebot-project/docs/features/{feature_name}/02-designs/entities/
 | 排序 | 通常按第一列或关键字段排序 |
 | 必含列 | 建议包含主字段和状态字段 |
 
-设计完成后，通过 `dv-model-to-yaml` 将 Excel 视图设计转换为 `ninebot-project/metadata/views/{entity}_{view}.yaml`，再通过 `/dv-sync` 同步到 Dataverse。视图 YAML 格式详见 `dv-model-to-yaml` skill。
+设计完成后，用 `dv-view-python` 在自动创建视图上 in-place 定制（加列/排序/过滤），`pp view deploy` 部署。
 
 ## 工作流程示例
 

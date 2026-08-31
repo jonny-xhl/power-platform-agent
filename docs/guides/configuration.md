@@ -14,7 +14,6 @@ The project uses a **layered configuration approach**:
 | `config/publishers.yaml` | **Publisher + naming** | Publisher prefix, naming rules, validation |
 | `config/pipeline.yaml` | **CI/CD pipeline** | Branch→environment→strategy mapping |
 | `config/environment_settings.yaml` | **Post-deploy config** | Connection refs, env variables |
-| `config/hermes_profile.yaml` | **Agent config** (legacy) | MCP tools, LLM profile |
 
 ## Quick Setup
 
@@ -50,8 +49,6 @@ environments:
 ```
 
 ### 3. Configure LLM (optional)
-
-Edit `config/hermes_profile.yaml` to set LLM preferences:
 
 ```yaml
 llm:
@@ -108,7 +105,6 @@ config = EnvConfig()
 provider = config.get("llm.provider", "anthropic")
 
 # Option 2: Load YAML with auto-expansion
-env_config = load_yaml_with_env("config/hermes_profile.yaml")
 
 # Option 3: Direct environment access
 import os

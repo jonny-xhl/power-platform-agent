@@ -2,92 +2,58 @@
 
 ## 概述
 
-Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform 开发辅助工具。它通过 MCP (Model Context Protocol) 服务器为 Claude Code 和 Cursor 提供工具访问，实现 Power Platform 元数据的代码优先开发。
+Power Platform Agent 是一个 **Python-first 的 Dataverse 元数据部署库**（`framework_power`，CLI `pp`），实现 Power Platform 元数据的代码优先开发（类型化 Python 模型 → 同步 Dataverse）。
 
-系统采用**双框架架构**：
-- **framework/** - 遗留框架，基于 YAML 元数据定义的传统工具链
-- **framework_power/** - 现代化 Python-first 框架，独立部署 Dataverse 表和组件的库
+> 2026-08-31：legacy `framework/`（YAML 链路 + MCP Server/Agent 路由）已整体移除，本仓库为**单引擎架构**。
 
 ## 设计原则
 
 ### 内容驱动，框架服务
 
 - **内容层 (80%)**: 元数据定义、业务逻辑、配置文件
-- **框架层 (20%)**: Agent 代码、MCP 服务、工具路由
+- **引擎层 (20%)**: framework_power 库与 CLI
 
 ### 源文件 → 元数据 → 部署 的生命周期
 
 ```
-源文件层 → 转换层 → 元数据层 → 部署层
-    ↓          ↓          ↓          ↓
-  docs/      transformers/ metadata/  Dataverse
+源文件层 → 定义层 → 部署层
+    ↓          ↓          ↓
+  docs/    metadata_py/   Dataverse
 ```
 
 ### framework_power 设计原则
 
 1. **Python-First**: 使用类型化 Python 数据模型替代 YAML，提升类型安全和 IDE 支持
 2. **幂等性**: 所有操作支持 create-or-update，不会产生破坏性变更
-3. **自包含**: 独立于 legacy framework/，可单独导入使用
+3. **自包含**: 单包可导入，无外部引擎依赖
 4. **组件化**: 通过 ComponentType 注册表支持可扩展的组件类型
 
-## 双框架架构图
+## 引擎架构图（单引擎：framework_power）
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Claude Code / Cursor                       │
-│                         (MCP Client)                            │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │ MCP Protocol
-┌─────────────────────────────▼───────────────────────────────────┐
-│                    MCP Server (mcp_serve.py)                    │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    Tool Router                          │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐     │
-│  │ Core Agent   │  │ Metadata     │  │ Plugin           │     │
-│  │              │  │ Agent        │  │ Agent            │     │
-│  │ - Auth       │  │              │  │                  │     │
-│  │ - Naming     │  │ - Tables     │  │ - Build          │     │
-│  │ - Env Mgmt   │  │ - Forms      │  │ - Deploy         │     │
-│  └──────────────┘  │ - Views      │  │ - Step Register  │     │
-│  ┌──────────────┐  │ - OptionSets │  └──────────────────┘     │
-│  │ Solution     │  └──────────────┘  ┌──────────────────┐     │
-│  │ Agent        │                      │ State           │     │
-│  │              │                      │ Management      │     │
-│  │ - Import     │                      │                 │     │
-│  │ - Export     │                      │                 │     │
-│  │ - Sync       │                      │                 │     │
-│  └──────────────┘                      └──────────────────┘     │
-└─────────────────────────────┬───────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      Claude Code / CI / 终端                  │
+│              (pp CLI · skills · project.py 工作流)           │
+└─────────────────────────────┬────────────────────────────────┘
                               │
-          ┌───────────────────┴───────────────────┐
-          ▼                                       ▼
-┌─────────────────────────┐         ┌─────────────────────────┐
-│    Data Dictionary      │         │   framework_power        │
-│    Layer (legacy)       │         │   (Python-first)        │
-│                         │         │                         │
-│ - YAML Parser           │         │ - Typed Models API       │
-│ - Virtual Field Filter  │         │ - Deployer              │
-│ - MD Generator          │         │ - Component Registry    │
-└─────────────────────────┘         │ - Workflow Orchestrator  │
-                                    └─────────────────────────┘
-                                              │
-┌─────────────────────────────────────────────▼───────────────────┐
-│                    Power Platform API Client Layer              │
-│  ┌────────────┐ ┌────────────┐ ┌──────────────────────┐        │
-│  │ Web API    │ │ PAC CLI    │ │ Dataverse SDK        │        │
-│  │ Wrapper    │ │ Wrapper    │ │ (for .NET plugins)   │        │
-│  └────────────┘ └────────────┘ └──────────────────────┘        │
-└─────────────────────────────────────────────────────────────────┘
-                                              │
-                              ┌───────────────┴───────────────┐
-                              │         OAuth 2.0             │
-                              ▼                               ▼
-                    ┌─────────────────┐           ┌─────────────────┐
-                    │  Dataverse      │           │  Power Platform │
-                    │  Online         │           │  Environments   │
-                    └─────────────────┘           └─────────────────┘
+┌─────────────────────────────▼────────────────────────────────┐
+│                 framework_power (Python 包)                   │
+│  models/serializer → deployer (plan/deploy, 非破坏幂等)       │
+│  components/ 注册表: table/optionset/webresource/form/view/   │
+│                   sitemap/plugin/ribbon + compact codegen     │
+│  *_sync.py 各域: solution/webresource/form/view/ribbon/       │
+│                 plugin/role/sitemap/optionset/label           │
+│  client/dataverse_client.py — MSAL + Dataverse Web API       │
+│  workspace.py (pp-workspace.yaml) + label_sync (ADR-016)     │
+└─────────────────────────────┬────────────────────────────────┘
+                              │ Web API (OAuth2 client-secret)
+                ┌─────────────▼─────────────┐
+                │   Dataverse 环境 (dev/test/prod)  │
+                └───────────────────────────┘
 ```
+
+> 2026-08-31：legacy `framework/`（YAML→转换→Web API + MCP Server/Agent 路由）
+> 已整体移除；上图为此前的"双框架架构图"的替代。历史设计见 git 与 ADR。
 
 ## framework_power 模块架构
 
@@ -142,20 +108,7 @@ Power Platform Agent 是一个基于 Hermes Agent 框架构建的 Power Platform
 
 ```
 power-platform-agent/
-├── framework/             # 遗留框架层 (YAML-based)
-│   ├── agents/            # 代理实现
-│   │   ├── core_agent.py
-│   │   ├── metadata_agent.py
-│   │   ├── plugin_agent.py
-│   │   └── solution_agent.py
-│   ├── utils/             # 工具函数
-│   │   ├── dataverse_client.py
-│   │   ├── yaml_parser.py
-│   │   ├── schema_validator.py
-│   │   └── naming_converter.py
-│   └── mcp_serve.py       # MCP服务入口
-│
-├── framework_power/       # 现代化 Python-first 框架
+├── framework_power/       # Python-first 引擎（本仓库唯一引擎）
 │   ├── __init__.py       # 公共 API 导出
 │   ├── __main__.py       # pp 入口
 │   ├── cli.py            # CLI 入口
@@ -247,69 +200,47 @@ power-platform-agent/
 │
 ├── config/               # 配置文件
 │
-├── build_and_validate.py  # 构建验证脚本
 ├── setup.py              # 包安装配置
 └── requirements.txt
 ```
 
 **说明**：
-- **framework/** - 遗留框架代码，便于迁移参考
-- **framework_power/** - 现代化 Python-first 框架，独立部署库
-- **metadata_py/** - framework_power 的元数据定义（Python 而非 YAML）
+- **framework_power/** - Python-first 引擎（本仓库唯一引擎）
+- **metadata_py/** - framework_power 的元数据定义（类型化 Python，而非 YAML）
 - **docs/** - 按内容生命周期分层 (PRD/设计 → 模板 → 产物)，所有文档类输入输出统一管理
-- **metadata/** - 遗留 YAML 元数据定义，按类型组织
-- **docs/data_dictionary/** - Workspace 产物，从 Dataverse 云端同步（MCP 工具）或本地脚本生成（仅 Gen 1 YAML）
+- **docs/data_dictionary/** - Workspace 产物，由 `pp reverse <table> --dictionary` 从 Dataverse 云端生成
 
 ## 核心组件
 
-### 1. MCP Server (mcp_serve.py)
+### 1. pp CLI (cli.py)
 
-MCP 服务器是整个系统的入口点，负责：
-- 暴露工具给 Claude Code/Cursor
-- 路由工具调用到相应的代理
-- 管理代理生命周期
-- 提供资源访问
+统一入口，负责：
+- 表/解决方案/各域子命令（lint/plan/deploy/reverse/…）
+- workspace 发现与目录解析（pp-workspace.yaml）
+- 认证引导（get_client，client-secret + MSAL）
 
-### 2. Core Agent
+### 2. Deployer (deployer.py)
 
-核心代理处理：
-- 用户认证 (OAuth 2.0)
-- 环境管理
-- 命名规则转换
-- 健康检查
+表部署器：
+- 非破坏幂等同步（entity/attributes/relationships/alternate keys）
+- ADR-016 自动视图/窗体名双语标签（label_sync）
+- 依赖优先的全局选项集先行同步（ADR-011）
 
-### 3. Metadata Agent
+### 3. 组件注册表 (components/)
 
-元数据代理处理：
-- 表(Table) 元数据管理
-- 表单(Form) 元数据管理
-- 视图(View) 元数据管理
-- Web Resource 管理
-- 元数据验证
+统一分发各组件类型的 serialize/deploy/plan/reverse/codegen/lint：
+table / optionset / webresource / form / view / sitemap / plugin / ribbon；
+`compact.py` 提供逆向 codegen 的 attrs 去冗余（紧凑表示 + normalize diff）。
 
-### 4. Plugin Agent
+### 4. 各域 sync 模块 (*_sync.py)
 
-插件代理处理：
-- .NET 插件构建
-- 程序集部署
-- Step 注册和管理
-- 监听模式
+solution / optionset / webresource / form / view / ribbon / plugin / role /
+sitemap / label：每域提供 plan/sync/reverse 与发布语义。
 
-### 5. Solution Agent
+### 5. Dataverse Client (client/dataverse_client.py)
 
-解决方案代理处理：
-- 解决方案导入/导出
-- 差异对比
-- 双向同步
-- 组件管理
-
-### 6. Data Dictionary Generator
-
-数据字典生成器处理：
-- YAML 元数据解析
-- 虚拟字段过滤
-- Markdown 文档生成
-- 索引自动更新
+MSAL client-credentials 认证 + Dataverse Web API 全量封装（元数据/数据/操作/
+PublishXml/解决方案 ZIP/插件注册/loc labels）。
 
 **虚拟字段检测规则**：
 | 类型 | 检测模式 | 示例 |
@@ -555,7 +486,6 @@ def lint(model, *, prefix): ...
 - `config/publishers.yaml` - 发布商 + 命名规则
 - `config/pipeline.yaml` - CI/CD 流水线
 - `config/environment_settings.yaml` - 环境变量与连接引用
-- `config/hermes_profile.yaml` - Hermes Agent 配置 (legacy)
 - `.claude/context_config.yaml` - LLM 上下文配置
 - `metadata/optionsets/global_optionsets.yaml` - 全局选项集定义
 
@@ -634,7 +564,7 @@ def lint(model, *, prefix): ...
 7. 提交完成
 
 注意：metadata_py/tables/*.py（Gen 2 Python 定义）的变更不触发此 hook。
-如需从 Python 定义同步数据字典，请使用 MCP 工具 metadata_export_dictionary 从云端导出。
+从环境同步数据字典：`pp reverse <table> --env <env> --dictionary`（云端为准）。
 ```
 
 ## 安全考虑

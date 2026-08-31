@@ -9,92 +9,8 @@
 
 推荐新项目使用 **Python API**，它提供更好的类型安全、IDE 支持和代码补全。
 
-## 选项集 (Option Set) 元数据
-
-### 全局选项集
-
-全局选项集定义在 `metadata/optionsets/global_optionsets.yaml` 中，可被多个表引用。
-
-```yaml
-global_optionsets:
-  - schema_name: new_customer_status
-    display_name: 客户状态
-    display_name_en: Customer Status
-    description: 客户的业务状态
-    options:
-      - value: 1
-        label_zh: 潜在客户
-        label_en: Potential
-        color: 808080
-      - value: 2
-        label_zh: 活跃客户
-        label_en: Active
-        color: 008000
-```
-
-### 选项集字段
-
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `schema_name` | string | 是 | 选项集 Schema Name |
-| `display_name` | string | 是 | 中文显示名称 |
-| `display_name_en` | string | 否 | 英文显示名称 |
-| `description` | string | 否 | 选项集描述 |
-| `options` | array | 是 | 选项列表 |
-
-### 选项字段
-
-| 字段 | 类型 | 必需 | 说明 |
-|------|------|------|------|
-| `value` | integer | 是 | 选项值 |
-| `label_zh` | string | 是 | 中文标签 |
-| `label_en` | string | 否 | 英文标签 |
-| `color` | string | 否 | 颜色代码 (hex) |
-
-### 在表中引用选项集
-
-表定义中可以通过以下两种方式使用选项集：
-
-#### 1. 引用全局选项集
-
-```yaml
-attributes:
-  - name: status
-    type: Picklist
-    display_name: 状态
-    option_set_ref: new_customer_status  # 引用全局选项集
-```
-
-#### 2. 定义本地选项集
-
-```yaml
-attributes:
-  - name: region
-    type: Picklist
-    display_name: 地区
-    local_options:  # 本地选项集
-      - value: 1
-        label_zh: 华东
-        label_en: East China
-      - value: 2
-        label_zh: 华南
-        label_en: South China
-```
-
-### 虚拟字段过滤规则
-
-数据字典生成时会自动过滤以下虚拟字段：
-
-| 类型 | 检测模式 | 示例 |
-|------|----------|------|
-| Lookup _name 后缀 | `_[a-z]+_name$` | `primarycontactid_name` |
-| 计算字段 | `is_calculated: true` | - |
-| 汇总字段 | `aggregate_type` 存在 | - |
-| Virtual 类型 | `type: "Virtual"` | - |
-
----
-
----
+> 本规范只覆盖 **Python API（framework_power）** 作者契约；legacy YAML 规范随 `framework/`
+> 于 2026-08-31 一并移除（历史版本见 git）。选项集（全局/本地）的建模方式见下方各字段类型节。
 
 ## Python API (framework_power)
 
@@ -812,16 +728,7 @@ Lookup 字段和关系通过 Deep Insert 一次性创建：
 
 ```
 power-platform-agent/
-├── framework/             # 框架层 - Legacy YAML-based MCP 工具链
-│   ├── agents/            # 代理实现
-│   │   ├── core_agent.py
-│   │   ├── metadata_agent.py
-│   │   ├── plugin_agent.py
-│   │   └── solution_agent.py
-│   ├── utils/             # 工具函数
-│   └── mcp_serve.py       # MCP服务入口
-│
-├── framework_power/       # 框架层 - Python-first 独立部署库
+├── framework_power/       # 引擎层 - Python-first 部署库（唯一引擎）
 │   ├── __init__.py        # Public API 导出
 │   ├── models.py          # 类型化数据模型 (Label, Table, Column...)
 │   ├── serializer.py      # 模型序列化器

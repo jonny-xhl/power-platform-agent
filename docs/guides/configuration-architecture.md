@@ -35,7 +35,6 @@
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                       │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  config/hermes_profile.yaml (提交)                          │   │
 │  │  ─────────────────────────────────────────────────────────── │   │
 │  │  llm:                                                         │   │
 │  │    provider: "${LLM_PROVIDER:anthropic}"  │                  │   │
@@ -107,7 +106,6 @@ client = LangChainLLMClient(api_key="explicit-key")
 os.getenv("ANTHROPIC_API_KEY")
 
 # 3. YAML 配置文件（支持 ${VAR} 展开）
-load_yaml_with_env("config/hermes_profile.yaml")
 
 # 4. 代码默认值（最低优先级）
 DEFAULT_MODELS["anthropic"] = "claude-sonnet-4-20250514"
