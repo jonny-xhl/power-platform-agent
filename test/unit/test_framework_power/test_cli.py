@@ -9,7 +9,8 @@ from framework_power.cli import main
 pytestmark = pytest.mark.unit
 
 PROJECT_ROOT = Path(__file__).parents[3]
-DEFS_DIR = str(PROJECT_ROOT / "metadata_py" / "tables")
+# Canonical engine-shipped definition (stable, tracked; workspaces vary)
+DEFS_DIR = str(PROJECT_ROOT / "framework_power" / "examples")
 
 
 def _argv(*cmd: str) -> list[str]:

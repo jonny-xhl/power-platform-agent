@@ -5,13 +5,14 @@ from pathlib import Path
 import pytest
 
 from framework_power import Column, LookupColumn, Relationship, Table
-from framework_power.models import AttributeType, Label, RequiredLevel
+from framework_power.models import AttributeType, Label
 from framework_power.registry import Definition, deploy_order, discover_definitions, get_definition
 
 pytestmark = pytest.mark.unit
 
 PROJECT_ROOT = Path(__file__).parents[3]
-DEFS_DIR = PROJECT_ROOT / "metadata_py" / "tables"
+# Canonical engine-shipped definition (stable, tracked; workspaces vary)
+DEFS_DIR = PROJECT_ROOT / "framework_power" / "examples"
 
 
 def test_discover_finds_canonical_definition():

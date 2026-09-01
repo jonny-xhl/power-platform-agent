@@ -2,10 +2,10 @@
 """
 Thin runner example: deploy the registered ``new_ProjectBudget`` definition.
 
-The table definition lives in ``metadata_py/tables/new_projectbudget.py`` (the single
-source of truth). This script just loads it and calls ``deploy_table`` — the same
-thing ``python -m framework_power deploy new_projectbudget --env dev`` does, shown as
-a programmatic entrypoint.
+The canonical table definition ships with the engine at
+``framework_power/examples/new_projectbudget.py``. This script just loads it and
+calls ``deploy_table`` — the same thing ``python -m framework_power deploy
+new_projectbudget --env dev`` does, shown as a programmatic entrypoint.
 
 Usage:
     python -m framework_power.examples.setup_projectbudget --env dev
@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import json
 
-from metadata_py.tables.new_projectbudget import TABLE
-
 from framework_power import deploy_table, get_client
+from framework_power.examples.new_projectbudget import TABLE
 from framework_power.runtime import argparse_env
 
 
