@@ -15,7 +15,6 @@ Only used for DEV environment. UAT/PROD use :class:`PromoteExecutor`.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -26,7 +25,6 @@ from typing import Any, Optional
 from .config import PipelineConfig, BranchMapping
 from .composer import SolutionComposer, ComposeResult
 from .verifier import SolutionVerifier
-from .state import PipelineState
 
 logger = logging.getLogger(__name__)
 

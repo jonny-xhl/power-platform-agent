@@ -25,7 +25,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .models import (
     AttributeType,
@@ -34,7 +34,6 @@ from .models import (
     Column,
     Label,
     LookupColumn,
-    Relationship,
     RequiredLevel,
     Table,
 )
@@ -110,7 +109,7 @@ def _format_type(col: Column) -> str:
     return "".join(parts)
 
 
-def _format_required(col: Column) -> str:
+def _format_required(col: Column | LookupColumn) -> str:
     """Map RequiredLevel enum to display string."""
     if col.required == RequiredLevel.ApplicationRequired:
         return "必填"
@@ -284,7 +283,7 @@ def table_to_markdown(
         rel_source = source_dir.replace("\\", "/")
         lines.append(f"- **源文件**: [`{source_name}.py`](../../{rel_source}/{source_name}.py)")
     else:
-        lines.append(f"- **生成方式**: 从 Dataverse 环境逆向导出")
+        lines.append("- **生成方式**: 从 Dataverse 环境逆向导出")
 
     lines.append(f"- **生成时间**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`")
     lines.append(f"- **字段数**: {len(table.columns)}")
@@ -406,7 +405,6 @@ def generate_table_docs(
         rel_source = str(PurePosixPath(Path(source_dir)))
         # If source_dir is absolute, try to make it relative
         src_path = Path(source_dir)
-        out_path = Path(output_dir)
         if src_path.is_absolute():
             try:
                 rel_source = str(src_path.relative_to(src_path.anchor))

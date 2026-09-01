@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .config import PipelineConfig, BranchMapping
-from .pac_cli import PacCliWrapper, PacCliResult
+from .pac_cli import PacCliWrapper
 from .verifier import SolutionVerifier
 from .state import PipelineState
 

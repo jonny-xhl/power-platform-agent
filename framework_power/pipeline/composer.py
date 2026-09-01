@@ -13,11 +13,10 @@ Discovery rules come from ``config/pipeline.yaml`` -> ``source_mode.discovery``.
 
 from __future__ import annotations
 
-import fnmatch
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .config import PipelineConfig, DiscoveryRule
 

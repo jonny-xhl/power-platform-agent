@@ -75,7 +75,7 @@ def _mirror(node: Any) -> dict[str, str]:
     if isinstance(node, M.ViewFilter):
         return {"type": node.filter_type}
     if isinstance(node, M.ViewLinkEntity):
-        mirror: dict[str, str] = {"name": node.name}
+        mirror = {"name": node.name}
         if node.from_attr:
             mirror["from"] = node.from_attr
         if node.to_attr:

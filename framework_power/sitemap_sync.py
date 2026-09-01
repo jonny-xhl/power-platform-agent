@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .components import sitemap as sitemap_component
-from .components.sitemap import AppSitemap, SitemapTitle, parse_sitemap, to_sitemapxml
+from .components.sitemap import SitemapTitle, parse_sitemap, to_sitemapxml
 
 logger = logging.getLogger(__name__)
 

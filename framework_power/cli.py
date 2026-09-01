@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -42,9 +41,7 @@ from .components.models import Solution
 from .workspace import (
     NotInWorkspaceError,
     Workspace,
-    WorkspaceManifest,
     get_cached_workspace,
-    reset_cache,
 )
 from .solution_deployer import (
     _ref_type_code,
@@ -337,12 +334,12 @@ def cmd_workspace_init(args: argparse.Namespace) -> int:
     print(f"  publisher:      {publisher} ({prefix})")
     print(f"  main_solution:  {main_sol}")
     print(f"  ribbon_solution: {ribbon_sol}")
-    print(f"\nNext steps:")
+    print("\nNext steps:")
     print(f"  1. Edit {target / 'config' / 'environments.yaml'} with your Dataverse URLs")
-    print(f"  2. Copy .env.example to .env and fill in Dataverse credentials")
-    print(f"  3. (Optional) Put LLM API keys in ~/.power-platform-agent/.env")
+    print("  2. Copy .env.example to .env and fill in Dataverse credentials")
+    print("  3. Review config/publishers.yaml (publisher prefix & naming rules)")
     print(f"  4. Create table definitions in {ws.tables_dir}")
-    print(f"  5. Run: pp list")
+    print("  5. Run: pp list")
     return 0
 
 
@@ -608,9 +605,6 @@ def cmd_reverse(args: argparse.Namespace) -> int:
 
 def _cmd_reverse_all(args: argparse.Namespace) -> int:
     """Batch reverse-export multiple tables (--all) with optional --parallel."""
-    from .reverse import reverse_table
-    from .data_dictionary import DEFAULT_DICTIONARY_DIR, table_to_markdown
-
     client = _get_client_ws(args, args.env)
     prefix = getattr(args, "prefix", None) or (_effective_prefix(args) + "_")
     entities = client.list_entities(prefix=prefix)
@@ -736,10 +730,7 @@ def _batch_reverse_parallel(
     args: argparse.Namespace, client, logical_names: list[str], workers: int
 ) -> None:
     """Export tables using ThreadPoolExecutor for parallelism."""
-    import os
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from .reverse import reverse_table
-    from .client.dataverse_client import DataverseClient
 
     token = client.access_token
     env = client.environment
@@ -1296,7 +1287,7 @@ def cmd_optionset_list(args: argparse.Namespace) -> int:
     for name in sorted(found):
         os = found[name]
         n_opts = len(os.options)
-        zh = next((l.text for l in os.display_name.localized if l.language_code == 2052), "")
+        zh = next((lab.text for lab in os.display_name.localized if lab.language_code == 2052), "")
         print(f"  {name}  ({zh} / {n_opts} options)")
     return 0
 

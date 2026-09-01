@@ -192,7 +192,7 @@ _ENTRY_HEADER = "## "
 
 def append_change(ws: Any, *, env: str, actor: str, intent: str,
                   changes: list[dict[str, Any]],
-                  backups: Optional[list[GuardResult]] = None,
+                  backups: Optional[list[GuardResult | dict[str, Any]]] = None,
                   basis: str = "") -> Path:
     """Append one entry to the append-only change journal (CHANGELOG.md).
 
@@ -212,9 +212,8 @@ def append_change(ws: Any, *, env: str, actor: str, intent: str,
     if backups:
         lines.append("- **backups**:")
         for b in backups:
-            if isinstance(b, GuardResult):
-                b = b.to_dict()
-            lines.append(f"  - {json.dumps(b, ensure_ascii=False)}")
+            entry = b.to_dict() if isinstance(b, GuardResult) else b
+            lines.append(f"  - {json.dumps(entry, ensure_ascii=False)}")
     else:
         lines.append("- **backups**: NONE ⚠️ (justify in intent, e.g. read-only op)")
     lines.append("")

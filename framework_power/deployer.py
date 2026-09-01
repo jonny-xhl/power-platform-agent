@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .models import AlternateKey, AttributeType, Column, Relationship, Table
+from .models import AttributeType, Column, Relationship, Table
 from .serializer import (
     build_attribute_patch,
     build_picklist_option_diff,

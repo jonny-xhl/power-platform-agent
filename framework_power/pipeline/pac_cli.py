@@ -233,7 +233,7 @@ class PacCliWrapper:
         if not Path(solution_path).exists():
             return PacCliResult(
                 success=False,
-                command=f"check_solution",
+                command="check_solution",
                 stderr=f"Solution zip not found: {solution_path}",
             )
         cmd = [

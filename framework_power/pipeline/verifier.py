@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from .config import PipelineConfig
 
@@ -28,7 +28,7 @@ class VerifyResult:
     solution_name: str = ""
     mode: str = ""                  # "source" | "promote"
     expected_components: dict[str, int] = field(default_factory=dict)
-    actual_components: dict[str, int] = field(default_factory=dict)
+    actual_components: dict[str, Any] = field(default_factory=dict)
     missing: list[str] = field(default_factory=list)
     extra: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
