@@ -83,9 +83,17 @@ form = fx.add_event_handler(                                     # 控件级 onc
 ```python
 form = fx.add_field(form, col, tab_name="GENERAL_TAB", section_name="General_Section")
 ```
-- 控件 `id` / `datafieldname` 默认取字段逻辑名（`schema_name.lower()`）。
-- `classid` 由字段类型推导（已 live 钉死的映射：text/optionset/lookup/datetime/integer/url/
-  boolean；Money/Decimal/Double/File 等未覆盖类型回退 text，可显式传 `classid=` 覆盖）。
+- **★ 控件 `id` / `datafieldname` 必须全小写**（默认取 `schema_name.lower()`）。属性 `LogicalName`
+  在 Dataverse 中**恒为 lowercase**（`new_name`）；写成 PascalCase（`new_Name`）→ 渲染引擎
+  **大小写敏感**匹配失败、控件被**静默丢弃** → 用户看到「**section 都在、字段全空**」
+  （2026-09-09 live 修复）。**不要沿用 Python 表定义里的 PascalCase 字段名。**
+- `classid` 由字段类型推导（已 live 钉死，**2026-09-09 修正**）：text `{4273EDBD-...}`、
+  optionset/Picklist `{3EF39988-...}`、lookup `{270BD3DB-...}`、datetime `{5B773807-...}`、
+  integer `{C6D124CA-...}`、url `{71716B6C-...}`、boolean `{B737D7BB-...}`、
+  **Decimal/Money `{B0C872A3-3FA8-4D39-87D3-B3DCDA23B145}`**、**memo `{E0DECE4B-6FC8-4A8F-A065-082708572369}`**、
+  **statuscode `{5D68B988-0661-4db2-BC3E-17598AD3BE6C}`**。⚠️ 旧版把 `{B0C872A3-...}` 误标为 memo，
+  实际是 Decimal/Money。Double/File 等未覆盖类型回退 text，可显式传 `classid=` 覆盖。
+  ⚠️ **classid 是租户相关 GUID**——优先从同环境一个已正常渲染的窗体 reverse 提取，别硬背。
 - section 满列（`cells >= columns`）时自动换行。
 
 ## Web 资源依赖
@@ -102,6 +110,26 @@ form = fx.add_field(form, col, tab_name="GENERAL_TAB", section_name="General_Sec
   `--no-publish` 可关。
 - ⚠️ 按实体发布会发布**该实体全部未托管自定义项**（窗体/视图/ribbon）——这是 Dataverse 的
   固有粒度，无法只发单个窗体。
+
+## 手写 / 全量替换 formxml 的坑（不走 builder 时，已 live 踩坑 2026-09-09）
+
+需要直接拼 formxml 再 PATCH（而不是用 `add_field` 等 builder）时，以下每条都会让你白忙一场：
+
+- **★ `datafieldname` / `<control id>` 一律小写**。改完**必做回读校验**：正则抽出全部
+  `datafieldname`，逐个确认命中实体属性列表（`client.get_attributes(entity)`）——这是唯一能
+  提前发现"字段被静默丢弃"的手段。
+- **`&` 必须转义成 `&amp;`**：标签文本裸写 `&`（如 "Customer & Product"）→ 解析 400 `0x80048426`。
+- **全量 PATCH 要复用原 tab id**：用全新 tab id / 控件 id 会让 Dataverse 重新 INSERT 组件，
+  与旧窗体残留组件撞键 → SQL 唯一约束 `0x80073002`。修复三件套：①复用原 tab id ②与旧窗体
+  重名的控件 id 改名（如 `new_remark` → `new_remark_ctrl`）③去掉 `DisplayConditions`。
+- **主窗体不能删除重建**：`DELETE systemforms` 被拒（"至少保留一个主窗体"）。改布局只能
+  **in-place PATCH**。
+- **SystemForm 用 PATCH 不用 PUT**：`PUT` 返回 **405**（"Operation not supported on systemform"），
+  走 `client.update_form(form_id, {"formxml": ...})`。
+- **删字段前先清窗体/视图依赖**：`RetrieveDependenciesForDelete(ComponentType=2, ObjectId=<attr_id>)`，
+  `dependentcomponenttype` **26=SavedQuery（视图）、60=SystemForm（窗体）**；顺序：**清引用 →
+  `PublishXml` → DELETE 属性**，否则报 `0x8004f01f`。
+- **验证前 Ctrl+F5 强刷**：发布后浏览器可能仍渲染旧版缓存，先强刷再下"改了没生效"的结论。
 
 ## CLI
 
@@ -150,5 +178,8 @@ python -m framework_power form reverse <entity> --env dev [--forms-dir DIR]
   已自动处理）。
 - 不要凭记忆写 `FormType` 数值——以环境为准（Main=2/QuickView=6/QuickCreate=7/Card=11）。
 - 不要假设改了 formxml 立刻生效——必须按实体 `PublishXml`（`form deploy` 默认已做）。
-- 不要给 Money/Decimal/Double/File 字段盲用 text classid——传显式 `classid=` 或接受回退并验证。
+- **不要把 PascalCase 字段名写进 `datafieldname` / `<control id>`**——必须全小写，否则控件被
+  静默丢弃，页面只剩空 section（2026-09-09 live 踩坑）。
+- 不要给 Double/File 等未覆盖类型盲用 text classid——传显式 `classid=` 或接受回退并验证
+  （Decimal/Money 现已覆盖：`{B0C872A3-3FA8-4D39-87D3-B3DCDA23B145}`）。
 - `True`/`False`（Python），不要 `true`/`false`。

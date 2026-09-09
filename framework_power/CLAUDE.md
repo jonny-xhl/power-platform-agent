@@ -343,11 +343,20 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
   `handlerUniqueId` 是**必填带括号 GUID**（序列化空值自动 `uuid.uuid4` 生成）；本环境**不用**
   `libraryUniqueIdRaw`（已 live 确认 account 窗体无此属性）。控制级事件（onchange）设 `control_id`，
   窗体级（onload/onsave）不设。
-- **classid 映射（已 live 钉死）**：text `{4273EDBD-...}`、optionset `{3EF39988-...}`、lookup
-  `{270BD3DB-...}`、datetime `{5B773807-...}`、integer `{C6D124CA-...}`、url `{71716B6C-...}`、
-  boolean `{B737D7BB-...}`、memo `{B0C872A3-...}`。`add_field` 按 P1 `Column.type` 选；String
-  `format_name=Url` → url classid；`LookupColumn` → lookup。**Money/Decimal/Double/File 未覆盖 →
-  回退 text，需显式传 `classid=`**。控件 `id`/`datafieldname` 默认取字段逻辑名（`schema_name.lower()`）。
+- **classid 映射（已 live 钉死，2026-09-09 修正 memo/Decimal）**：text/String
+  `{4273EDBD-AC1D-40D3-9FB2-095C621B552D}`、optionset/Picklist
+  `{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}`、lookup `{270BD3DB-D9AF-4782-9025-509E298DEC0A}`、
+  datetime `{5B773807-9FB2-42db-97C3-7A91EFF8ADFF}`、integer `{C6D124CA-...}`、url `{71716B6C-...}`、
+  boolean `{B737D7BB-...}`、**Decimal/Money `{B0C872A3-3FA8-4D39-87D3-B3DCDA23B145}`**、
+  **memo（多行文本）`{E0DECE4B-6FC8-4A8F-A065-082708572369}`**、
+  **statuscode（状态描述）`{5D68B988-0661-4db2-BC3E-17598AD3BE6C}`**。
+  ⚠️ **历史错误已修正**：旧版把 `{B0C872A3-...}` 误标为 **memo**，实际它是 **Decimal/Money**；
+  memo 真正值是 `{E0DECE4B-...}`。2026-09-09 销售目标主窗体 live 验证：Decimal 字段（单价原币/
+  订单数量/金额人民币/签单预算/初始汇率）用 `B0C872A3` 渲染正确，备注 Memo 字段用 `E0DECE4B`
+  渲染正确。⚠️ **classid 是租户相关 GUID**——跨环境不要硬背，优先**从同环境一个已渲染正常的
+  窗体 reverse 提取**作参考模板。`add_field` 按 P1 `Column.type` 选；String `format_name=Url` →
+  url classid；`LookupColumn` → lookup。**Double/File 未覆盖 → 回退 text，需显式传 `classid=`**。
+  控件 `id`/`datafieldname` 默认取字段逻辑名（`schema_name.lower()`）——**必须小写**，见 §9.14。
 - **非字段（unbound）控件 classid + builder（已 live 钉死）**：subgrid `{E7A81278-8635-4d9e-8D4D-59480B391C5B}`
   + webresource（嵌入 HTML 页）`{6213F1A3-37CE-4A1B-9CCB-CE7B3F1C7AA3}`。两者无 `datafieldname`，配置在
   `<parameters>` 子元素里（`FormControl.parameters` dict 已往返保真）。builder：`add_webresource_cell`
@@ -741,6 +750,41 @@ CLI `pp sitemap apps|show|plan|add-entity|remove-entity`。详见
   窗体记录 → `PublishXml(entity)` 会**跳过**窗体名标签（视图不受影响）；补发
   `PATCH systemforms(name=中文名)`（1033 不动）标脏后再 publish 才生效。引擎已在
   窗体分支自动做这步。
+
+### 9.14 手写 / 全量替换 formxml 域（已 live 踩坑，2026-09-09 销售目标主窗体重建与修复）
+
+脱离 builder 结构化模型、**直接手写 formxml 并 PATCH 全量替换**时的坑（症状往往很隐蔽）：
+
+- **★ `datafieldname` / 控件 `id` 必须全小写（最易踩、最难查）**：属性 `LogicalName` 在
+  Dataverse 中**永远存储为小写**（`new_name`）。`<control datafieldname="new_Name">` 写成
+  PascalCase 时，渲染引擎**精确匹配（大小写敏感）**失败 → 该控件被**静默丢弃**，用户看到
+  **「section 标题全在、里面字段全空」**。修复：正则把 `datafieldname="X"` 与 `<control id="X"`
+  全部转小写 → `update_form` PATCH → `publish_entity` → 回读校验（**每个控件的 `datafieldname`
+  都必须能命中实体属性列表**）。**教训：生成 formxml 一律小写，不要沿用 Python 定义里的
+  PascalCase 字段名。**
+- **formxml 内 `&` 必须转义为 `&amp;`**：标签文本（如 "Customer & Product"）裸写 `&` → 解析
+  400 `0x80048426`。写文本前做 `xml_escape`。
+- **PATCH 全量替换会撞 SQL 唯一约束 `0x80073002`**：新 formxml 用全新 tab id / 控件 id 时，
+  Dataverse 会重新 INSERT 组件，与旧窗体残留组件撞键。修复三件套：①**复用原 tab id**；
+  ②与旧窗体重名的控件 id 改名（如 `new_remark` → `new_remark_ctrl`）；③去掉 `DisplayConditions`
+  元素。
+- **主窗体不能删建，只能 in-place PATCH**：`DELETE systemforms` 主窗体被拒（"至少保留一个
+  主窗体"）。重建布局的唯一路径是 PATCH formxml。
+- **SystemForm 更新用 PATCH，不要 PUT**：直接 `PUT` 返回 **405**（"Operation not supported on
+  systemform"）；走引擎 `client.update_form(form_id, {"formxml": ...})`（内部 `session.patch`）
+  才成功。
+- **删属性前必须先清窗体/视图依赖**：`GET RetrieveDependenciesForDelete(ComponentType=2,
+  ObjectId=<attr_metadata_id>)`，`dependentcomponenttype` **26=SavedQuery（视图）、60=SystemForm
+  （窗体）**。顺序：**清引用**（视图 PATCH savedquery / 窗体 `update_form`）→ `PublishXml` →
+  再 DELETE 属性（204）。跳过清依赖会报 `0x8004f01f`（属性被引用）。
+- **发布作用域是实体**：改完 formxml 必须 `client.publish_entity(logical_name)`（等价
+  `PublishXml` + `<entities><entity>`）。验证时注意**浏览器缓存**——用 **Ctrl+F5 强刷**再判断。
+- **窗体随实体进解决方案**：实体已在解决方案内时，窗体作为子组件随行导出，无需单独
+  `AddSolutionComponent`（单独调用可能不生成独立 componenttype=60 行，属正常，不影响 ALM）。
+
+> 交叉引用：视图名多语言见 §9.13（ADR-016 已内建自动修复）。若自行调 `SetLocLabels` 在
+> savedquery 上得到 **404**，是调用姿势问题（未用 typed `EntityMoniker`、或 POST 到错误 URL），
+> 正确写法见 §9.13。
 
 ## 10. 如何扩展
 

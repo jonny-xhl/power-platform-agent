@@ -122,6 +122,18 @@ sitemap/plugin/ribbon/role）、App 菜单、环境备份守卫、跨阶段工�
   重 deploy 是幂等 `would_update`，cell GUID 重生成，不影响语义。）
 - CLI：`python -m framework_power form list|show|lint|plan|deploy|reverse`（`reverse <entity>` 写
   `ninebot-project/metadata_py/forms/{entity}__{name}.py`，每窗体一个文件导出 `FORM`）。Skill：`dv-form-python`。
+- **窗体 live 踩坑（详见 `framework_power/CLAUDE.md` §9.4 / §9.14）**：
+  - **★ `datafieldname` / 控件 `id` 必须全小写**（属性 `LogicalName` 恒为 lowercase）。写成
+    PascalCase（`new_Name`）→ 渲染引擎大小写敏感匹配失败、控件被**静默丢弃** → 症状是
+    **「section 标题都在、里面字段全空」**（2026-09-09 已 live 修复）。
+  - **classid 修正**：`{B0C872A3-...}` 是 **Decimal/Money**（旧文档误标为 memo）；memo 是
+    `{E0DECE4B-...}`；statuscode 是 `{5D68B988-...}`。classid 租户相关，优先从同环境一个已正常
+    渲染的窗体 reverse 提取作参考。
+  - **手写 formxml**：文本内 `&` 必须转义 `&amp;`（否则 400 `0x80048426`）；全量 PATCH 要
+    **复用原 tab id**（否则撞唯一约束 `0x80073002`）；**主窗体不能删**（"至少保留一个主窗体"），
+    只能 in-place PATCH。
+  - **SystemForm 用 PATCH 不用 PUT**（PUT → 405），走 `client.update_form`。
+  - **改完必须按实体发布**（`publish_entity`）；验证前 **Ctrl+F5 强刷**避开浏览器缓存。
 
 ### Phase 6 — 视图操作（已完成，已 live 验证）
 
