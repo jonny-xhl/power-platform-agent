@@ -11,8 +11,14 @@ __pycache__/
 *.so
 
 # Environment variables
+# Ignore every .env variant (.env.local, .env.prod, …) but KEEP the committed
+# credential template — it contains no secrets and is the only onboarding hint
+# for a fresh clone. Without the negation below, `.env.*` swallows
+# `.env.example`, it never reaches the repo, and `pp workspace init` crashes
+# while reading it (framework_power/cli.py).
 .env
 .env.*
+!.env.example
 
 # IDE
 .vscode/

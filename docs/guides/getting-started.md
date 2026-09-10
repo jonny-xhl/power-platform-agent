@@ -70,7 +70,17 @@ environments:
     url: "https://your-prod.crm.dynamics.com"
 ```
 
-设置环境变量：
+设置凭据（`pp workspace init` 已生成 `.env.example`）：
+
+```bash
+cp .env.example .env
+```
+
+`.env` 里填 `DEV_TENANT_ID` / `DEV_CLIENT_ID` / `DEV_CLIENT_SECRET`；`test` / `prod`
+段落按需取消注释。`.env` 已被 `.gitignore` 排除，切勿提交；`.env.example` 只含
+占位符，可安全提交给团队。
+
+不方便用文件时，直接导出环境变量：
 
 ```bash
 export DEV_TENANT_ID="your-tenant-id"

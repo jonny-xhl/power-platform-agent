@@ -274,7 +274,9 @@ appmodule.uniquename`（如 app `new_CustomerService`）。详见 ADR-015 与
 - 布尔用 `True`/`False`；mypy 严格；`flake8 --max-line-length=120`。
 - **已 live 踩坑**（详见 `framework_power/CLAUDE.md §9`）：全局选项集按**小写** `Name` 键查询（禁
   `$filter`/405）；解决方案组件走 `solutioncomponents` 实体集（导航属性 404/400）；部署返回 id 避免
-  create→resolve 竞争；`PublishAllXml` 组织级（发布全部未托管自定义项）。
+  create→resolve 竞争；`PublishAllXml` 组织级（发布全部未托管自定义项）；**脚手架模板
+  `framework_power/templates/` 必须真的在版本库里**——其 `.gitignore` 的 `.env.*` 曾连带吞掉
+  `.env.example`，导致干净 clone 后 `pp workspace init` 直接崩溃（§9.15）。
 
 ## 编程语言要求
 

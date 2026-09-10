@@ -100,7 +100,15 @@ my-cpq-solution/
        url: "https://your-test.crm.dynamics.com"
    ```
 
-2. 设置环境变量（或创建 `.env` 文件）：
+2. 复制凭据模板并填入 App Registration 的三个值（`pp workspace init` 已生成 `.env.example`）：
+   ```bash
+   cp .env.example .env
+   ```
+   `.env` 里填 `DEV_TENANT_ID` / `DEV_CLIENT_ID` / `DEV_CLIENT_SECRET`；
+   `test` / `prod` 段落按需取消注释。`.env` 已被 `.gitignore` 排除，切勿提交；
+   `.env.example` 只含占位符，可以安全提交给团队。
+
+   不方便用文件时，也可直接导出环境变量：
    ```bash
    export DEV_TENANT_ID="your-tenant-id"
    export DEV_CLIENT_ID="your-client-id"

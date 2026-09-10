@@ -795,6 +795,31 @@ CLI `pp sitemap apps|show|plan|add-entity|remove-entity`。详见
 > savedquery 上得到 **404**，是调用姿势问题（未用 typed `EntityMoniker`、或 POST 到错误 URL），
 > 正确写法见 §9.13。
 
+### 9.15 工作区脚手架模板域（已踩坑，2026-09-10 `.env.example` 从未进版本库）
+
+`pp workspace init` 的脚手架文件全部来自 `framework_power/templates/`（`cli.py` 的
+`_TEMPLATES_DIR`）。该目录的 `.gitignore` 有双重身份，两条规则容易打架：
+
+- **★ `.env.*` 规则误伤 `.env.example`（根因）**：`templates/.gitignore` 本意是给**工作区**用的
+  （init 时复制到工作区根，防止提交 `.env.local` / `.env.prod` 等真实凭据变体）。但 git 的
+  `.gitignore` **分层生效**——它放在 `framework_power/templates/` 下时同样约束该目录自身，于是
+  `.env.example` 被一起吞掉，**从未进入版本库**。后果：干净 clone 后 `pp workspace init` 在
+  `cli.py` 读它时直接 `FileNotFoundError` 崩溃，新用户连工作区都建不起来，更无从知道要配
+  `DEV_CLIENT_ID` / `DEV_CLIENT_SECRET` / `DEV_TENANT_ID`。
+- **修复**：保留 `.env` + `.env.*`，追加**白名单** `!.env.example`。`.env.*` 匹配的是文件本身
+  而非目录，不存在"父目录被排除则白名单失效"的问题。这样引擎仓库能跟踪模板，工作区也能提交
+  自己的副本（模板只含占位符、无密钥，本就该可提交给团队）。
+- **模板读取必须容错**：`_read_template()` 在文件缺失时返回 `None` 并打印 `[warn]`，
+  `cmd_workspace_init` 逐项判空后跳过——**不要**让一个模板缺失砸掉整个 init。结尾 "Next steps"
+  也要按 `env_example.exists()` 分支：有则提示 `cp .env.example .env`，无则退回 `export DEV_*`。
+- **自检别被 check-ignore 骗了**：`git check-ignore -v <file>` 命中 `!` 开头的否定规则时**仍会
+  输出该行且退出码为 0**。以 `git add --dry-run` 是否被拒、或 `git status --porcelain --ignored`
+  是否把文件标成 `!!` 为准。
+
+> 交叉引用：引擎 / 工作区分离（ADR-002）决定 `config/`、`metadata_py/` 不进引擎仓库，新用户
+> **只能**靠 `workspace init` 生成配置——所以模板文件必须真的在版本库里，否则 onboarding
+> 直接断链。
+
 ## 10. 如何扩展
 
 - **新增属性类型**：`models.AttributeType` + `serializer._ODATA_TYPE`/`_UPDATABLE_BY_TYPE`/per-type 分支

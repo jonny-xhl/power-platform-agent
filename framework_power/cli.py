@@ -229,10 +229,33 @@ def _print_json(obj: object) -> None:
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
-def _render_template(filename: str, replacements: dict[str, str]) -> str:
-    """Read a template file and apply ``__KEY__`` → value replacements."""
+def _read_template(filename: str) -> Optional[str]:
+    """Read a scaffold template, returning ``None`` when it is absent.
+
+    Templates ship inside the installed package and inside a git checkout. A
+    missing one must degrade to a warning rather than crash ``workspace init`` —
+    the usual cause is an over-broad ``.gitignore`` rule that excluded the file
+    from the repo. This is exactly what happened to ``.env.example``: a
+    ``.env.*`` rule in ``templates/.gitignore`` (meant for workspace-local
+    secret files) also applied to the template directory itself, so the file
+    never reached version control and every fresh clone blew up on it.
+    """
     template_path = _TEMPLATES_DIR / filename
-    content = template_path.read_text(encoding="utf-8")
+    try:
+        return template_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print(f"[warn] scaffold template '{filename}' not found in {_TEMPLATES_DIR}; skipped.")
+        return None
+
+
+def _render_template(filename: str, replacements: dict[str, str]) -> Optional[str]:
+    """Read a template file and apply ``__KEY__`` → value replacements.
+
+    Returns ``None`` when the template is missing (see ``_read_template``).
+    """
+    content = _read_template(filename)
+    if content is None:
+        return None
     for key, value in replacements.items():
         content = content.replace(f"__{key}__", value)
     return content
@@ -284,44 +307,44 @@ def cmd_workspace_init(args: argparse.Namespace) -> int:
     # environments.yaml
     env_path = config_dir / "environments.yaml"
     if not env_path.exists() or args.force:
-        env_path.write_text(
-            _render_template("environments.yaml", replacements), encoding="utf-8"
-        )
+        content = _render_template("environments.yaml", replacements)
+        if content is not None:
+            env_path.write_text(content, encoding="utf-8")
 
     # pipeline.yaml
     pipe_path = config_dir / "pipeline.yaml"
     if not pipe_path.exists() or args.force:
-        pipe_path.write_text(
-            _render_template("pipeline.yaml", replacements), encoding="utf-8"
-        )
+        content = _render_template("pipeline.yaml", replacements)
+        if content is not None:
+            pipe_path.write_text(content, encoding="utf-8")
 
     # publishers.yaml
     pub_path = config_dir / "publishers.yaml"
     if not pub_path.exists() or args.force:
-        pub_path.write_text(
-            _render_template("publishers.yaml", replacements), encoding="utf-8"
-        )
+        content = _render_template("publishers.yaml", replacements)
+        if content is not None:
+            pub_path.write_text(content, encoding="utf-8")
 
     # .gitignore
     gitignore = target / ".gitignore"
     if not gitignore.exists() or args.force:
-        gitignore.write_text(
-            (_TEMPLATES_DIR / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        content = _read_template(".gitignore")
+        if content is not None:
+            gitignore.write_text(content, encoding="utf-8")
 
     # .env.example (workspace-level Dataverse credentials template)
     env_example = target / ".env.example"
     if not env_example.exists() or args.force:
-        env_example.write_text(
-            (_TEMPLATES_DIR / ".env.example").read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        content = _read_template(".env.example")
+        if content is not None:
+            env_example.write_text(content, encoding="utf-8")
 
     # requirements.txt
     req_path = target / "requirements.txt"
     if not req_path.exists() or args.force:
-        req_path.write_text(
-            (_TEMPLATES_DIR / "requirements.txt").read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        content = _read_template("requirements.txt")
+        if content is not None:
+            req_path.write_text(content, encoding="utf-8")
 
     # metadata_py __init__.py files
     for subdir in ("tables", "forms", "views", "ribbons", "roles", "optionsets", "solutions"):
@@ -336,7 +359,13 @@ def cmd_workspace_init(args: argparse.Namespace) -> int:
     print(f"  ribbon_solution: {ribbon_sol}")
     print("\nNext steps:")
     print(f"  1. Edit {target / 'config' / 'environments.yaml'} with your Dataverse URLs")
-    print("  2. Copy .env.example to .env and fill in Dataverse credentials")
+    if env_example.exists():
+        print("  2. cp .env.example .env, then fill in DEV_* credentials")
+    else:
+        print(
+            "  2. Export DEV_CLIENT_ID / DEV_CLIENT_SECRET / DEV_TENANT_ID "
+            "(.env.example template unavailable — see the [warn] above)"
+        )
     print("  3. Review config/publishers.yaml (publisher prefix & naming rules)")
     print(f"  4. Create table definitions in {ws.tables_dir}")
     print("  5. Run: pp list")
