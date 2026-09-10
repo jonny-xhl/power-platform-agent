@@ -105,6 +105,14 @@ def emit_column(col: Column) -> str:
         kwargs.append(f"max_value={col.max_value!r}")
     if col.default_value is not None:
         kwargs.append(f"default_value={col.default_value!r}")
+    # ADR-009/ADR-014: a Picklist bound to a GLOBAL optionset must carry
+    # ``optionset_name`` so deploy emits ``GlobalOptionSet@odata.bind``.
+    # ``options`` is still emitted (snapshot for data-dictionary generation),
+    # but the name is what decides bind-vs-inline semantics. Without this the
+    # reversed source silently downgrades a global optionset to a local one
+    # and re-deploying to a fresh environment duplicates the optionset.
+    if col.optionset_name:
+        kwargs.append(f"optionset_name={col.optionset_name!r}")
     if col.options:
         kwargs.append("options=[" + ", ".join(_emit_option(o) for o in col.options) + "]")
     if col.boolean_labels is not None:

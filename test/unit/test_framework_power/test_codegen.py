@@ -3,7 +3,7 @@
 import pytest
 
 from framework_power import Column, LookupColumn, Relationship, Table, table_to_python_source
-from framework_power.codegen import emit_label
+from framework_power.codegen import emit_column, emit_label
 from framework_power.models import (
     AttributeType,
     BooleanLabels,
@@ -73,3 +73,39 @@ def test_table_to_python_source_round_trips():
     assert len(t2.relationships) == 1
     assert t2.relationships[0].cascade.delete == Cascade.RemoveLink
     assert t2.relationships[0].lookup.target_entity == "account"
+
+
+def test_emit_column_preserves_global_optionset_name():
+    """A Picklist bound to a global optionset must round-trip ``optionset_name``.
+
+    Regression: ``emit_column`` used to emit only ``options=``, silently
+    downgrading a global optionset to a local one on every reverse export —
+    re-deploying to a fresh environment would then duplicate the optionset
+    (ADR-009 / ADR-014 bind semantics lost).
+    """
+    col = Column(
+        "new_SyncStatus",
+        AttributeType.Picklist,
+        display_name=Label.bilingual("同步状态", "Sync Status"),
+        optionset_name="new_sync_status",
+        options=[Option(279640000, Label.zh("未同步"))],
+    )
+    src = emit_column(col)
+
+    assert "optionset_name='new_sync_status'" in src
+    # Options snapshot is retained alongside the name (needed for doc generation).
+    assert "options=[" in src
+
+
+def test_emit_column_omits_optionset_name_for_local_picklist():
+    """A local (entity-bound) Picklist has no ``optionset_name`` — inline only."""
+    col = Column(
+        "new_Status",
+        AttributeType.Picklist,
+        display_name=Label.bilingual("状态", "Status"),
+        options=[Option(1, Label.bilingual("草稿", "Draft"))],
+    )
+    src = emit_column(col)
+
+    assert "optionset_name" not in src
+    assert "options=[" in src

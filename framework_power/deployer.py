@@ -589,7 +589,13 @@ def plan_table(
                 "update": [item["value"] for item in option_diff["update"]],
                 "remote_only_retained": option_diff["remote_only"],
             }
-        elif optionset_changed(col, existing):
+        # A Picklist bound to a GLOBAL optionset (``optionset_name`` set) does not
+        # own its options — they live on the shared optionset and must not be
+        # diffed here. Mirrors the deploy path (which also gates on
+        # ``not col.optionset_name``). Without this gate, ``existing`` comes from
+        # the polymorphic /Attributes endpoint that carries no OptionSet data,
+        # so every global-optionset field is falsely reported as changed.
+        elif not col.optionset_name and optionset_changed(col, existing):
             result["attributes"].append(
                 {"attribute": col.schema_name, "action": "manual_update_required"}
             )

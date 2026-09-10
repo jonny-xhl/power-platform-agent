@@ -92,3 +92,46 @@ optionsets) and document generation (global optionsets) without redundant fetche
   updated `ensure_optionset_docs()` with `prefetched=` parameter
 - `framework_power/cli.py` — `_reverse_to_dictionary()` passes prefetched data
 - `test/unit/test_framework_power/test_reverse.py` — Updated `ReverseFakeClient`, test data, assertions
+
+## Addendum (2026-09-09): Two downstream round-trip gaps closed
+
+ADR-010 fixed the *fetch* side. Two consumers of that data were still broken and
+surfaced during a `reverse` of `new_quote` (客户报价申请):
+
+### Gap 1 — `codegen.emit_column` dropped `optionset_name`
+
+`reverse.py` correctly set `Column.optionset_name` for global optionsets, but
+`codegen.emit_column()` only ever emitted `options=` — the name never reached the
+generated `.py`. Every reverse export therefore **silently downgraded a global
+optionset to a local one**: re-deploying the reversed file to a fresh environment
+would create a duplicate local optionset instead of binding the shared global one
+(violating ADR-009/ADR-014).
+
+Fix: emit `optionset_name='...'` when set, *and* keep `options=` (needed by
+`build_prefetched_optionsets()` for doc generation). The name decides
+bind-vs-inline semantics; the options are only a snapshot.
+
+### Gap 2 — `plan` flagged every global-optionset field as `manual_update_required`
+
+Like ADR-010's original bug, `plan_table()` took `existing_attrs` from the
+polymorphic `/Attributes` endpoint (no `OptionSet` data) and passed it to
+`optionset_changed()`. Local said "3 options", remote said "0" → false positive
+on 4 of 4 global-optionset fields.
+
+Fix: gate the `optionset_changed()` branch on `not col.optionset_name`, mirroring
+the deploy path (which already did this). Options of a global optionset are owned
+by the shared optionset, not by the table — they must not be diffed per-table.
+
+### Verification
+
+After both fixes, `pp plan new_quote --env dev` went from
+`14 would_create / 8 rels would_create / 4 manual_update_required` to
+**0 creates, 0 manual_update_required** — local definition and environment are
+now byte-for-byte in sync.
+
+### Files Changed (addendum)
+
+- `framework_power/codegen.py` — `emit_column()` emits `optionset_name`
+- `framework_power/deployer.py` — plan path gates `optionset_changed()` on `not col.optionset_name`
+- `test/unit/test_framework_power/test_codegen.py` — 2 new tests (global + local picklist emission)
+- `test/unit/test_framework_power/test_plan.py` — 1 new test (global optionset not flagged)

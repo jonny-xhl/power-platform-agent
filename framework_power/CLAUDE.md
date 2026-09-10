@@ -224,6 +224,15 @@ client-credentials，token 缓存于 `.pp-local/state/tokens.json`。
   **已于 2026-08-21 迁移为 bind 语法**（`deployer` 先行 resolve MetadataId 再传入
   `global_optionset_ids`；无法解析时回退内联块），并 live 验证
   （new_rollingforecast.new_IsSplitRecord → new_isornotselect，204 created）。
+- **【2026-09-09 修复】`reverse` → 本地 → `deploy` 全链路曾丢 `optionset_name`**（ADR-010 addendum）：
+  - `codegen.emit_column()` 原来**只输出 `options=`、从不输出 `optionset_name=`**，导致每次
+    reverse 都把**全局选项集静默降级为本地内联**——拿这份定义去新环境 deploy 会**重复建选项集**。
+    已修：`optionset_name` 与 `options` 同时输出（前者决定 bind/内联语义，后者仅供文档生成）。
+  - `plan` 路径曾用多态 `/Attributes` 的结果（**无 OptionSet 数据**）去跑 `optionset_changed()`，
+    于是"本地 N 个选项 vs 远端 0 个"→ 4/4 全局选项集字段全报 `manual_update_required`（误报）。
+    已修：`elif not col.optionset_name and optionset_changed(...)`，与 deploy 路径一致——
+    **全局选项集的选项不由本表定义管理，不做 per-table diff**。
+  - 判据：`pp plan <table>` 出现 `manual_update_required` 且字段带 `optionset_name` → 属旧版误报，升级引擎。
 - **`_ATTRIBUTE_ODATA_TYPES` 已覆盖 Lookup 家族**（Lookup/Owner/Customer/PartyList →
   `LookupAttributeMetadata`，及 State/Status/EntityName/Uniqueidentifier/Image）：
   typed GET / `update_attribute_by_logical_name`（如必填级调整）对这些类型可用；

@@ -136,3 +136,39 @@ def test_plan_new_attribute_is_create():
     actions = {a["attribute"]: a["action"] for a in plan["attributes"]}
     assert actions["new_Name"] == "would_skip"
     assert actions["new_Amount"] == "would_create"
+
+
+def test_plan_global_optionset_picklist_is_not_manual_update():
+    """A Picklist bound to a global optionset must not be flagged as changed.
+
+    Regression: ``plan`` fed ``optionset_changed()`` the attribute dict from the
+    polymorphic /Attributes endpoint, which carries no ``OptionSet`` data
+    (ADR-010). Every global-optionset field therefore looked like "local has N
+    options, remote has 0" and was reported ``manual_update_required``. Options
+    of a global optionset are owned by the shared optionset, not by this table,
+    so they must not be diffed here — mirroring the deploy path.
+    """
+    table = Table(
+        schema_name="new_X",
+        display_name=Label.zh("X"),
+        columns=[
+            Column(
+                "new_sap_sync_status",
+                AttributeType.Picklist,
+                display_name=Label.bilingual("SAP同步状态", "SAP Sync Status"),
+                optionset_name="new_sync_status",
+                options=[Option(279640000, Label.zh("未同步"))],
+            )
+        ],
+    )
+    # Realistic polymorphic-endpoint payload: NO "OptionSet" key at all.
+    existing = [{
+        "LogicalName": "new_sap_sync_status",
+        "RequiredLevel": {"Value": "None"},
+        "DisplayName": serialize_label(Label.bilingual("SAP同步状态", "SAP Sync Status")),
+    }]
+
+    entry = plan_table(PlanFakeClient(exists=True, attrs=existing), table)["attributes"][0]
+
+    assert entry["action"] != "manual_update_required"
+    assert entry["action"] in {"would_skip", "would_patch"}
