@@ -6,8 +6,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from framework_power.webresource_sync import ALIASES_FILENAME, load_aliases
 from framework_power.workspace import (
     DEFAULT_DIRS,
+    STANDARD_FILES,
+    WEBRESOURCE_ALIASES_FILENAME,
     NotInWorkspaceError,
     Workspace,
     WorkspaceManifest,
@@ -292,6 +295,65 @@ def test_ensure_dirs(tmp_path):
     # ensure_dirs is called during create, so all dirs should exist
     for key in DEFAULT_DIRS:
         assert ws.path(key).exists()
+
+
+# ---------------------------------------------------------------------------
+# Standard files (new-workspace parity for every engine feature)
+# ---------------------------------------------------------------------------
+
+
+def test_init_seeds_standard_files(tmp_path):
+    """A freshly initialised workspace already supports features needing standard files."""
+    ws = Workspace.create_from_template(tmp_path / "seed", name="seed")
+    for path in ws.standard_files():
+        assert path.exists(), f"init did not seed {path}"
+
+
+def test_seeded_alias_table_is_empty_and_usable(tmp_path):
+    """The seed must be a valid, behaviour-neutral table: no aliases == convention for all."""
+    ws = Workspace.create_from_template(tmp_path / "seed2", name="seed2")
+    seeded = (ws.webresources_root / ALIASES_FILENAME).read_text(encoding="utf-8")
+    assert seeded.strip() == "{}"
+    assert load_aliases(ws.webresources_root) == {}  # parses (a malformed seed would raise)
+
+
+def test_ensure_files_is_idempotent_and_never_overwrites(tmp_path):
+    ws = Workspace.create_from_template(tmp_path / "keep", name="keep")
+    table = ws.webresources_root / ALIASES_FILENAME
+    table.write_text('{"html/orders.html": "new_Orders.html"}\n', encoding="utf-8")
+    ws.ensure_files()
+    assert load_aliases(ws.webresources_root) == {"html/orders.html": "new_Orders.html"}
+
+
+def test_standard_files_follow_manifest_dir_overrides(tmp_path):
+    """A relocated webresources dir must not strand the seeded file at the default path."""
+    ws = Workspace.create_from_template(
+        tmp_path / "moved", name="moved", extra_dirs={"webresources": "assets"}
+    )
+    assert (ws.webresources_root / ALIASES_FILENAME).exists()
+    assert (ws.root / "assets" / ALIASES_FILENAME).exists()
+
+
+def test_alias_filename_has_a_single_definition():
+    """The name is one constant, re-exported by the flow that parses it."""
+    assert ALIASES_FILENAME == WEBRESOURCE_ALIASES_FILENAME
+    assert ALIASES_FILENAME in STANDARD_FILES
+
+
+def test_info_lists_standard_files(tmp_path):
+    ws = Workspace.create_from_template(tmp_path / "info", name="info")
+    (ws.webresources_root / ALIASES_FILENAME).unlink()
+    entry = next(
+        f for f in ws.to_dict()["standard_files"] if f["path"].endswith(ALIASES_FILENAME)
+    )
+    assert entry["exists"] is False  # surfaced, not silently missing
+
+
+def test_validate_treats_standard_files_as_optional(tmp_path):
+    """Absence of the alias table must stay non-fatal — most projects never need one."""
+    ws = Workspace.create_from_template(tmp_path / "opt", name="opt")
+    (ws.webresources_root / ALIASES_FILENAME).unlink()
+    assert not any(ALIASES_FILENAME in issue for issue in ws.validate())
 
 
 # ---------------------------------------------------------------------------

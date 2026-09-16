@@ -74,6 +74,24 @@ v = vx.add_condition(v, "new_status", "in", values=["1", "2"])  # 多值 <value>
 - 视图可有**多个并列顶层 `<filter>`**（隐式 AND）——模型里是 `View.filters: list`。
 - `set_filter(view, ViewFilter(...))` 替换；`add_link_entity(...)` 加连接（其列用 `alias.attr` 引用）。
 
+### `null` / `not-null` 条件的正确构造（易错，2026-09-11 live 验证）
+
+"只取某字段为空的记录"这类需求（如**最新版本 = 版本号字段为空**）要用 `operator='null'`。
+该条件的 XML **不带 value 属性**：
+
+```python
+# 追加一个"为空"条件（推荐直接写 ViewCondition，或在现有 filter 上 append）
+from framework_power import ViewCondition
+view.filters[0].conditions.append(
+    ViewCondition(attribute="new_versionno", operator="null", value=None, values=[], attrs={})
+)
+# → <condition attribute="new_versionno" operator="null" />
+```
+
+- ⚠️ **不要写 `value=''`**：会产出 `value=""`，语义虽仍为空值，但 XML 不干净、与原生视图不一致。
+- 机制：`view_xml._serialize_condition` **仅在 `value is not None` 时才 set value** —— 这是往返保真的关键。
+- 同理 `not-null` 也是无值 operator；`in`/`between` 才用多个 `<value>` 子元素。
+
 ## 发布语义（关键，已 live 验证）
 
 - 改了 fetchxml/layoutxml **需 `PublishXml` 才生效**，范围是**实体**（不是单个视图）：
@@ -92,6 +110,27 @@ python -m framework_power view deploy <file> --env dev [--solution NAME] [--no-p
 python -m framework_power view reverse <entity> --env dev [--views-dir DIR]
 # 默认 --views-dir metadata_py/views/；逆向每视图一个文件，导出 VIEW
 ```
+
+### 批量改多个视图时直接调 API（2026-09-11 实践）
+
+`view plan` / `view deploy` **只吃单个文件**。同一实体的多个视图改同一类条件时（如 4 个公共视图都加
+"最新版本"过滤），用 Python API 更省事，也避开**中文文件名经 shell 传参**在 Windows 的编码风险：
+
+```python
+from framework_power.view_sync import plan_views, sync_views
+
+plan_views(client, views, prefix="new")                                # 只读预演（结构化模型 diff）
+sync_views(client, views, prefix="new", solution=None, publish=True)   # 批量 create/update + 实体级发布
+```
+
+- `sync_views` 对未改动视图返回 `skipped_unchanged`，天然幂等；`publish=True` 会对变更实体做一次 `PublishXml`。
+- 加载本地视图文件：`importlib.util.spec_from_file_location` 逐个 exec，取 `m.VIEW`（中文文件名走 Python 无编码问题）。
+- ⚠️ **视图归属要确认，但判断方法有坑**：视图变更要随方案传到 UAT/PROD，前提是视图在方案里。
+  **不能只看** `solutioncomponents?$filter=_solutionid_value eq <sid> and componenttype eq 26` ——
+  该表只列**显式添加**的组件；实体若以 `rootcomponentbehavior=0`（**包含子组件**）在方案里，
+  其视图/窗体/属性**不单独建记录，也仍然随方案导出**。
+  正确判据：查**实体组件记录**的 `rootcomponentbehavior`（0=IncludeSubcomponents），详见 `dv-solution-python` 技能。
+  对实体的子组件调 `AddSolutionComponent` 是**幂等**的（返回根组件记录 id，不新建记录）。
 
 ## 工作流
 

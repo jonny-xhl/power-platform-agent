@@ -426,3 +426,83 @@ def test_build_attribute_patch_ignores_label_metadataid_noise():
         "DisplayName": desired_label,
     }
     assert build_attribute_patch(col, existing) is None
+
+
+# ------------------------------------------------- picklist default value (ADR-017)
+
+
+def _motorcycle_mark_col(*, default_value=2) -> Column:
+    return Column(
+        "new_MotorcycleMark", AttributeType.Picklist,
+        display_name=Label.bilingual("电摩/非电摩标记", "Motorcycle Mark"),
+        required=RequiredLevel.ApplicationRequired,
+        default_value=default_value,
+        options=[
+            Option(1, Label.bilingual("电摩", "E-Motorcycle")),
+            Option(2, Label.bilingual("非电摩", "Non E-Motorcycle")),
+        ],
+    )
+
+
+def test_serialize_picklist_emits_default_form_value():
+    """A picklist default is written as ``DefaultFormValue``.
+
+    ``DefaultValue`` is a Boolean-only property: emitting that name instead made
+    Dataverse ignore it, so every declared picklist default was silently dropped
+    and the column was created with "no default".
+    """
+    out = serialize_column(_motorcycle_mark_col())
+    assert out["DefaultFormValue"] == 2
+    assert "DefaultValue" not in out
+
+
+def test_serialize_picklist_global_bound_still_carries_default():
+    """The default lives on the attribute, so a global-bound picklist keeps it too."""
+    col = Column(
+        "new_Flag", AttributeType.Picklist,
+        display_name=Label.en("Flag"),
+        default_value=1,
+        optionset_name="new_isornotselect",
+    )
+    out = serialize_column(col, global_optionset_ids={"new_isornotselect": "osid-9"})
+    assert out["GlobalOptionSet@odata.bind"] == "/GlobalOptionSetDefinitions(osid-9)"
+    assert out["DefaultFormValue"] == 1
+
+
+def test_serialize_picklist_no_default_omits_property():
+    """``None`` means "no default" — the property must not be sent as -1 or 0."""
+    col = _motorcycle_mark_col(default_value=None)
+    assert "DefaultFormValue" not in serialize_column(col)
+
+
+def test_serialize_picklist_boolean_default_is_ignored(caplog):
+    """``default_value=False`` on a picklist is an authoring mistake.
+
+    ``False`` coerces to option value 0, which is rarely a real option, so it is
+    skipped with a warning rather than pushed to Dataverse.
+    """
+    col = _motorcycle_mark_col(default_value=False)
+    with caplog.at_level("WARNING"):
+        out = serialize_column(col)
+    assert "DefaultFormValue" not in out
+    assert any("boolean default_value" in r.getMessage() for r in caplog.records)
+
+
+def test_serialize_updatable_picklist_includes_default_form_value():
+    """The patch overlay must carry DefaultFormValue, or deploy can never fix a drift."""
+    assert serialize_updatable(_motorcycle_mark_col())["DefaultFormValue"] == 2
+
+
+def test_build_attribute_patch_detects_default_form_value_drift():
+    """-1 (Dataverse's "no default") is a real drift; a matching value is not."""
+    col = _motorcycle_mark_col()
+    existing = {
+        "LogicalName": "new_motorcyclemark",
+        "DefaultFormValue": 2,
+        "RequiredLevel": {"Value": "ApplicationRequired"},
+        "DisplayName": serialize_label(col.display_name),
+    }
+    assert "DefaultFormValue" not in (build_attribute_patch(col, existing) or {})
+
+    drifted = dict(existing, DefaultFormValue=-1)
+    assert build_attribute_patch(col, drifted)["DefaultFormValue"] == 2

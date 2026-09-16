@@ -1,6 +1,7 @@
 """Unit tests for framework_power.webresource_sync (fake client, no network)."""
 
 import base64
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -8,7 +9,9 @@ import pytest
 
 from framework_power import WebResourceType
 from framework_power.webresource_sync import (
+    ALIASES_FILENAME,
     EXT_TO_TYPE,
+    load_aliases,
     relpath_from_name,
     scan_webresources,
     sync_webresources,
@@ -109,6 +112,81 @@ def test_scan_include_none_means_all(tmp_path):
     assert len(models) == 2
     models, _ = scan_webresources(tmp_path, "new", include=[])
     assert len(models) == 2
+
+
+# ----------------------------------------------------------------- aliases
+
+
+def _write_aliases(root: Path, mapping: Any) -> None:
+    (root / ALIASES_FILENAME).write_text(json.dumps(mapping), encoding="utf-8")
+
+
+def test_load_aliases_missing_file_is_empty(tmp_path):
+    assert load_aliases(tmp_path) == {}
+
+
+def test_load_aliases_reads_table(tmp_path):
+    _write_aliases(tmp_path, {"html/orders.html": "new_Orders.html"})
+    assert load_aliases(tmp_path) == {"html/orders.html": "new_Orders.html"}
+
+
+@pytest.mark.parametrize("bad", ["not json", '{"a.html": ""}', '{"a.html": null}', "[1, 2]"])
+def test_load_aliases_rejects_malformed(tmp_path, bad):
+    """Falling back silently would create the duplicate the table exists to prevent."""
+    (tmp_path / ALIASES_FILENAME).write_text(bad, encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_aliases(tmp_path)
+
+
+def test_scan_uses_alias_for_listed_file_and_convention_for_new_ones(tmp_path):
+    _write(tmp_path, "html/orders.html", b"legacy")
+    _write(tmp_path, "js/brand_new.js", b"fresh")
+    _write_aliases(tmp_path, {"html/orders.html": "new_Orders.html"})
+    models, warnings = scan_webresources(tmp_path, "new")
+    by_name = {m.name: m.content for m in models}
+    assert by_name == {
+        "new_Orders.html": base64.b64encode(b"legacy").decode("ascii"),
+        "new_/js/brand_new.js": base64.b64encode(b"fresh").decode("ascii"),
+    }
+    assert warnings == []
+
+
+def test_scan_does_not_treat_the_aliases_file_as_a_resource(tmp_path):
+    _write(tmp_path, "js/a.js", b"a")
+    _write_aliases(tmp_path, {"js/a.js": "new_a.js"})
+    models, warnings = scan_webresources(tmp_path, "new")
+    assert [m.name for m in models] == ["new_a.js"]
+    assert warnings == []  # no "unrecognized extension '.json'" either
+
+
+def test_scan_warns_on_alias_key_matching_no_file(tmp_path):
+    _write(tmp_path, "js/a.js", b"a")
+    _write_aliases(tmp_path, {"js/typo.js": "new_typo.js"})
+    _, warnings = scan_webresources(tmp_path, "new")
+    assert any("js/typo.js" in w and "matches no file" in w for w in warnings)
+
+
+def test_scan_alias_key_check_suppressed_when_include_filters(tmp_path):
+    _write(tmp_path, "js/a.js", b"a")
+    _write(tmp_path, "js/b.js", b"b")
+    _write_aliases(tmp_path, {"js/b.js": "new_b.js"})
+    _, warnings = scan_webresources(tmp_path, "new", include=["js/a.js"])
+    assert warnings == []  # b.js is hidden by include, not a typo
+
+
+def test_scan_warns_when_alias_lacks_publisher_prefix(tmp_path):
+    """Otherwise deploy() skips it as a standard resource and the sync silently no-ops."""
+    _write(tmp_path, "js/a.js", b"a")
+    _write_aliases(tmp_path, {"js/a.js": "other_a.js"})
+    models, warnings = scan_webresources(tmp_path, "new")
+    assert [m.name for m in models] == ["other_a.js"]
+    assert any("publisher prefix" in w for w in warnings)
+
+
+def test_scan_accepts_injected_aliases_without_a_file(tmp_path):
+    _write(tmp_path, "js/a.js", b"a")
+    models, _ = scan_webresources(tmp_path, "new", aliases={"js/a.js": "new_a.js"})
+    assert [m.name for m in models] == ["new_a.js"]
 
 
 # ----------------------------------------------------------------- fake client
@@ -248,3 +326,39 @@ def test_reverse_passes_custom_name_prefix(tmp_path):
     res = reverse_webresources(client, tmp_path, prefix="new", name_prefix="new_/css/")
     assert client.listed_prefix == "new_/css/"  # custom scope passed through to client
     assert res["name_prefix"] == "new_/css/"
+
+
+# ----------------------------------------------------------------- aliases: sync / reverse
+
+
+def test_sync_updates_the_legacy_record_instead_of_creating_a_duplicate(tmp_path):
+    """The whole point of the alias table: no duplicate, callers keep working."""
+    _write(tmp_path, "html/orders.html", b"v2")
+    _write_aliases(tmp_path, {"html/orders.html": "new_Orders.html"})
+    client = SyncFakeClient(existing={"new_Orders.html": {"webresourceid": "wr-legacy"}})
+    res = sync_webresources(client, tmp_path, prefix="new")
+    assert not client.created
+    assert client.updated and client.updated[0][0] == "wr-legacy"
+    assert res["synced"][0]["deploy"]["action"] == "updated"
+
+
+def test_plan_reports_the_aliased_name(tmp_path):
+    _write(tmp_path, "html/orders.html", b"v2")
+    _write_aliases(tmp_path, {"html/orders.html": "new_Orders.html"})
+    client = SyncFakeClient(existing={"new_Orders.html": {"webresourceid": "wr-legacy"}})
+    res = plan_webresources(client, tmp_path, prefix="new")
+    assert {f["name"]: f["plan"]["action"] for f in res["files"]} == {
+        "new_Orders.html": "would_update"
+    }
+
+
+def test_reverse_maps_an_aliased_name_back_to_its_relpath(tmp_path):
+    payload = base64.b64encode(b"legacy body").decode("ascii")
+    _write_aliases(tmp_path, {"html/orders.html": "new_Orders.html"})
+    client = SyncFakeClient(
+        by_prefix=[{"name": "new_Orders.html", "webresourceid": "1", "content": payload}]
+    )
+    res = reverse_webresources(client, tmp_path, prefix="new", name_prefix="new_")
+    assert (tmp_path / "html" / "orders.html").read_bytes() == b"legacy body"
+    assert not (tmp_path / "Orders.html").exists()  # not the naive prefix-strip fallback
+    assert res["written"]

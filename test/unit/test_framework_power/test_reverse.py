@@ -268,6 +268,41 @@ def test_reverse_picklist_local_options_preserved():
     assert col.optionset_name is None  # local, not global
 
 
+def _picklist_attrs_with_default(value: int) -> list[dict]:
+    """_PICKLIST_ATTRS with ``DefaultFormValue`` set on the local picklist."""
+    attrs = [dict(a) for a in _PICKLIST_ATTRS]
+    for a in attrs:
+        if a["LogicalName"] == "new_localstatus":
+            a["DefaultFormValue"] = value
+    return attrs
+
+
+def test_reverse_picklist_reads_default_form_value():
+    """A picklist default lives in ``DefaultFormValue``, not ``DefaultValue``.
+
+    Reading the Boolean-only property name silently dropped every declared default:
+    reverse produced a Column with ``default_value=None``, so the default was lost
+    from then on and never came back on a deploy.
+    """
+    client = ReverseFakeClient(_PICKLIST_ENTITY, _picklist_attrs_with_default(2), [])
+    table = reverse_table(client, "new_testpicklist")
+
+    col = next(c for c in table.columns if c.schema_name == "new_LocalStatus")
+    assert col.default_value == 2
+
+
+def test_reverse_picklist_no_default_sentinel_normalised_to_none():
+    """Dataverse reports ``-1`` for "no default" — it must reverse to ``None``.
+
+    Carrying -1 through would make the next deploy push a bogus default of -1.
+    """
+    client = ReverseFakeClient(_PICKLIST_ENTITY, _picklist_attrs_with_default(-1), [])
+    table = reverse_table(client, "new_testpicklist")
+
+    col = next(c for c in table.columns if c.schema_name == "new_LocalStatus")
+    assert col.default_value is None
+
+
 def test_reverse_picklist_global_captures_name_and_options():
     """Global Picklist stores optionset_name AND options (for optionset doc generation).
 

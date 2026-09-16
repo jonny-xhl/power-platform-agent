@@ -71,6 +71,21 @@ REQUIRED_DIR_KEYS: tuple[str, ...] = (
     "config",
 )
 
+# Canonical name of the web resource name-override table (see
+# ``webresource_sync.load_aliases``). Lives at the webresources root; declared here because
+# it is a standard workspace artifact, not a detail of one flow.
+WEBRESOURCE_ALIASES_FILENAME = "webresources.aliases.json"
+
+# Standard files a workspace is expected to contain: filename -> (DEFAULT_DIRS key it lives
+# under, seed content). ``ensure_files`` seeds these on init so a freshly created workspace
+# supports every engine feature without manual setup. An empty override table means "every
+# file follows the convention", so seeding it is behaviour-neutral for new projects while
+# documenting the mechanism to whoever needs it later. Optional-by-design files are seeded
+# but never *required* by ``validate`` — absence must stay non-fatal.
+STANDARD_FILES: dict[str, tuple[str, str]] = {
+    WEBRESOURCE_ALIASES_FILENAME: ("webresources", "{}\n"),
+}
+
 
 class NotInWorkspaceError(Exception):
     """Raised when no ``pp-workspace.yaml`` is found."""
@@ -203,6 +218,9 @@ class Workspace:
         ws._resolve_paths()
         if ensure_dirs:
             ws.ensure_dirs()
+            # Directories alone are not a usable workspace: seed the standard files too, so a
+            # freshly initialised workspace supports every engine feature out of the box.
+            ws.ensure_files()
         return ws
 
     @classmethod
@@ -353,6 +371,21 @@ class Workspace:
             if p is not None:
                 p.mkdir(parents=True, exist_ok=True)
 
+    def standard_files(self) -> dict[Path, str]:
+        """Resolved path -> seed content for every entry in :data:`STANDARD_FILES`."""
+        return {
+            self.path(dir_key) / filename: content
+            for filename, (dir_key, content) in STANDARD_FILES.items()
+        }
+
+    def ensure_files(self) -> None:
+        """Seed missing standard files (idempotent; **never** overwrites an existing file)."""
+        for path, content in self.standard_files().items():
+            if path.exists():
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+
     def write_manifest(self) -> None:
         """Write the current manifest back to ``pp-workspace.yaml``."""
         lines: list[str] = [
@@ -392,6 +425,12 @@ class Workspace:
             "root": str(self.root),
             "manifest": self.manifest.to_dict(),
             "paths": {k: str(v) for k, v in sorted(self._paths.items())},
+            # Surfaced so ``pp workspace info`` makes the standard files (and whether this
+            # workspace actually has them) discoverable without reading engine source.
+            "standard_files": [
+                {"path": str(p), "exists": p.exists()}
+                for p in sorted(self.standard_files())
+            ],
             "validation": self.validate(),
         }
 
@@ -426,6 +465,8 @@ __all__ = [
     "MANIFEST_FILENAME",
     "DEFAULT_DIRS",
     "REQUIRED_DIR_KEYS",
+    "STANDARD_FILES",
+    "WEBRESOURCE_ALIASES_FILENAME",
     "NotInWorkspaceError",
     "WorkspaceManifest",
     "Workspace",

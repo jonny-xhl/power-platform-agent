@@ -820,6 +820,33 @@ CLI `pp sitemap apps|show|plan|add-entity|remove-entity`。详见
 > **只能**靠 `workspace init` 生成配置——所以模板文件必须真的在版本库里，否则 onboarding
 > 直接断链。
 
+### 9.16 Picklist 默认值域（已 live 踩坑，2026-09-16 PO 表新增「电摩/非电摩标记」）
+
+**根因：`DefaultValue` 是 Boolean 专用属性，Picklist 用的是 `DefaultFormValue`。** 三处都写错了
+名字，导致本地声明的 `default_value` 在**创建 / 补丁 / 反向**三个方向全部静默失效（详见 ADR-017）：
+
+| 层 | 原状 | 后果 |
+|---|---|---|
+| `serializer.serialize_column` | Picklist 分支**根本不输出**默认值 | 建出来的字段「无默认值」，输出只有 `1 created`，**零报错** |
+| `_UPDATABLE_BY_TYPE[Picklist]` | 白名单里没有该键 | 环境默认值漂移时 `plan` 报 `would_skip`，永远修不回来 |
+| `reverse.py` Picklist 分支 | 读 `DefaultValue` → 恒为 `None` | 环境里的默认值反向不回来，本地永远缺这一项 |
+
+- **`-1` 是"无默认值"哨兵值**（不是 0，也不是 None）。反向必须归一为 `None`，否则下一轮
+  deploy 会把 `-1` 推上去，且**每个无默认值的 Picklist 都会永久 `would_patch`**。
+  `new_advance_ratio_met` 就是 `-1`，是验证哨兵处理的现成样本。
+- **`bool` 是作者的错**：Picklist 上写 `default_value=True/False` 会被 `False == 0` 悄悄变成
+  选项值 0（而 `new_potype` 这类选项是 1/2）。serializer 现在**只告警不推送**——宁可少设一个
+  默认值，也不要推一个选项表里不存在的值。
+- **补丁路径不需要 typed fetch**（这点和 ADR-010 的 OptionSet 不同）：多态 `/Attributes`
+  **确实返回** `DefaultFormValue`（实测 `new_potype` → 1），所以直接拿 `get_attributes()` 的结果
+  比对即可，不会误报。
+- **一次性副作用**：修好之后，"本地声明了但一直被忽略"的默认值会在该表下次 deploy 时**真正生效**。
+  全库审计（21 张本地表）：15 个 Picklist 默认值，**只有 1 个会改变环境**
+  —— `new_invoiceappliction.new_taxrate`（本地 2 / 环境 None）。改引擎前后都要跑一遍这个审计。
+
+> 交叉引用：ADR-017（本域决策与验证）；ADR-010（同样是"多态端点缺数据"引发的误报，但那处
+> **必须**走 typed fetch，与本条相反）。
+
 ## 10. 如何扩展
 
 - **新增属性类型**：`models.AttributeType` + `serializer._ODATA_TYPE`/`_UPDATABLE_BY_TYPE`/per-type 分支

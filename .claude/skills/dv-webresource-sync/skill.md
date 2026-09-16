@@ -24,6 +24,23 @@ web 资源名 = **`{prefix}_/{relpath}`**，relpath = 文件相对根目录的�
 `js/order/test.js` → `new_/js/order/test.js`；`js/common/XRM.com.js` → `new_/js/common/XRM.com.js`。
 （环境里现有 28 个资源正是这个布局。）`webresourcetype`（1-11）独立由**文件扩展名**推导。
 
+### 遗留名：`webresources.aliases.json`（默认不存在，由 `init` 播种为 `{}`）
+
+约定**推不出**的既有资源名（历史上没按 `{prefix}_/{relpath}` 建的，例如环境里叫
+`new_Orders.html` 而本地文件在 `html/orders.html`）必须在 sync 根的这个表里**显式声明**：
+
+```json
+{ "html/orders.html": "new_Orders.html" }
+```
+
+键 = relpath（正斜杠，同 `--include` 的写法）；值 = 环境中**真实**的名字。命中的文件按表里的名
+同步 → `deploy` 按名查得到既有记录 → **更新它，而不是新建一个重复资源**。未列出的文件（含所有
+新增文件）继续走约定，**不需要任何登记**。`reverse` 也认这张表，往返落在同一个本地路径。
+
+不这么做会怎样：约定名 `new_/html/orders.html` 在环境里查不到 → `sync` **新建**一个重复资源，
+而你所有既有调用方（ribbon/form）仍然加载旧的 `new_Orders.html` —— 改了等于没改。
+**改完先 `plan`，确认是 `would_update` 而不是 `would_create`。**
+
 ## 类型映射（扩展名 → webresourcetype）
 
 `.js`→JScript(3)、`.css`→Css(2)、`.htm`/`.html`→WebPage(1)、`.xml`→Xml(4)、`.png`→Png(5)、
@@ -66,7 +83,10 @@ python -m framework_power webresource publish <name> [<name>...] --env dev  # �
 - `sync` 非破坏：只 create/update；未列出的 right/资源不动；delete 是独立的 `delete_webresource`
   客户端方法（用于显式清理），不在 `sync` 内。
 - `reverse` 默认按 `{prefix}_/` 收窄（只拉本发布商），避免拉全环境；可 `--name-prefix` 再收窄。
-- 名字必须以 `{prefix}_` 开头（`new_/...`）；否则视为标准组件跳过。
+- 名字必须以 `{prefix}_` 开头（`new_/...`）；否则视为标准组件跳过。**别名表的值也受此约束**
+  （缺前缀会在 `scan` 阶段 warning，否则 `deploy` 会把它当标准资源静默跳过）。
+- 别名表内容非法（不是 JSON 对象 / 值空 / 值非字符串）→ **`ValueError` 直接失败**，不回落成约定名
+  ——静默回落正是制造重复资源的那条路径。键拼错（没有对应文件）会 warning（`--include` 过滤时不报）。
 - content 是 base64 字符串；本地文件按**原始字节**读/写（逆向写字节保真，不转码）。
 - `True`/`False`（Python），不要 `true`/`false`。
 

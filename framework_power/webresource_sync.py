@@ -10,6 +10,12 @@ Naming convention (user-confirmed): the web resource name is ``{prefix}_/{relpat
 ``js/order/test.js`` -> ``new_/js/order/test.js``. The Dataverse ``webresourcetype`` code is
 derived independently from the file extension.
 
+Resources created *before* that convention was adopted keep their original names, which the
+convention cannot reproduce — syncing them would create duplicates under the conventional
+name while every existing caller still loads the old one. Those few names are declared
+explicitly in ``{root}/webresources.aliases.json`` (see :func:`load_aliases`); everything
+else, including every newly added file, follows the convention with no bookkeeping.
+
 Flows:
 - ``scan_webresources``  — dir -> ``[WebResource]`` (offline; name/type/base64 content).
 - ``plan_webresources``  — read-only (would_create / would_update per file).
@@ -26,6 +32,7 @@ from __future__ import annotations
 
 import base64
 import fnmatch
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -33,8 +40,10 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .components import webresource as wr_component
+from .components._common import is_custom
 from .components.models import WebResource, WebResourceType
 from .deployer import _is_already_exists
+from .workspace import WEBRESOURCE_ALIASES_FILENAME as ALIASES_FILENAME
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +112,43 @@ def webresource_name(relpath: str, prefix: str) -> str:
     return f"{prefix}_/{relpath.replace(chr(92), '/')}"
 
 
+def load_aliases(root: Path) -> dict[str, str]:
+    """Read the optional ``{relpath: dataverseName}`` override table from ``root``.
+
+    Resources created before the ``{prefix}_/{relpath}`` convention was adopted carry names
+    the convention cannot reproduce: a file at ``html/orders.html`` whose Dataverse name is
+    ``new_Orders.html`` would be derived as ``new_/html/orders.html``. Syncing it would
+    therefore *create* a duplicate under the conventional name while every existing caller
+    keeps loading the old one. Such names are declared explicitly in
+    ``{root}/webresources.aliases.json``:
+
+        {"html/orders.html": "new_Orders.html"}
+
+    Keys are relpaths (forward slashes, same form ``include`` uses); values are the exact
+    Dataverse name. Files absent from the table — including every newly added one — keep
+    following the convention.
+
+    Raises ``ValueError`` on malformed content rather than ignoring it: silently falling back
+    to the convention name is exactly the duplicate-creating failure this table prevents.
+    """
+    path = Path(root) / ALIASES_FILENAME
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ValueError(f"cannot read web resource aliases {path}: {e}") from e
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path} must contain a JSON object of {{relpath: name}}")
+
+    aliases: dict[str, str] = {}
+    for relpath, name in raw.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{path}: alias for {relpath!r} must be a non-empty string")
+        aliases[str(relpath).replace("\\", "/")] = name.strip()
+    return aliases
+
+
 def relpath_from_name(name: str, prefix: str) -> str:
     """Inverse of :func:`webresource_name`: strip the ``{prefix}_/`` marker.
 
@@ -122,7 +168,11 @@ def relpath_from_name(name: str, prefix: str) -> str:
 
 
 def scan_webresources(
-    root: Path, prefix: str, *, include: Optional[list[str]] = None
+    root: Path,
+    prefix: str,
+    *,
+    include: Optional[list[str]] = None,
+    aliases: Optional[dict[str, str]] = None,
 ) -> tuple[list[WebResource], list[str]]:
     """Walk ``root`` and build a :class:`WebResource` per recognized file.
 
@@ -132,35 +182,62 @@ def scan_webresources(
     ``include`` (optional) restricts the scan to files whose relpath (forward slashes)
     matches any fnmatch glob — e.g. ``["js/order/*.js"]`` syncs only those, not the whole
     tree. ``None``/empty scans everything.
+
+    ``aliases`` overrides the Dataverse name per relpath (see :func:`load_aliases`); when
+    omitted it is read from ``{root}/webresources.aliases.json``. Files without an entry use
+    the ``{prefix}_/{relpath}`` convention, so newly added files need no bookkeeping.
     """
     root = Path(root)
     if not root.is_dir():
         raise ValueError(f"web resource root is not a directory: {root}")
+    if aliases is None:
+        aliases = load_aliases(root)
 
     models: list[WebResource] = []
     warnings: list[str] = []
+    scanned: set[str] = set()
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
         rel = path.relative_to(root)
         # Skip dotfiles / dot-dirs (e.g. .git, .DS_Store).
         if any(part.startswith(".") for part in rel.parts):
             continue
         relpath = rel.as_posix()
+        # The override table is configuration, not a web resource.
+        if relpath == ALIASES_FILENAME:
+            continue
         if not _matches_include(relpath, include):
             continue
+        scanned.add(relpath)
         ext = path.suffix.lower()
         wrtype = EXT_TO_TYPE.get(ext)
         if wrtype is None:
             warnings.append(f"skipping unrecognized extension '{ext}': {path}")
             continue
+        alias = aliases.get(relpath)
+        if alias is not None and not is_custom(alias, prefix):
+            warnings.append(
+                f"alias '{alias}' for {relpath} lacks the '{prefix}_' publisher prefix; "
+                f"deploy will skip it as a standard resource"
+            )
         content = base64.b64encode(path.read_bytes()).decode("ascii")
         models.append(
             WebResource(
-                name=webresource_name(relpath, prefix),
+                name=alias or webresource_name(relpath, prefix),
                 display_name=path.name,
                 content=content,
                 webresource_type=wrtype,
             )
         )
+
+    # A key with no matching file is a typo: that file would silently fall back to the
+    # convention name and be created as a duplicate. Only checked on a full scan, since
+    # ``include`` legitimately hides files.
+    if not include:
+        for relpath in sorted(set(aliases) - scanned):
+            warnings.append(
+                f"alias key '{relpath}' matches no file under {root} — typo? "
+                f"it falls back to the convention name"
+            )
     return models, warnings
 
 
@@ -168,10 +245,15 @@ def scan_webresources(
 
 
 def plan_webresources(
-    client: Any, root: Path, *, prefix: str = "new", include: Optional[list[str]] = None
+    client: Any,
+    root: Path,
+    *,
+    prefix: str = "new",
+    include: Optional[list[str]] = None,
+    aliases: Optional[dict[str, str]] = None,
 ) -> dict[str, Any]:
     """Read-only dry run: per-file ``would_create`` / ``would_update`` / ``would_skip_standard``."""
-    models, warnings = scan_webresources(root, prefix, include=include)
+    models, warnings = scan_webresources(root, prefix, include=include, aliases=aliases)
     files: list[dict[str, Any]] = []
     for model in models:
         try:
@@ -194,16 +276,18 @@ def sync_webresources(
     publish: bool = True,
     config: WebResourceSyncConfig | None = None,
     include: Optional[list[str]] = None,
+    aliases: Optional[dict[str, str]] = None,
 ) -> dict[str, Any]:
     """Sync a local web-resource directory to Dataverse (non-destructive, idempotent).
 
     For each scanned file: create or update (PATCH base64 ``content``). When ``solution`` is
     given, add every synced resource to that solution (code 61; idempotent). When ``publish``
     is true, targeted-``PublishXml`` the synced resources so the new content goes live.
-    ``include`` restricts the scan to matching relpath globs (see :func:`scan_webresources`).
+    ``include`` restricts the scan to matching relpath globs (see :func:`scan_webresources`);
+    ``aliases`` keeps pre-convention Dataverse names (see :func:`load_aliases`).
     """
     cfg = config or WebResourceSyncConfig()
-    models, warnings = scan_webresources(root, prefix, include=include)
+    models, warnings = scan_webresources(root, prefix, include=include, aliases=aliases)
     result: dict[str, Any] = {
         "root": str(root),
         "synced": [],
@@ -268,9 +352,13 @@ def reverse_webresources(
 
     Scoped by ``name_prefix`` (default ``{prefix}_/`` — only this publisher's resources).
     Each resource's base64 ``content`` is decoded and written to ``<root>/{relpath}``.
+    Aliased names map back to their declared relpath so a round trip is stable; note that
+    legacy names outside the ``{prefix}_/`` scope need an explicit ``name_prefix`` to be
+    listed at all.
     """
     root = Path(root)
     scope = name_prefix or f"{prefix}_/"
+    relpath_by_name = {name: rel for rel, name in load_aliases(root).items()}
     resources = client.list_webresources_by_prefix(scope)
     result: dict[str, Any] = {"root": str(root), "name_prefix": scope, "written": [], "skipped": []}
     for res in resources:
@@ -279,7 +367,7 @@ def reverse_webresources(
         if not content_b64:
             result["skipped"].append({"name": name, "reason": "empty content"})
             continue
-        relpath = relpath_from_name(name, prefix)
+        relpath = relpath_by_name.get(name) or relpath_from_name(name, prefix)
         if not relpath or relpath == name:
             result["skipped"].append({"name": name, "reason": "cannot map to relpath"})
             continue

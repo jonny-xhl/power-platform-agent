@@ -215,8 +215,13 @@ def _attr_to_column(
             # Local / entity-bound (inline) optionset — populate options directly.
             if opts:
                 kwargs["options"] = opts
-        if attr.get("DefaultValue") is not None:
-            kwargs["default_value"] = attr.get("DefaultValue")
+        # Picklist defaults live in ``DefaultFormValue`` — not ``DefaultValue``, which
+        # is a Boolean-only property (ADR-017).  Dataverse reports ``-1`` for "no
+        # default", so it must normalise back to ``None``; otherwise the round-trip
+        # would push a bogus ``-1`` default onto the next deploy.
+        raw_default = attr.get("DefaultFormValue")
+        if raw_default is not None and int(raw_default) != -1:
+            kwargs["default_value"] = int(raw_default)
     elif member is AttributeType.Boolean:
         optionset = attr.get("OptionSet") or {}
         true_label = _extract_label((optionset.get("TrueOption") or {}).get("Label"))

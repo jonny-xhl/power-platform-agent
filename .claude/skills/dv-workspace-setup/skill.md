@@ -34,17 +34,25 @@ pp workspace init \
   --main-solution con_MainSolution
 ```
 
-`pp workspace init` 自动创建：
+`pp workspace init` 在当前目录（上例的 `my-project/`，`--name` 只是清单里的名字，**不会**建同名子目录）
+自动创建：
 - `pp-workspace.yaml` — workspace 清单（锚文件）
-- `ninebot-project/config/` — 环境配置、pipeline 映射、命名规则、发布商
-- `ninebot-project/metadata_py/` — Python 元数据定义目录结构
-- `ninebot-project/webresources/` — Web 资源目录
-- `ninebot-project/plugins/` — 插件目录
+- `config/` — 环境配置、pipeline 映射、命名规则、发布商
+- `metadata_py/` — Python 元数据定义目录结构，其中含 `tables/ forms/ views/ ribbons/ roles/ optionsets/ solutions/`
+- `webresources/` — Web 资源目录
+- `plugins/` — 插件目录
+- `webresources/webresources.aliases.json` — **标准文件**，播种为 `{}`（web 资源遗留名覆盖表，
+  见 `dv-webresource-sync` 技能；空表 = 全部走 `{prefix}_/{relpath}` 约定，行为中性）
 - `requirements.txt`
+
+> **目录与标准文件都是 workspace 契约的一部分**（`workspace.DEFAULT_DIRS` / `STANDARD_FILES`），
+> 由 `ensure_files()` 在 init 时播种，且**幂等、绝不覆盖已有文件**。引擎新增任何依赖工作区
+> 目录/文件的机制时，都必须同时落进这两个表并补 parity 测试——见根 `CLAUDE.md` 的
+> 「新工作区同等支持守则」。只在本机某个工作区里手工补的文件，对新项目等于不存在。
 
 ### 2. 配置环境
 
-编辑 `ninebot-project/config/environments.yaml`：
+编辑 `<project>/config/environments.yaml`：
 
 ```yaml
 environments:

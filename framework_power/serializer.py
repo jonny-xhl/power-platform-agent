@@ -103,7 +103,7 @@ _UPDATABLE_BY_TYPE: dict[AttributeType, set[str]] = {
     },
     AttributeType.Decimal: {"DisplayName", "Description", "Precision", "MinValue", "MaxValue", "RequiredLevel"},
     AttributeType.Double: {"DisplayName", "Description", "Precision", "MinValue", "MaxValue", "RequiredLevel"},
-    AttributeType.Picklist: {"DisplayName", "Description", "RequiredLevel"},
+    AttributeType.Picklist: {"DisplayName", "Description", "DefaultFormValue", "RequiredLevel"},
     AttributeType.Boolean: {"DisplayName", "Description", "DefaultValue", "RequiredLevel"},
     AttributeType.DateTime: {"DisplayName", "Description", "Format", "DateTimeBehavior", "RequiredLevel"},
     AttributeType.File: {"DisplayName", "Description", "MaxSizeInKB", "RequiredLevel"},
@@ -219,6 +219,21 @@ def serialize_column(
                 "IsGlobal": False,
                 "Options": [serialize_option(o.value, o.label) for o in col.options],
             }
+        # Dataverse keeps a picklist's default in ``DefaultFormValue`` and uses
+        # ``-1`` for "no default".  ``DefaultValue`` is a *Boolean*-only property, so
+        # reading or writing that name silently dropped every declared picklist
+        # default (ADR-017).  A ``bool`` here is an authoring mistake for a picklist
+        # (``False`` coerces to option value 0, which is rarely a real option) — skip
+        # it loudly instead of pushing a value the option list may not contain.
+        if isinstance(col.default_value, bool):
+            logger.warning(
+                "Column '%s' is a Picklist with boolean default_value=%r; ignoring it. "
+                "Use the integer option value (or remove the default) instead.",
+                col.schema_name,
+                col.default_value,
+            )
+        elif col.default_value is not None:
+            attr["DefaultFormValue"] = int(col.default_value)
 
     elif t == AttributeType.Boolean:
         if col.default_value is not None:

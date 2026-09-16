@@ -114,6 +114,19 @@ python -m framework_power solution publish --env dev             # PublishAllXml
 - **全局选项集选项 create-only**：选项变更需 `InsertOptionValue`/`UpdateOptionValue` 或 maker
   portal；deployer 对此报告 `manual_update_required`。
 - **错误的类型代码**会导致 "Cannot add ... because it does not exist"。
+- **【2026-09-11 重要】判断"组件是否已在方案中"不能只看 `solutioncomponents` 表**：该表只列
+  **显式添加**的组件。若实体是以 `rootcomponentbehavior=0`（**包含子组件 / IncludeSubcomponents**）
+  加入方案的，其实体的**视图/窗体/属性等子组件不单独建记录**，但仍**随方案导出/导入一起传播**。
+  正确判据（两条都看）：
+  1. 目标**实体**在该方案中的组件记录及其行为：
+     `solutioncomponents(<实体组件id>)?$select=componenttype,rootcomponentbehavior,_solutionid_value`
+     → `0=IncludeSubcomponents` / `1=DoNotIncludeSubcomponents` / `2=IncludeAsShellOnly`。
+     取实体组件 id 的简便方法：`AddSolutionComponent(SolutionUniqueName, ComponentType=1, ComponentId=<实体 MetadataId>)`
+     —— 幂等调用会直接返回该实体在方案中的组件记录 id。
+  2. `solutioncomponents?$filter=_solutionid_value eq <sid> and componenttype eq 26` 只用于找**显式**视图组件。
+  ⇒ 对**实体的子组件**（视图/窗体/属性…）调 `AddSolutionComponent` 是**幂等**的：Dataverse 返回**根组件
+  （实体）的记录 id**，不新建记录。看到"HTTP 200 但表里查不到新记录"**不要误判为失败** —— 组件其实已被
+  根组件的 IncludeSubcomponents 覆盖。
 
 ## 不要做
 

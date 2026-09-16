@@ -90,6 +90,12 @@ sitemap/plugin/ribbon/role）、App 菜单、环境备份守卫、跨阶段工�
 - `--solution NAME` 把资源加入解决方案（code 61，幂等）；`publish <name>` 按名解析 id 再精准发布。
 - `reverse` env→本地：base64 解码写字节回 `<dir>/{relpath}`，默认只拉本发布商（`new_/`），
   `--name-prefix` 可收窄。collection 查询需显式 `$select` 才返回 `content`。
+- **历史遗留名**（不符合 `{prefix}_/{relpath}` 的既有资源，如环境里叫 `new_Orders.html` 而本地文件在
+  `html/orders.html`）：sync 根放 `webresources.aliases.json` = `{"<relpath>": "<环境中的真实名>"}`，
+  命中的文件按表里的名同步（`deploy` 按名查找 → **更新既有资源，而非新建一个重复资源**）；未列出的
+  （含所有新增文件）继续走约定。表内容非法直接 `ValueError`（静默回落正是制造重复的那条路径），
+  键拼错 / 值缺发布商前缀会 warning。**同步前先 `plan` 确认是 `would_update` 而非 `would_create`。**
+  该表由 `pp workspace init` 自动播种为 `{}`——见「关键约束 · 新工作区同等支持守则」。
 - CLI：`python -m framework_power webresource scan|plan|sync|reverse|publish`（根目录默认 `ninebot-project/webresources/`）。
 - Skill：`dv-webresource-sync`。
 
@@ -269,6 +275,18 @@ appmodule.uniquename`（如 app `new_CustomerService`）。详见 ADR-015 与
   ⑥ 概览 → 根 `CLAUDE.md` / `framework_power/CLAUDE.md`（§9 踩坑清单）；⑦ README。
   Git hook（`scripts/hooks/pre-commit.sh`，`bash scripts/install_hooks.sh` 安装）只做
   **建议**级提醒，不构成豁免；未同步文档的引擎变更视为任务未完成。
+- **【新工作区同等支持守则（Engine–Workspace Parity）】引擎的任何能力都不能只在"本机现有的
+  这个 workspace"上成立——每个 workspace 都是独立 clone/init 出来的，只存在于某个工作区目录里的
+  约定，对新工作区等于不存在。** 因此引入或改动任何**依赖工作区目录/文件**的机制时，当次任务内必须
+  一并处理：① 目录 → `workspace.DEFAULT_DIRS`（必需的话再加 `REQUIRED_DIR_KEYS`）；② **标准文件**
+  → `workspace.STANDARD_FILES`，由 `ensure_files()` 在 `pp workspace init` 时播种——种子内容必须
+  **行为中性、幂等、绝不覆盖已有文件**；③ **可选**文件不得进 `validate()` 的报错项（缺失必须非致命），
+  但要在 `pp workspace info` 里可见；④ 文件名/路径只在 `workspace.py` 定义一次，流程模块
+  `import` 复用，**禁止各处硬编码字面量**；⑤ 补一条 parity 测试（"全新 init 出来的工作区即可用"，
+  含目录重定位 `dirs` 覆写的情况）；⑥ 按上一条「文档同步守则」同步文档。
+  动机：2026-09-11 新增 web resource 别名表时，引擎侧完全没描述、`init` 也不播种——新开的项目会
+  **静默丢掉**这个机制，重新踩"遗留名被建成重复资源"的坑。同类历史事故见 §9.15（脚手架模板
+  被 `.gitignore` 吞掉，干净 clone 后 `init` 直接崩溃）。
 - 认证复用 `ninebot-project/config/environments.yaml` + `.env`（`get_client`，client-secret + MSAL）。
 - `deploy` **非破坏**（create/update/add）；标准（非 `new_` 前缀）组件正向同步**跳过** → 全量快照安全。
 - 布尔用 `True`/`False`；mypy 严格；`flake8 --max-line-length=120`。
@@ -420,6 +438,7 @@ Claude Code 技能位于 `.claude/skills/`：
 - `dv-webresource-sync` — `framework_power` web 资源目录同步/发布/逆向（Phase 4）
 - `dv-form-python` — `framework_power` 窗体结构化建模（逆向/改布局/绑事件/新建，Phase 5）
 - `dv-view-python` — `framework_power` 视图结构化建模（逆向/加列/排序/过滤/新建，Phase 6）
+- `dv-field-ops` — 字段级运维：删除字段 / 改标签 / Money-Decimal 改精度（依赖清理五步 + 删前快照）
 - `dv-ribbon-python` — `framework_power` ribbon 定制（加按钮/绑 JS/CustomRule 显隐/隐藏 OOB，Phase 7）
 - `dv-plugin-python` — `framework_power` plugin 构建/注册（NuGet PluginPackage 优先，net462/net471，Phase 8）
 - `dv-workflow-python` — `framework_power` 跨阶段开发工作流编排（project.py 清单驱动整条链，主 + ribbon 两个解决方案，Phase 9）
