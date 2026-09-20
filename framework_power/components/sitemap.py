@@ -251,11 +251,17 @@ def add_entity_subarea(
     group_ref: str,
     titles: Optional[list[SitemapTitle]] = None,
     subarea_id: Optional[str] = None,
+    create_group_if_missing: bool = False,
+    group_titles: Optional[list[SitemapTitle]] = None,
 ) -> tuple[AppSitemap, bool]:
     """Add an ``Entity=`` SubArea under ``area_ref``/``group_ref`` (idempotent).
 
     Returns ``(model, changed)``; ``changed=False`` when the entity already has a
     SubArea anywhere in the sitemap (idempotent skip, no duplicate menu entries).
+
+    When ``create_group_if_missing=True`` and the group is not found, a new
+    ``SiteGroup`` is created under the area with ``group_ref`` as its Id and
+    ``group_titles`` (or a default derived from ``group_ref``) as labels.
     """
     if has_entity(model, entity):
         return model, False
@@ -264,7 +270,18 @@ def add_entity_subarea(
         raise KeyError(f"area not found: {area_ref!r} (by id or title)")
     group = find_group(area, group_ref)
     if group is None:
-        raise KeyError(f"group not found: {group_ref!r} under area {area_ref!r}")
+        if not create_group_if_missing:
+            raise KeyError(f"group not found: {group_ref!r} under area {area_ref!r}")
+        # Generate a group id (sitemap XSD requires Id attr; use a hex suffix
+        # to avoid collisions with existing group ids in the area).
+        import uuid as _uuid
+        gid = f"group_{_uuid.uuid4().hex[:8]}"
+        gtitles = group_titles or [
+            SitemapTitle("1033", group_ref),
+            SitemapTitle("2052", group_ref),
+        ]
+        group = SiteGroup(id=gid, attrs={"Id": gid}, titles=gtitles)
+        area.groups.append(group)
 
     style = {**DEFAULT_SUBAREA_ATTRS}
     for _, _, sub in model.entity_subareas():

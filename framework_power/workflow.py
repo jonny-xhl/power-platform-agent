@@ -127,6 +127,33 @@ def load_project(path: Any) -> Project:
     return project
 
 
+def resolve_project_dirs(project: Project, workspace_root: Optional[str] = None) -> Project:
+    """Prepend ``workspace_root`` to all relative dir paths on the project.
+
+    Project manifests use workspace-relative defaults (e.g. ``metadata_py/forms``).
+    When the project is loaded from ``<workspace>/metadata_py/project.py`` the
+    relative dirs are correct only if CWD == workspace root — which is not the
+    case when running from the engine root with ``--workspace <name>``.
+
+    This function makes every dir field absolute by joining it with
+    ``workspace_root`` (when the dir is relative). If ``workspace_root`` is
+    None or a dir is already absolute, it is left unchanged.
+
+    Returns the same project (mutated in-place) for convenience.
+    """
+    if not workspace_root:
+        return project
+    root = Path(workspace_root)
+    for attr in (
+        "optionsets_dir", "tables_dir", "forms_dir", "views_dir",
+        "ribbons_dir", "roles_dir", "webresources_root",
+    ):
+        val = getattr(project, attr, None)
+        if val and not Path(val).is_absolute():
+            setattr(project, attr, str(root / val))
+    return project
+
+
 # ----------------------------------------------------------------- stage selection
 
 

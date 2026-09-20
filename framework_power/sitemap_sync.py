@@ -75,11 +75,16 @@ def resolve_app_sitemap(client: Any, app: str) -> dict[str, Any]:
 
 
 def _entity_display(client: Any, entity: str) -> str:
+    """Get the entity display name, preferring 2052 (zh-CN) over 1033 (en-US)."""
     try:
         meta = client.get_entity_metadata(entity)
         dn = meta.get("DisplayName") or {}
         labels = dn.get("LocalizedLabels") or []
         if labels:
+            # Prefer zh-CN (2052) for the menu title in Chinese environments
+            for ll in labels:
+                if str(ll.get("LanguageCode")) == "2052":
+                    return ll.get("Label", entity)
             return labels[0].get("Label", entity)
     except Exception:  # noqa: BLE001 - title is best-effort
         pass
@@ -157,6 +162,7 @@ def _deploy_op(
     publish: bool = True,
     backup_dir: Optional[Any] = None,
     note: str = "",
+    create_group_if_missing: bool = False,
 ) -> dict[str, Any]:
     rec = resolve_app_sitemap(client, app)
     original = rec["sitemapxml"]
@@ -170,8 +176,14 @@ def _deploy_op(
         group = group or ""
         zh = title or _entity_display(client, entity)
         titles = [SitemapTitle("1033", zh), SitemapTitle("2052", zh)]
+        # When create_group_if_missing, also set group titles to the group_ref name
+        group_titles = None
+        if create_group_if_missing:
+            group_titles = [SitemapTitle("1033", group), SitemapTitle("2052", group)]
         model, changed = sitemap_component.add_entity_subarea(
-            model, entity, area_ref=area, group_ref=group, titles=titles
+            model, entity, area_ref=area, group_ref=group, titles=titles,
+            create_group_if_missing=create_group_if_missing,
+            group_titles=group_titles,
         )
     else:
         model, removed_count = sitemap_component.remove_entity_subarea(
@@ -224,10 +236,15 @@ def add_entity(
     client: Any, app: str, entity: str, *, area: str, group: str,
     title: Optional[str] = None, publish: bool = True,
     backup_dir: Optional[Any] = None, note: str = "",
+    create_group_if_missing: bool = False,
 ) -> dict[str, Any]:
-    """Add the entity to the app menu under area/group (idempotent, backed up, published)."""
+    """Add the entity to the app menu under area/group (idempotent, backed up, published).
+
+    When ``create_group_if_missing=True``, the group is created if it doesn't exist.
+    """
     return _deploy_op(client, app, entity, op="add", area=area, group=group,
-                      title=title, publish=publish, backup_dir=backup_dir, note=note)
+                      title=title, publish=publish, backup_dir=backup_dir, note=note,
+                      create_group_if_missing=create_group_if_missing)
 
 
 def remove_entity(

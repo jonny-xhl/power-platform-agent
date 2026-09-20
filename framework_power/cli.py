@@ -102,6 +102,7 @@ from .workflow import (
     lint_workflow,
     load_project,
     plan_workflow,
+    resolve_project_dirs,
 )
 from .components import env_guard
 
@@ -508,9 +509,13 @@ def _compact_deploy_summary(result: dict) -> str:
     if isinstance(acl, dict):
         label_counts: dict[str, int] = {}
         for group in ("views", "forms"):
-            for item in acl.get(group) or []:
-                action = str(item.get("action", "?"))
-                label_counts[action] = label_counts.get(action, 0) + 1
+            group_val = acl.get(group)
+            if isinstance(group_val, list):
+                for item in group_val:
+                    action = str(item.get("action", "?"))
+                    label_counts[action] = label_counts.get(action, 0) + 1
+            elif isinstance(group_val, int):
+                label_counts["labeled"] = label_counts.get("labeled", 0) + group_val
         pub = acl.get("publish")
         pub_s = f" ({pub.get('action')})" if isinstance(pub, dict) and pub.get("action") else ""
         joined = ", ".join(f"{v} {k}" for k, v in sorted(label_counts.items())) or "none"
@@ -1656,6 +1661,7 @@ def cmd_sitemap_add(args: argparse.Namespace) -> int:
             title=args.title, publish=not args.no_publish,
             backup_dir=_sitemap_backup_dir(args),
             note=args.note or "cli:sitemap add-entity",
+            create_group_if_missing=getattr(args, 'create_group', False),
         ))
         return 0
     except Exception as e:  # noqa: BLE001
@@ -1809,6 +1815,9 @@ def _stage_set(value: Optional[str]) -> Optional[set[str]]:
 
 def cmd_workflow_show(args: argparse.Namespace) -> int:
     project = load_project(args.project)
+    ws = _try_workspace(args)
+    if ws is not None and args.project == DEFAULT_PROJECT_PATH:
+        project = resolve_project_dirs(project, str(ws.root))
     _print_json(
         {
             "main_solution": project.main_solution,
@@ -1850,6 +1859,9 @@ def _resolve_project_path(args: argparse.Namespace) -> str:
 def cmd_workflow_lint(args: argparse.Namespace) -> int:
     project_path = _resolve_project_path(args)
     project = load_project(project_path)
+    ws = _try_workspace(args)
+    if ws is not None:
+        project = resolve_project_dirs(project, str(ws.root))
     issues = lint_workflow(project, prefix=_effective_prefix(args))
     errors = [i for i in issues if i.severity == ERROR]
     warnings = [i for i in issues if i.severity == WARNING]
@@ -1863,6 +1875,9 @@ def cmd_workflow_lint(args: argparse.Namespace) -> int:
 def cmd_workflow_plan(args: argparse.Namespace) -> int:
     project_path = _resolve_project_path(args)
     project = load_project(project_path)
+    ws = _try_workspace(args)
+    if ws is not None:
+        project = resolve_project_dirs(project, str(ws.root))
     client = _get_client_ws(args, args.env)
     _print_json(
         plan_workflow(
@@ -1880,6 +1895,9 @@ def cmd_workflow_plan(args: argparse.Namespace) -> int:
 def cmd_workflow_deploy(args: argparse.Namespace) -> int:
     project_path = _resolve_project_path(args)
     project = load_project(project_path)
+    ws = _try_workspace(args)
+    if ws is not None:
+        project = resolve_project_dirs(project, str(ws.root))
     client = _get_client_ws(args, args.env)
     _print_json(
         deploy_workflow(
@@ -2601,6 +2619,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", default=None,
                    help="Menu title (default: entity display name, zh+en same).")
     p.add_argument("--no-publish", action="store_true", help="Skip publish (metadata change only).")
+    p.add_argument("--create-group", action="store_true",
+                   help="Create the group if it doesn't exist under the area.")
     p.add_argument("--note", default="", help="Change-journal note.")
     p.add_argument("--env", default=None, help="Target environment (default: config 'current').")
     p.set_defaults(func=cmd_sitemap_add)
