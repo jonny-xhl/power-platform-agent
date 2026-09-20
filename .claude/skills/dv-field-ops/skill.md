@@ -61,8 +61,51 @@ Python 解释器用系统 `C:/Users/jonxiang/AppData/Local/Programs/Python/Pytho
 
 ## 三、改标签 / 改名
 
-`update_attribute_by_logical_name(ent, field, {'DisplayName': {...}, ...})` → `publish_entity`。
-传 **完整标签集**（1033 + 2052），否则会丢另一语言位。改完同步本地 `metadata_py/tables/<tbl>.py`。
+```python
+c.update_attribute_by_logical_name(ent, field,
+        {'DisplayName': label(zh, en)},        # label() 见下，完整双语集
+        attribute_type='String|Decimal|Memo|...', solution='<sol>')
+c.publish_entity(ent)                          # ← 必须 publish，否则前端不刷新
+```
+
+```python
+def label(zh, en):
+    return {"@odata.type": "Microsoft.Dynamics.CRM.Label", "LocalizedLabels": [
+        {"@odata.type": "Microsoft.Dynamics.CRM.LocalizedLabel", "Label": en, "LanguageCode": 1033},
+        {"@odata.type": "Microsoft.Dynamics.CRM.LocalizedLabel", "Label": zh, "LanguageCode": 2052}]}
+```
+
+### 动手前的 3 项检查（都实测过，别省）
+
+1. **读当前标签**：`GET .../Attributes(LogicalName='<f>')?$select=LogicalName,SchemaName,DisplayName`
+   —— 确认 1033/2052 各自现状。若中文被写进 **1033 位**属历史缺陷，一并纠正。
+2. **查表内撞名**：拉全表 `Attributes?$select=LogicalName,DisplayName`，确认新中文标签**精确唯一**。
+   平台允许重名，但界面上两个「物料号」是灾难。
+3. **查页面层硬编码**：`grep '<新/旧标签>' webresources/html/*.html`
+   —— 自定义页面（如 `new_rollingforecast_home_view.html`）用自己的 `t('code','fallback')` 文案，
+   **不随字段改名而动**，必须单独同步 + 重新部署 webresource。
+
+### ⚠️ 窗体 cell 的 label 会**自动**跟随字段改名（2026-09-16 实测推翻旧认知）
+
+主窗体 formxml 里 `<cell><labels><label description="旧名" languagecode="2052" />` 看着像硬编码覆盖，
+但实测：**改字段 DisplayName + publish 之后，这些 cell label 自动同步成新名，不需要手工 PATCH 窗体。**
+
+- 证据：改前 formxml 里 3 个 cell 分别是「整车物料号/远期汇率/求助」；字段改名 + `publish_entity` 后
+  重拉 formxml，旧词 count=0、新词各 count=1，**全程未提交任何 systemform PATCH**。
+- 边界：仅在 cell label **与字段原 DisplayName 完全一致**（即"跟随"状态）时验证过。
+  若有人手工在窗体上把 label 改成过别的文字（真正的覆盖），是否仍联动**未验证** —— 这种情况下先
+  读回 formxml 确认，必要时再手工 PATCH（`session.patch(.../systemforms(<id>), {'formxml': ...})`，
+  用 PATCH 不用 PUT）。
+- 视图列同理：`<cell name="<f>" width=".." />` 不带 `labelId` 就自动跟随字段显示名，无需改 savedquery。
+
+**所以标准姿势是：先改字段 + publish，再回读 formxml/savedquery 确认联动结果，然后才决定要不要手工补。**
+别一上来就 PATCH 窗体。
+
+### 收尾
+
+同表内改完→ `pp plan <tbl>` 期望这 3 个字段 `would_skip`（能验证本地定义与环境收敛）；
+同步本地 `metadata_py/tables/<tbl>.py` + `docs/data_dictionary/tables/<tbl>.md` + `env_backup/CHANGELOG.md`；
+改前快照 `docs/_label_backup/<tbl>_label__<ts>.json`（存 3 个字段 metadata + 主窗体 formxml）。
 
 ## 四、改精度（Money / Decimal）
 
@@ -98,6 +141,11 @@ c.publish_entity(ent)
 python -m framework_power.cli --workspace ninebot-project plan <tbl>
 # 期望：attrs 全 would_skip，would_create=0
 ```
+
+- **字段审计别用跨行正则扫 `metadata_py/tables/*.py`**（极易误报）→ 用引擎加载器
+  `_registry._load_table_from_module` 权威判断。
+- `savedquery.name` 是纯 String，不支持多语言（`SetLocLabels` 在 savedquery 上 404）；视图名多语言走 ADR-016。
+- 字典重生成用 `reverse --dictionary`（环境基准），别用 `pp dictionary`（走本地定义，行数会变少）。
 
 ⚠️ **精度改动的校验不能只看 plan**：
 
@@ -182,3 +230,4 @@ python -m framework_power.cli --workspace ninebot-project plan <tbl>
 | 2026-09-11 | `new_salestarget.new_VersionNo`（**还原**） | 09-09 重构误删的 12 字段之一；从 `new_entity930.20260909T073350Z.zip` 挖出原定义（nvarchar/100）→ 增量 created + publish，`would_create=0` |
 | 2026-09-15 | `new_rollingforecast` 13 个 Decimal（**改精度 2→6**） | 逐个 PUT + publish；`MinValue/MaxValue` 未联动（1e9 保持）；41 条 × 13 字段回读零差异；plan 残留 7 个 `would_patch` 经对照实验证明是 **DisplayName 漂移**（环境 1033 位写中文）而非精度 |
 | 2026-09-16 | `new_sparepartscustomerpo.new_motorcycle_mark`（**新增**，Picklist） | 表原本无本地定义 → 先 reverse（116 列/47 关系）再插列；`deploy --fields` 1 created；**`DefaultFormValue=2` 直接证明 ADR-017 引擎修复生效**；plan 109 skip / 0 patch；字典用 `reverse --dictionary` 重生成（142→164 行，顺带补上 8 月以来的新字段） |
+| 2026-09-16 | `new_rollingforecast` 3 字段**改标签**（整车物料号→物料号 / 远期汇率→汇率 / 求助→项目最新进展） | 完整双语集 PUT + publish；**主窗体 3 个 cell 的硬编码 label 自动联动，未手工 PATCH**（推翻「硬编码会覆盖」的旧认知）；视图列无 labelId 自动跟随；`pp plan` 3 字段 would_skip；残留 7 个 would_patch 系既有 1033 位中文漂移 |

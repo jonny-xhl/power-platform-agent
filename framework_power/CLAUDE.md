@@ -777,6 +777,14 @@ CLI `pp sitemap apps|show|plan|add-entity|remove-entity`。详见
   Dataverse 会重新 INSERT 组件，与旧窗体残留组件撞键。修复三件套：①**复用原 tab id**；
   ②与旧窗体重名的控件 id 改名（如 `new_remark` → `new_remark_ctrl`）；③去掉 `DisplayConditions`
   元素。
+- **★ 改字段显示名后 cell 的 `<label>` 会「自动」跟随 —— 别一上来就 PATCH 窗体**：主窗体 formxml 里
+  `<cell>…<label description="旧名" languagecode="2052" />` 看着像硬编码覆盖，但实测（2026-09-16
+  滚动预测 3 字段更名：整车物料号→物料号 / 远期汇率→汇率 / 求助→项目最新进展）**只改属性 `DisplayName`
+  + `publish_entity`，全程未提交任何 formxml PATCH**，重拉 formxml 后旧名 `count=0`、新名 `count=1`
+  —— 平台自动同步了。视图列同理：`<cell name=".." width=".." />` 不带 `labelId` 即跟随属性显示名。
+  **正确顺序：先改属性标签 → publish → 回读 formxml / savedquery 确认联动结果 → 再决定是否需要手工补。**
+  ⚠️ 边界：仅在 cell label 与属性原显示名**一致**（跟随态）时验证过；若曾被手工改写成别的文字，
+  是否仍联动**未验证**，此时才需要手工 `session.patch(.../systemforms(<id>), {'formxml': …})`。
 - **主窗体不能删建，只能 in-place PATCH**：`DELETE systemforms` 主窗体被拒（"至少保留一个
   主窗体"）。重建布局的唯一路径是 PATCH formxml。
 - **SystemForm 更新用 PATCH，不要 PUT**：直接 `PUT` 返回 **405**（"Operation not supported on
