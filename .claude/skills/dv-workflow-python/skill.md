@@ -97,6 +97,11 @@ python -m framework_power workflow deploy --env dev --project path/to/project.py
 - **ribbon 绑 JS 前资源必须先存在**：链序里 webresource 在 form/ribbon 之前，正是为此。
 - **roles 默认关**：角色不在开发链路里（安全配置正交），用 `--include-roles` 才同步表权限 + 加进主解决方案；
   角色必须环境里**已存在**（工具不创建角色，只同步权限 + 加入解决方案，code 20）。
+- **【ADR-018】`--workspace` 路径解析（2026-09-20 live）**：从**引擎仓库根**带 `--workspace ninebot-project`
+  运行时，4 个 workflow 命令（show/lint/plan/deploy）加载清单后会把 7 个目录字段
+  （`forms_dir`/`views_dir`/`tables_dir`/`optionsets_dir`/`ribbons_dir`/`roles_dir`/`webresources_root`）
+  **拼上工作区根**变绝对路径——否则会到 `power-platform-agent/metadata_py/...` 下找文件（漏
+  `ninebot-project/` 前缀）。从工作区根直接运行则无需 `--workspace`，行为等价。
 - **True/False（Python）**，不要 `true`/`false`。
 
 ## 不要做

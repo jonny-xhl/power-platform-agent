@@ -361,6 +361,11 @@ COMPONENT_DEPLOY_ORDER = (
               PublishAllXml
 ```
 
+> **路径解析（ADR-018，2026-09-20）**：`Project` 的目录字段是工作区相对路径；4 个 workflow 命令
+> （show/lint/plan/deploy）加载清单后调 `resolve_project_dirs(project, ws.root)` 把 7 个目录字段
+> 拼工作区根变绝对路径——支持从引擎根带 `--workspace <ws>` 运行，否则 forms/views 会找不到。
+> 从工作区根运行等价。
+
 ## 数据流
 
 ### framework_power 元数据创建流程

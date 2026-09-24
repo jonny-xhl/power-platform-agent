@@ -23,6 +23,13 @@ ADR-015），把新表加进模型驱动 App 的菜单（区域 → 组 → SubA
 - **幂等**：实体已有 SubArea → `skipped_unchanged`；lint 对同一实体多处 SubArea 报 error。
 - **安全**：每次写前自动备份原始 XML 到 `docs/env_backup/sitemap_{unique}.{ts}.bak.xml`
   （ADR-013 对齐；恢复 = 把备份 PATCH 回去）。
+- **中文菜单标题（2026-09-20 修正）**：`_entity_display` **优先取 `LanguageCode==2052`（zh-CN）**；
+  `add-entity` **不带 `--title`** 时 SubArea 标题（1033+2052 双语同文）直接用实体中文显示名 →
+  中文个性化用户菜单显示中文。带 `--title` 则以传入为准。
+- **新建组 `--create-group`（2026-09-20 增强）**：目标组不存在时，加 `--create-group` 会自动
+  新建组（Id=`group_{uuid4().hex[:8]}`，`attrs={"Id": gid}`，标题 1033+2052 取组名）；
+  **不带 `--create-group` 且组不存在 → 报 `KeyError("group not found")`**（不悄悄建组）。
+  `SiteGroup` **必须带 `Id` 属性**，否则 sitemap XML 过不了 XSD 校验。
 
 ## CLI
 
@@ -41,6 +48,11 @@ python -m framework_power sitemap plan new_internal_quotation \
 python -m framework_power sitemap add-entity new_internal_quotation \
     --app new_CustomerService --area 核价报价管理 --group 报价管理 \
     --title 内部报价单 --note "内部报价单上线" --env dev
+
+# 4b. 组不存在时自动新建（备件预测库存挂到新建「备件库存」组）
+python -m framework_power sitemap add-entity new_customerspareforecast \
+    --app new_CustomerService --area 库存管理 --group 备件库存 --create-group --env dev
+#     其余两表复用同一已建组（不再带 --create-group，幂等 skipped_unchanged 防重复）
 
 # 5. 移除（可省略 --area/--group 全局移除）
 python -m framework_power sitemap remove-entity new_internal_quotation --app new_CustomerService --env dev

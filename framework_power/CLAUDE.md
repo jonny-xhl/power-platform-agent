@@ -656,6 +656,11 @@ plugintype 反查（`_eventhandler_value`），不是按 assembly。
 - **CLI：** `python -m framework_power workflow show|lint|plan|deploy`（`--project` 默认
   `metadata_py/project.py`）。Skill `dv-workflow-python`。测试 `test_workflow.py`（13）+ `test_optionset_sync.py`（4）
   + deployer/role_deployer 各 +2（solution 形参），离线全绿。
+- **【ADR-018】路径解析修复（2026-09-20 live）**：`Project` 的目录字段是**工作区相对路径**；
+  从引擎根带 `--workspace <ws>` 运行时，4 个 workflow 命令加载清单后调
+  `resolve_project_dirs(project, ws.root)` 把 7 个目录字段拼成绝对路径——否则 forms/views
+  在 `power-platform-agent/metadata_py/...` 下找不到（漏 `ninebot-project/` 前缀）。从工作区
+  根运行等价，零行为回退。
 
 ### 9.10 环境变更守卫域（ADR-013，已 live 验证）
 
@@ -698,6 +703,13 @@ CLI `pp sitemap apps|show|plan|add-entity|remove-entity`。详见
 - **幂等**：实体已有 SubArea → `skipped_unchanged`；lint 对同实体多处 SubArea 报 error。
 - **写前备份**原始 XML 到 `docs/env_backup/sitemap_{unique}.{ts}.bak.xml`（ADR-013 对齐，
   恢复 = PATCH 回去）。
+- **【ADR-015 addendum，2026-09-20 live】新增强化**：
+  - **`--create-group`**（CLI line 2622 → `add_entity_subarea(create_group_if_missing=…)`）：
+    组不存在时自动新建（Id=`group_{uuid4().hex[:8]}`，`attrs={"Id": gid}`，标题取组名 1033+2052）。
+    不开则保持 `KeyError("group not found")` 严格语义。
+  - **中文菜单标题**：`_entity_display` 优先 `LanguageCode=="2052"`（zh-CN），无中文才回退 1033；
+    `add-entity` 不带 `--title` 时菜单直接显示中文（与 ADR-016 视图/窗体名约定一致）。
+  - **SiteGroup 必须带 `Id` 属性**（XSD 硬要求，否则 sitemap XML 校验失败）。
 - **解决方案**：sitemap = 组件 **code 62**；已在解决方案内（如 `new_entity930` 含
   Customer Service 的 sitemap）则随该解决方案 transport，**不要再 add-component**。
   sitemap 承载**整个 app 导航**（引用解决方案外实体）——transport 时需意识到。
